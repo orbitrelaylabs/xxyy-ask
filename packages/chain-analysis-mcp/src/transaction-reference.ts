@@ -1,0 +1,167 @@
+import { evmHashSchema } from '@xxyy/transaction-analysis-core';
+import { solanaSignatureSchema } from '@xxyy/solana-data-adapter';
+
+import type { GetTransactionInput } from './contracts.js';
+import { ChainAnalysisMcpToolError } from './errors.js';
+import {
+  SOLANA_MAINNET_NETWORK,
+  findBuiltInEvmNetworkByChainId,
+  findBuiltInEvmNetworkByExplorerHost,
+  normalizePublicNetworkIdentifier,
+} from './network-profiles.js';
+
+export interface EvmTransactionReference {
+  chainId: string;
+  explorerUrl?: string;
+  family: 'evm';
+  network: string;
+  transactionId: string;
+}
+
+export interface SolanaTransactionReference {
+  explorerUrl: string;
+  family: 'solana';
+  network: 'solana:mainnet';
+  transactionId: string;
+}
+
+export type PublicTransactionReference = EvmTransactionReference | SolanaTransactionReference;
+
+const SOLANA_EXPLORER_HOSTS = new Set(['explorer.solana.com', 'solscan.io', 'www.solscan.io']);
+
+export function resolvePublicTransactionReference(
+  input: GetTransactionInput,
+): PublicTransactionReference {
+  const explicitNetwork = input.network === undefined ? undefined : normalizeNetwork(input.network);
+  if (looksLikeUrl(input.reference)) {
+    return resolveExplorerUrl(input.reference, explicitNetwork);
+  }
+  return resolveRawTransactionId(input.reference, explicitNetwork);
+}
+
+function resolveExplorerUrl(
+  reference: string,
+  explicitNetwork: string | undefined,
+): PublicTransactionReference {
+  let url: URL;
+  try {
+    url = new URL(reference);
+  } catch {
+    throw invalidReference();
+  }
+  if (
+    url.protocol !== 'https:' ||
+    url.username.length > 0 ||
+    url.password.length > 0 ||
+    url.hash.length > 0
+  ) {
+    throw invalidReference();
+  }
+  const parts = url.pathname.split('/').filter(Boolean);
+  if (parts.length !== 2 || parts[0]?.toLowerCase() !== 'tx' || parts[1] === undefined) {
+    throw invalidReference();
+  }
+  const host = url.hostname.toLowerCase();
+  const evm = findBuiltInEvmNetworkByExplorerHost(host);
+  if (evm !== undefined) {
+    assertNetworkMatch(explicitNetwork, evm.canonicalNetwork);
+    const transactionId = parseEvmTransactionId(parts[1]);
+    return {
+      chainId: evm.chainId,
+      explorerUrl: `${evm.explorerBaseUrl}/tx/${transactionId}`,
+      family: 'evm',
+      network: evm.canonicalNetwork,
+      transactionId,
+    };
+  }
+  if (SOLANA_EXPLORER_HOSTS.has(host)) {
+    assertSolanaMainnetUrl(url);
+    assertNetworkMatch(explicitNetwork, SOLANA_MAINNET_NETWORK);
+    const transactionId = parseSolanaTransactionId(parts[1]);
+    return {
+      explorerUrl: `https://solscan.io/tx/${transactionId}`,
+      family: 'solana',
+      network: SOLANA_MAINNET_NETWORK,
+      transactionId,
+    };
+  }
+  throw invalidReference();
+}
+
+function resolveRawTransactionId(
+  reference: string,
+  explicitNetwork: string | undefined,
+): PublicTransactionReference {
+  if (explicitNetwork === undefined) {
+    throw invalidReference();
+  }
+  if (explicitNetwork.startsWith('eip155:')) {
+    const transactionId = parseEvmTransactionId(reference);
+    const chainId = explicitNetwork.slice('eip155:'.length);
+    const known = findBuiltInEvmNetworkByChainId(chainId);
+    return {
+      chainId,
+      ...(known === undefined
+        ? {}
+        : { explorerUrl: `${known.explorerBaseUrl}/tx/${transactionId}` }),
+      family: 'evm',
+      network: explicitNetwork,
+      transactionId,
+    };
+  }
+  if (explicitNetwork === SOLANA_MAINNET_NETWORK) {
+    const transactionId = parseSolanaTransactionId(reference);
+    return {
+      explorerUrl: `https://solscan.io/tx/${transactionId}`,
+      family: 'solana',
+      network: explicitNetwork,
+      transactionId,
+    };
+  }
+  throw invalidReference();
+}
+
+function normalizeNetwork(network: string): string {
+  const normalized = normalizePublicNetworkIdentifier(network);
+  if (normalized !== undefined) {
+    return normalized;
+  }
+  throw invalidReference();
+}
+
+function assertSolanaMainnetUrl(url: URL): void {
+  const cluster = url.searchParams.get('cluster')?.toLowerCase();
+  if (cluster !== undefined && cluster !== 'mainnet' && cluster !== 'mainnet-beta') {
+    throw invalidReference();
+  }
+}
+
+function assertNetworkMatch(explicit: string | undefined, resolved: string): void {
+  if (explicit !== undefined && explicit !== resolved) {
+    throw invalidReference();
+  }
+}
+
+function looksLikeUrl(value: string): boolean {
+  return /^https?:\/\//iu.test(value);
+}
+
+function parseEvmTransactionId(value: string): string {
+  const result = evmHashSchema.safeParse(value);
+  if (!result.success) {
+    throw invalidReference();
+  }
+  return result.data;
+}
+
+function parseSolanaTransactionId(value: string): string {
+  const result = solanaSignatureSchema.safeParse(value);
+  if (!result.success) {
+    throw invalidReference();
+  }
+  return result.data;
+}
+
+function invalidReference(): ChainAnalysisMcpToolError {
+  return new ChainAnalysisMcpToolError('invalid_reference');
+}

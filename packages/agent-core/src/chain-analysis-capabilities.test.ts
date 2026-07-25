@@ -9,6 +9,8 @@ import { createInMemoryQualityTracer } from '@xxyy/rag-core';
 
 import { CapabilityPolicyDeniedError } from './capability-registry.js';
 import {
+  CHAIN_GET_MCP_CAPABILITY_ID,
+  CHAIN_GET_SKILL_CAPABILITY_ID,
   CHAIN_INSPECT_MCP_CAPABILITY_ID,
   CHAIN_INSPECT_SKILL_CAPABILITY_ID,
   CHAIN_SANDWICH_MCP_CAPABILITY_ID,
@@ -55,8 +57,10 @@ describe('internal chain-analysis MCP and Skill capability bridge', () => {
       });
       expect(registry.list().map((manifest) => manifest.id)).toEqual([
         CHAIN_SANDWICH_MCP_CAPABILITY_ID,
+        CHAIN_GET_MCP_CAPABILITY_ID,
         CHAIN_INSPECT_MCP_CAPABILITY_ID,
         CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
+        CHAIN_GET_SKILL_CAPABILITY_ID,
         CHAIN_INSPECT_SKILL_CAPABILITY_ID,
       ]);
       const capabilityRecords = records.filter((record) => record.name === 'agent.capability');

@@ -136,7 +136,7 @@
 - [x] Project Skill：`skills/xxyy-product-support` 定义检索、引用、证据不足和客服边界工作流，并声明同名 MCP 依赖。
 - [x] 显式 Agent bridge：生产 `search_product_docs` 依次执行 `product.skill.search_docs → product.mcp.search_docs`，两层都固定 source/version/data scope/channel/principal grant；Web/API、CLI、Telegram 共用该路径。
 - [x] Planner 隔离：MCP discovery 和 Skill 元数据不会自动注册工具，Planner 仍只看到审查过的 `search_product_docs`。
-- [x] 内部链上只读 Capability / Skill adapter：`xxyy-chain-analysis` 提供 `inspect_transaction` / `detect_sandwich`、两个默认不隐式调用的 Skills、仅内部/CLI admin grants、MCP protocol integration test 和 readiness-gated stdio composition；公开 Planner 不自动获得工具。
+- [x] 通用链上只读 MCP / Skills：MCP identity 已解耦为 `onchain-analysis`，提供 `get_transaction` / `inspect_transaction` / `detect_sandwich`；`onchain-transaction-inspector` 与 `evm-sandwich-detector` 默认不隐式调用。基础交易查询的内置网络与 XXYY 当前主站对齐为 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain，并继续支持配置其它 EVM chain id；XXYY bridge 仍只有内部/CLI admin grants，公开 Planner 不自动获得工具。
 - [ ] Chain MCP 生产激活：提供真实 Provider、governed mainnet corpus、operations evidence 与 canonical `ready` attestation，验证实际部署后再启动内部进程；公开客服接入另行评审。
 
 成功标准：产品检索实际穿过 MCP protocol 和 Skill/MCP 双层 Capability；未授权、版本漂移、来源/通道/数据范围不匹配和缺少确认/幂等的调用全部失败；超时、取消、超限与非 JSON 输出有稳定错误；当前客服边界和 Chat API 契约保持不变。详细设计见 [capability-plane.md](capability-plane.md)。
@@ -376,7 +376,7 @@
 2. **Goal 20B-2 / Provider & Worker Data Plane**：仓库侧已增加双独立 Provider manifest、mounted secret resolver、三个 adapter 的私有 composition root、共享 budget/circuit、bounded cache、failover/持久审计/脱敏 metrics-alert 契约、四类 worker handler runtime、bootstrap/probe/retention/reconciliation CLI，并通过一次性空库 PostgreSQL 原子结算/审计验证；真实两家 Provider、credential、scheduler/collector/on-call route 和 sampling/review handler 仍待生产部署与验证。
 3. **Goal 20B-3 / Reviewed Mainnet Corpus**：按 plan 采集 Ethereum 主网公开样本，完成 manifest → candidate handoff，由唯一 owner 从单槽队列重放并批准/拒绝，形成真实 governed corpus。
 4. **Goal 20B-4 / Production Readiness Gate**：执行故障演练，形成 SLO/security/runbook evidence，在固定 corpus 上收敛误报、漏报与 abstention，并由 evidence ledger 重算真实 readiness attestation；成功标准只能是 canonical evaluator 返回 `ready`。
-5. **Goal 24 / First Chain MCP-Skill Capability**：仓库实现已提前完成：`chain.inspect_transaction` 与 `chain.detect_sandwich` 已封装为内部只读 MCP/Skills，具备显式授权、超时、成本、审计、结构化错误与 readiness/manifest lineage 门禁；实际进程仍必须等 20B-4 返回未过期 `ready` 后才能启动，现有 Product MCP/Skill 不构成链上 readiness 证据。
+5. **Goal 24 / Generic Onchain MCP-Skill Capability**：仓库实现已提前完成并解耦产品命名：`chain.get_transaction`、`chain.inspect_transaction` 与 `chain.detect_sandwich` 已封装为通用只读 MCP/Skills，具备显式授权、超时、成本、审计与结构化错误。基础开发 MCP 已覆盖 XXYY 当前六条产品链；XXYY 深度生产 composition 仍必须等 20B-4 返回未过期 `ready` 并通过 readiness/manifest lineage 门禁，免费公共 RPC 或现有 Product MCP/Skill 都不构成链上 readiness 证据。
 6. **Goal 25 / Agent Multi-capability Orchestration**：Product RAG 继续处理产品知识，链上意图路由到已授权能力；LangGraph 负责有界工具循环、证据聚合、拒答和最终回答，输出来源、置信度、完整性与 unsupported reason。
 7. **Goal 26 / Product Entry & Continuous Operations**：在独立安全/产品评审后逐步开放 Web/Telegram 链上入口，并并行推进 Telegram 教学命令、知识质量、更多渠道、删除/保留、隐私和生产告警。
 

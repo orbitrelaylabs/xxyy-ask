@@ -13,6 +13,15 @@ describe('createInMemoryChainAnalysisMcpClient', () => {
 
     try {
       await expect(
+        client.getTransaction({
+          network: `eip155:${runtime.chainId}`,
+          reference: runtime.transactionHash,
+        }),
+      ).resolves.toMatchObject({
+        family: 'evm',
+        transactionId: runtime.transactionHash,
+      });
+      await expect(
         client.inspectTransaction({
           chainId: runtime.chainId,
           transactionHash: runtime.transactionHash,

@@ -40,6 +40,10 @@ export function createReadinessGuardedChainAnalysisHandler(
         runtimeStatus: isReady() ? 'ready' : 'degraded',
       });
     },
+    async getTransaction(input, requestOptions) {
+      assertReady();
+      return options.handler.getTransaction(input, requestOptions);
+    },
     async inspectTransaction(input, requestOptions) {
       assertReady();
       return options.handler.inspectTransaction(input, requestOptions);

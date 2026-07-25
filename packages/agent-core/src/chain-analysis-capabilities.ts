@@ -2,12 +2,16 @@ import {
   CHAIN_ANALYSIS_SKILL_VERSION,
   DETECT_SANDWICH_MAX_OUTPUT_BYTES,
   DETECT_SANDWICH_TIMEOUT_MS,
+  GET_TRANSACTION_MAX_OUTPUT_BYTES,
+  GET_TRANSACTION_TIMEOUT_MS,
   INSPECT_TRANSACTION_MAX_OUTPUT_BYTES,
   INSPECT_TRANSACTION_TIMEOUT_MS,
   SANDWICH_DETECTOR_DESCRIPTION,
   TRANSACTION_INSPECTOR_DESCRIPTION,
   detectSandwichInputSchema,
   detectSandwichOutputSchema,
+  getTransactionInputSchema,
+  getTransactionOutputSchema,
   inspectTransactionInputSchema,
   inspectTransactionOutputSchema,
   type ChainAnalysisMcpClient,
@@ -25,14 +29,20 @@ import type { ToolDefinition } from './tool-registry.js';
 
 export const CHAIN_INSPECT_MCP_CAPABILITY_ID = 'chain.mcp.inspect_transaction';
 export const CHAIN_INSPECT_SKILL_CAPABILITY_ID = 'chain.skill.inspect_transaction';
+export const CHAIN_GET_MCP_CAPABILITY_ID = 'chain.mcp.get_transaction';
+export const CHAIN_GET_SKILL_CAPABILITY_ID = 'chain.skill.get_transaction';
 export const CHAIN_SANDWICH_MCP_CAPABILITY_ID = 'chain.mcp.detect_sandwich';
 export const CHAIN_SANDWICH_SKILL_CAPABILITY_ID = 'chain.skill.detect_sandwich';
 
 const TRANSACTION_DATA_SCOPES = [
-  'chain.public.ethereum.transaction',
-  'chain.public.ethereum.execution',
+  'chain.public.evm.transaction',
+  'chain.public.evm.execution',
 ] as const;
-const SANDWICH_DATA_SCOPES = [...TRANSACTION_DATA_SCOPES, 'chain.public.ethereum.mev'] as const;
+const PUBLIC_TRANSACTION_DATA_SCOPES = [
+  'chain.public.evm.transaction',
+  'chain.public.solana.transaction',
+] as const;
+const SANDWICH_DATA_SCOPES = [...TRANSACTION_DATA_SCOPES, 'chain.public.evm.mev'] as const;
 export type InternalChainAnalysisCaller =
   | { channel: 'cli'; principal: 'admin' }
   | { channel: 'internal'; principal: 'admin' | 'service' };
@@ -48,6 +58,13 @@ export function createInternalChainAnalysisCapabilityRegistry(
 ): CapabilityRegistry {
   assertInternalCaller(options.caller);
   const grants = [
+    createGrant(CHAIN_GET_MCP_CAPABILITY_ID, 'mcp', PUBLIC_TRANSACTION_DATA_SCOPES, options.caller),
+    createGrant(
+      CHAIN_GET_SKILL_CAPABILITY_ID,
+      'skill',
+      PUBLIC_TRANSACTION_DATA_SCOPES,
+      options.caller,
+    ),
     createGrant(CHAIN_INSPECT_MCP_CAPABILITY_ID, 'mcp', TRANSACTION_DATA_SCOPES, options.caller),
     createGrant(
       CHAIN_INSPECT_SKILL_CAPABILITY_ID,
@@ -69,6 +86,64 @@ export function createInternalChainAnalysisCapabilityRegistry(
     adapter: {
       source: 'mcp',
       invoke(request) {
+        return options.mcpClient.getTransaction(getTransactionInputSchema.parse(request.input), {
+          signal: request.context.signal,
+        });
+      },
+    },
+    inputSchema: getTransactionInputSchema,
+    manifest: parseCapabilityManifest({
+      dataScopes: [...PUBLIC_TRANSACTION_DATA_SCOPES],
+      description: 'Query one public EVM or Solana transaction through configured MCP data access.',
+      id: CHAIN_GET_MCP_CAPABILITY_ID,
+      idempotency: 'not_applicable',
+      limits: {
+        maxOutputBytes: GET_TRANSACTION_MAX_OUTPUT_BYTES,
+        timeoutMs: GET_TRANSACTION_TIMEOUT_MS,
+      },
+      requiresConfirmation: false,
+      risk: 'moderate',
+      sideEffect: 'external_read',
+      source: 'mcp',
+      version: CHAIN_ANALYSIS_SKILL_VERSION,
+    }),
+    outputSchema: getTransactionOutputSchema,
+  });
+
+  registry.register({
+    adapter: {
+      source: 'skill',
+      invoke(request) {
+        return registry.invoke(
+          CHAIN_GET_MCP_CAPABILITY_ID,
+          request.input,
+          toNestedInvocationContext(request.context),
+        );
+      },
+    },
+    inputSchema: getTransactionInputSchema,
+    manifest: parseCapabilityManifest({
+      dataScopes: [...PUBLIC_TRANSACTION_DATA_SCOPES],
+      description: TRANSACTION_INSPECTOR_DESCRIPTION,
+      id: CHAIN_GET_SKILL_CAPABILITY_ID,
+      idempotency: 'not_applicable',
+      limits: {
+        maxOutputBytes: GET_TRANSACTION_MAX_OUTPUT_BYTES,
+        timeoutMs: GET_TRANSACTION_TIMEOUT_MS,
+      },
+      requiresConfirmation: false,
+      risk: 'moderate',
+      sideEffect: 'external_read',
+      source: 'skill',
+      version: CHAIN_ANALYSIS_SKILL_VERSION,
+    }),
+    outputSchema: getTransactionOutputSchema,
+  });
+
+  registry.register({
+    adapter: {
+      source: 'mcp',
+      invoke(request) {
         return options.mcpClient.inspectTransaction(
           inspectTransactionInputSchema.parse(request.input),
           { signal: request.context.signal },
@@ -78,7 +153,7 @@ export function createInternalChainAnalysisCapabilityRegistry(
     inputSchema: inspectTransactionInputSchema,
     manifest: parseCapabilityManifest({
       dataScopes: [...TRANSACTION_DATA_SCOPES],
-      description: 'Inspect one public Ethereum transaction through governed MCP data access.',
+      description: 'Inspect one public EVM transaction through governed MCP data access.',
       id: CHAIN_INSPECT_MCP_CAPABILITY_ID,
       idempotency: 'not_applicable',
       limits: {
@@ -190,7 +265,36 @@ export function createInternalChainAnalysisTools(options: {
   registry: CapabilityRegistry;
 }): ToolDefinition[] {
   assertInternalCaller(options.caller);
-  return [createInspectTransactionTool(options), createDetectSandwichTool(options)];
+  return [
+    createGetTransactionTool(options),
+    createInspectTransactionTool(options),
+    createDetectSandwichTool(options),
+  ];
+}
+
+function createGetTransactionTool(options: {
+  caller: InternalChainAnalysisCaller;
+  registry: CapabilityRegistry;
+}): ToolDefinition<
+  'get_transaction',
+  typeof getTransactionInputSchema,
+  typeof getTransactionOutputSchema
+> {
+  return {
+    name: 'get_transaction',
+    description: `${TRANSACTION_INSPECTOR_DESCRIPTION} Internal-only in the XXYY host until a separate public rollout is approved.`,
+    inputSchema: getTransactionInputSchema,
+    outputSchema: getTransactionOutputSchema,
+    async execute(input, context) {
+      return getTransactionOutputSchema.parse(
+        await options.registry.invoke(
+          CHAIN_GET_SKILL_CAPABILITY_ID,
+          input,
+          invocationContext(options.caller, context.requestId),
+        ),
+      );
+    },
+  };
 }
 
 function createInspectTransactionTool(options: {

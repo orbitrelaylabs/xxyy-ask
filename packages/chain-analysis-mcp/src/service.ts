@@ -6,15 +6,22 @@ import type { EvmDataAdapter } from '@xxyy/evm-data-adapter';
 import type { EvmExecutionDataAdapter } from '@xxyy/evm-execution-data-adapter';
 import { UNISWAP_V2_SWAP_TOPIC, UNISWAP_V3_SWAP_TOPIC } from '@xxyy/evm-execution-enrichment-core';
 import type { EvmMevObservationDataAdapter } from '@xxyy/evm-mev-observation-data-adapter';
-import type { EvmTransactionSnapshot } from '@xxyy/transaction-analysis-core';
+import type { SolanaDataAdapter } from '@xxyy/solana-data-adapter';
+import {
+  analyzeEvmTransactionSnapshot,
+  type EvmTransactionSnapshot,
+} from '@xxyy/transaction-analysis-core';
 
 import {
   CHAIN_ANALYSIS_MCP_VERSION,
   DETECT_SANDWICH_TOOL_NAME,
+  GET_TRANSACTION_TOOL_NAME,
   INSPECT_TRANSACTION_TOOL_NAME,
   chainAnalysisCapabilitiesSchema,
   detectSandwichInputSchema,
   detectSandwichOutputSchema,
+  getTransactionInputSchema,
+  getTransactionOutputSchema,
   inspectTransactionInputSchema,
   inspectTransactionOutputSchema,
   type ChainAnalysisCapabilities,
@@ -24,10 +31,12 @@ import {
   type InspectTransactionOutput,
 } from './contracts.js';
 import { ChainAnalysisMcpToolError } from './errors.js';
+import { resolvePublicTransactionReference } from './transaction-reference.js';
 
 export interface ChainAnalysisDataPlane {
   execution: Pick<EvmExecutionDataAdapter, 'listConfiguredChains' | 'loadExecutionData'>;
   mevObservation: Pick<EvmMevObservationDataAdapter, 'listConfiguredChains' | 'loadObservation'>;
+  solana?: Pick<SolanaDataAdapter, 'listConfiguredNetworks' | 'loadTransaction'>;
   snapshot: Pick<EvmDataAdapter, 'listConfiguredChains' | 'loadTransactionSnapshot'>;
 }
 
@@ -56,8 +65,9 @@ export function createChainAnalysisHandler(
       );
       requestOptions.signal?.throwIfAborted();
       const blockNumber = resolveBlockNumber(snapshotResult.snapshot);
+      const executionConfigured = hasExecutionChain(options.dataPlane, input.chainId);
       const [executionResult, observation] = await Promise.all([
-        blockNumber === undefined
+        blockNumber === undefined || !executionConfigured
           ? Promise.resolve(undefined)
           : options.dataPlane.execution.loadExecutionData(
               {
@@ -99,6 +109,70 @@ export function createChainAnalysisHandler(
       return capabilities;
     },
 
+    async getTransaction(rawInput, requestOptions = {}) {
+      requestOptions.signal?.throwIfAborted();
+      const input = getTransactionInputSchema.parse(rawInput);
+      const reference = resolvePublicTransactionReference(input);
+      if (reference.family === 'evm') {
+        if (
+          !options.dataPlane.snapshot
+            .listConfiguredChains()
+            .some((chain) => chain.chainId === reference.chainId)
+        ) {
+          throw new ChainAnalysisMcpToolError('chain_not_configured');
+        }
+        const loaded = await options.dataPlane.snapshot.loadTransactionSnapshot(
+          {
+            chainId: reference.chainId,
+            transactionHash: reference.transactionId,
+          },
+          signalOptions(requestOptions.signal),
+        );
+        requestOptions.signal?.throwIfAborted();
+        const analysis = analyzeEvmTransactionSnapshot(loaded.snapshot);
+        return getTransactionOutputSchema.parse({
+          analysis,
+          chainId: reference.chainId,
+          diagnostics: loaded.diagnostics,
+          ...(reference.explorerUrl === undefined ? {} : { explorerUrl: reference.explorerUrl }),
+          family: 'evm',
+          network: reference.network,
+          status:
+            loaded.status === 'success' && analysis.status !== 'success'
+              ? analysis.status
+              : loaded.status,
+          summary: analysis.summary,
+          transactionId: reference.transactionId,
+        });
+      }
+
+      const solana = options.dataPlane.solana;
+      if (
+        solana === undefined ||
+        !solana.listConfiguredNetworks().some((network) => network.network === reference.network)
+      ) {
+        throw new ChainAnalysisMcpToolError('chain_not_configured');
+      }
+      const loaded = await solana.loadTransaction(
+        {
+          network: reference.network,
+          transactionId: reference.transactionId,
+        },
+        signalOptions(requestOptions.signal),
+      );
+      requestOptions.signal?.throwIfAborted();
+      return getTransactionOutputSchema.parse({
+        ...(loaded.snapshot === undefined ? {} : { analysis: loaded.snapshot }),
+        diagnostics: loaded.diagnostics,
+        explorerUrl: reference.explorerUrl,
+        family: 'solana',
+        network: reference.network,
+        status: loaded.status,
+        summary: summarizeSolanaTransaction(loaded),
+        transactionId: reference.transactionId,
+      });
+    },
+
     async inspectTransaction(rawInput, requestOptions = {}) {
       requestOptions.signal?.throwIfAborted();
       const input = inspectTransactionInputSchema.parse(rawInput);
@@ -109,8 +183,9 @@ export function createChainAnalysisHandler(
       );
       requestOptions.signal?.throwIfAborted();
       const blockNumber = resolveBlockNumber(snapshotResult.snapshot);
+      const executionConfigured = hasExecutionChain(options.dataPlane, input.chainId);
       const executionResult =
-        blockNumber === undefined
+        blockNumber === undefined || !executionConfigured
           ? undefined
           : await options.dataPlane.execution.loadExecutionData(
               {
@@ -153,19 +228,56 @@ function createCapabilities(
   );
   const chains = dataPlane.snapshot.listConfiguredChains().map((chain) => {
     const protocols = [...new Set(executionByChain.get(chain.chainId) ?? [])].sort();
-    const tools: Array<typeof INSPECT_TRANSACTION_TOOL_NAME | typeof DETECT_SANDWICH_TOOL_NAME> = [
-      INSPECT_TRANSACTION_TOOL_NAME,
-    ];
+    const tools: Array<
+      | typeof GET_TRANSACTION_TOOL_NAME
+      | typeof INSPECT_TRANSACTION_TOOL_NAME
+      | typeof DETECT_SANDWICH_TOOL_NAME
+    > = [GET_TRANSACTION_TOOL_NAME, INSPECT_TRANSACTION_TOOL_NAME];
     if ((observationByChain.get(chain.chainId)?.pools.length ?? 0) > 0) {
       tools.push(DETECT_SANDWICH_TOOL_NAME);
     }
-    return { chainId: chain.chainId, protocols, tools };
+    return {
+      chainId: chain.chainId,
+      network: `eip155:${chain.chainId}`,
+      protocols,
+      tools,
+    };
   });
   return chainAnalysisCapabilitiesSchema.parse({
     chains,
+    networks:
+      dataPlane.solana?.listConfiguredNetworks().map((network) => ({
+        family: 'solana' as const,
+        network: network.network,
+        tools: [GET_TRANSACTION_TOOL_NAME] as const,
+      })) ?? [],
     runtimeStatus,
     version: CHAIN_ANALYSIS_MCP_VERSION,
   });
+}
+
+function hasExecutionChain(dataPlane: ChainAnalysisDataPlane, chainId: string): boolean {
+  return dataPlane.execution
+    .listConfiguredChains()
+    .some((configured) => configured.chainId === chainId);
+}
+
+function summarizeSolanaTransaction(
+  result: Awaited<ReturnType<NonNullable<ChainAnalysisDataPlane['solana']>['loadTransaction']>>,
+): string {
+  const snapshot = result.snapshot;
+  if (snapshot === undefined) {
+    return 'The public Solana transaction was not found or could not be loaded.';
+  }
+  const status =
+    snapshot.executionStatus === 'success'
+      ? 'succeeded'
+      : snapshot.executionStatus === 'reverted'
+        ? 'failed'
+        : 'has an unknown execution status';
+  const limitation =
+    result.status === 'partial' ? ' Provider evidence is partial or conflicting.' : '';
+  return `The Solana transaction ${status} in slot ${snapshot.slot}.${limitation}`;
 }
 
 function assertToolEnabled(

@@ -8,6 +8,7 @@
 - [开发质量门禁](development-workflow.md)
 - [功能状态](feature-status.md)
 - [MCP / Skill Capability Plane](capability-plane.md)
+- [通用 Onchain Analysis MCP / Skills](onchain-analysis-mcp.md)
 - [生产运行、安全与观测](production-readiness.md)
 - [全自动知识演进与 Knowledge Curator](knowledge-evolution.md)
 - [Scheduler-safe Knowledge Refresh](knowledge-refresh-operations.md)
@@ -43,9 +44,10 @@
 - `packages/rag-core`：意图分类、检索、pgvector、可信作者、Knowledge Curator、知识治理服务、LLM answer provider 和边界回复。
 - `packages/agent-core`：LangGraph customer runtime、planner/state 合约、Capability Registry 和产品问答 Skill bridge。
 - `packages/product-qa-mcp`：只读产品知识 MCP server/client、Skill Resource/Prompt 和 stdio 入口。
-- `packages/chain-analysis-mcp`：内部只读交易检查与 Sandwich 判断 MCP server/client、Skill Resource/Prompt 和 readiness 调用门禁。
+- `packages/chain-analysis-mcp`：与产品域解耦的只读 EVM/Solana 交易查询、EVM 深度检查与 Sandwich 判断 MCP server/client、Skill Resource/Prompt 和 readiness 调用门禁。
+- `packages/solana-data-adapter`：只允许 `getTransaction` 的 Solana mainnet 数据适配与多 Provider 对账。
 - `skills/xxyy-product-support`：项目级产品支持 Skill。
-- `skills/xxyy-evm-transaction-inspector` / `skills/xxyy-evm-sandwich-detector`：默认不隐式调用的内部链上分析 Skills。
+- `skills/onchain-transaction-inspector` / `skills/evm-sandwich-detector`：默认不隐式调用的通用链上分析 Skills；XXYY 公开客服是否授权属于独立宿主决策。
 - `packages/evm-chain-analysis-harness`：内部 Chain MCP 复用的 transaction/execution/MEV 离线组合、replay corpus 评测和质量门禁。
 - `packages/evm-chain-analysis-readiness`：sampling plan/evidence intake、manifest/candidate handoff、reviewed replay 治理、生产运维证据契约和综合 readiness evaluator；当前不含真实审批、主网 corpus 或 provider backend。
 - `packages/evm-chain-analysis-control-store`：Postgres sampling/handoff/治理 artifact、sampling/retention/review work queue、可重算 readiness evidence ledger、哈希链审计、共享 budget 和 circuit CAS backend；当前不含生产配置、真实授权/审批或主网证据。
@@ -66,6 +68,7 @@ pnpm run app:logs                # 跟随后台服务日志
 pnpm run app:dev -- --sync       # 启动前增量抓取 X 更新并同步知识库
 pnpm run app:dev -- --full-sync  # 启动前全量重抓 X 更新并重建知识库
 pnpm product:mcp:dev             # 启动只读产品知识 stdio MCP server
+pnpm onchain:mcp:dev             # 用可配置 RPC 启动通用链上查询 MCP；非生产有免费默认值
 pnpm chain:mcp:serve             # 仅在 canonical readiness 有效时启动内部 Chain MCP
 pnpm check                       # lint + format check + typecheck + tests + deterministic golden QA
 pnpm agent:smoke                 # 轻量验证已启动服务的 health 和核心 agentRoute
@@ -87,6 +90,7 @@ pnpm rag:stats
 pnpm rag:evaluate
 pnpm run telegram:dev
 pnpm product:mcp:dev
+pnpm onchain:mcp:dev
 pnpm chain:mcp:serve
 ```
 

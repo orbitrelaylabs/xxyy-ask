@@ -5,13 +5,17 @@ import {
   CHAIN_ANALYSIS_MCP_SERVER_NAME,
   CHAIN_ANALYSIS_MCP_VERSION,
   DETECT_SANDWICH_TOOL_NAME,
+  GET_TRANSACTION_TOOL_NAME,
   INSPECT_TRANSACTION_TOOL_NAME,
   detectSandwichOutputSchema,
+  getTransactionOutputSchema,
   inspectTransactionOutputSchema,
   type ChainAnalysisHandler,
   type ChainAnalysisMcpClient,
   type DetectSandwichInput,
   type DetectSandwichOutput,
+  type GetTransactionInput,
+  type GetTransactionOutput,
   type InspectTransactionInput,
   type InspectTransactionOutput,
 } from './contracts.js';
@@ -38,15 +42,15 @@ export function createInMemoryChainAnalysisMcpClient(
   })();
 
   const call = async (
-    name: typeof INSPECT_TRANSACTION_TOOL_NAME | typeof DETECT_SANDWICH_TOOL_NAME,
-    input: InspectTransactionInput | DetectSandwichInput,
+    name:
+      | typeof GET_TRANSACTION_TOOL_NAME
+      | typeof INSPECT_TRANSACTION_TOOL_NAME
+      | typeof DETECT_SANDWICH_TOOL_NAME,
+    input: GetTransactionInput | InspectTransactionInput | DetectSandwichInput,
     signal: AbortSignal | undefined,
   ): Promise<unknown> => {
     if (closed) {
-      throw new ChainAnalysisMcpToolError(
-        'tool_failure',
-        'XXYY chain-analysis MCP client is closed.',
-      );
+      throw new ChainAnalysisMcpToolError('tool_failure', 'Onchain-analysis MCP client is closed.');
     }
     await ready;
     let result: Awaited<ReturnType<Client['callTool']>>;
@@ -87,6 +91,12 @@ export function createInMemoryChainAnalysisMcpClient(
       );
     },
 
+    async getTransaction(input, requestOptions = {}) {
+      return getTransactionOutputSchema.parse(
+        await call(GET_TRANSACTION_TOOL_NAME, input, requestOptions.signal),
+      );
+    },
+
     async inspectTransaction(input, requestOptions = {}) {
       return inspectTransactionOutputSchema.parse(
         await call(INSPECT_TRANSACTION_TOOL_NAME, input, requestOptions.signal),
@@ -100,6 +110,10 @@ export function createChainAnalysisMcpClientStub(options: {
     input: DetectSandwichInput,
     signal?: AbortSignal,
   ) => Promise<DetectSandwichOutput>;
+  getTransaction?: (
+    input: GetTransactionInput,
+    signal?: AbortSignal,
+  ) => Promise<GetTransactionOutput>;
   inspectTransaction?: (
     input: InspectTransactionInput,
     signal?: AbortSignal,
@@ -114,6 +128,12 @@ export function createChainAnalysisMcpClientStub(options: {
         return Promise.reject(new ChainAnalysisMcpToolError('tool_failure'));
       }
       return options.detectSandwich(input, requestOptions?.signal);
+    },
+    getTransaction(input, requestOptions) {
+      if (options.getTransaction === undefined) {
+        return Promise.reject(new ChainAnalysisMcpToolError('tool_failure'));
+      }
+      return options.getTransaction(input, requestOptions?.signal);
     },
     inspectTransaction(input, requestOptions) {
       if (options.inspectTransaction === undefined) {

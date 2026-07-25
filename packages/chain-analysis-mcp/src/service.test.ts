@@ -38,9 +38,10 @@ describe('createChainAnalysisHandler', () => {
         {
           chainId: '1',
           protocols: ['uniswap_v2', 'uniswap_v3'],
-          tools: ['inspect_transaction', 'detect_sandwich'],
+          tools: ['get_transaction', 'inspect_transaction', 'detect_sandwich'],
         },
       ],
+      networks: [],
     });
 
     const output = await runtime.handler.detectSandwich({

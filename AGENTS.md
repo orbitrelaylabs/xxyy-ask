@@ -10,7 +10,7 @@
 
 - 可以回答 XXYY 产品功能、配置步骤、权益说明和官方更新相关问题。
 - 交易哈希、公开 explorer 链接、池子查询、链上取证和泛 MEV 问题暂不分析，必须返回边界或澄清回复。
-- 已提供只读 `xxyy-product-support` MCP server 和同名 project Skill；另有内部专用、readiness-gated 的 `xxyy-chain-analysis` MCP，以及 transaction inspector / Sandwich detector 两个 project Skills。公开客服仍不分析交易或 MEV。
+- 已提供只读 `xxyy-product-support` MCP server 和同名 project Skill；另有与产品域解耦的 `onchain-analysis` MCP、`onchain-transaction-inspector` / `evm-sandwich-detector` 两个 project Skills，以及 XXYY 内部专用、readiness-gated 的生产 composition。公开客服仍不分析交易或 MEV。
 - 不直接查询用户账户、订单、钱包余额或私有交易记录。
 - 不提供投资建议。
 - 对边界问题必须返回边界回复，不要编造实时数据。
@@ -34,9 +34,10 @@
 - `packages/rag-core`：意图分类、检索接口、pgvector store、LLM answer provider、边界回复和配置错误类型。
 - `packages/agent-core`：LangGraph 客服 Agent runtime、planner、tool registry、Capability Registry，以及 Product Skill → MCP 显式授权 bridge。
 - `packages/product-qa-mcp`：只读产品知识 MCP server/client、`search_product_docs` 契约、Skill Resource/Prompt 和 stdio 入口。
-- `packages/chain-analysis-mcp`：内部只读链上分析 MCP server/client、`inspect_transaction` / `detect_sandwich`、Skill Resource/Prompt、输出投影与 readiness 时间窗门禁。
+- `packages/chain-analysis-mcp`：通用只读 `onchain-analysis` MCP server/client、`get_transaction` / `inspect_transaction` / `detect_sandwich`、Explorer 引用解析、Skill Resource/Prompt、输出投影与 readiness 时间窗门禁；自身不绑定 XXYY 产品。
 - `packages/transaction-analysis-core`：无网络依赖的 EVM transaction snapshot 领域分析；由内部 Chain MCP composition 调用。
 - `packages/evm-data-adapter`：启动时 allowlist 的只读 EVM JSON-RPC 获取、归一化和 provider 协调；只接入私有 data plane。
+- `packages/solana-data-adapter`：启动时 allowlist 的只读 Solana `getTransaction` 获取、余额变化归一化和多 Provider 对账；不暴露任意 RPC。
 - `packages/evm-execution-enrichment-core`：离线的 EVM call trace、revert 和 allowlisted DEX swap 语义增强；由内部 Chain MCP composition 调用。
 - `packages/evm-execution-data-adapter`：启动时 allowlist 的 callTracer 获取和 Uniswap V2/V3 pool/factory 元数据验证；只接入私有 data plane。
 - `packages/evm-chain-analysis-harness`：不执行网络 I/O 的 transaction/execution/MEV 离线组合、replay corpus 评测和质量门禁；内部 Chain MCP 只传入已验证对象。
@@ -53,8 +54,8 @@
 - `apps/web`：静态聊天 UI。
 - `scripts/rag-refresh.mjs`：供外部 scheduler 调用的固定知识刷新 Job；提供 dry-run、同工作区锁和脱敏回执，并在最后自动对账、重试和执行群聊知识发布，不嵌入 API/Telegram 进程。
 - `skills/xxyy-product-support`：项目级 XXYY 产品支持 Skill；只依赖同名只读 MCP，不扩大客服边界。
-- `skills/xxyy-evm-transaction-inspector`：内部 EVM 单交易证据解释 Skill；默认禁止隐式调用。
-- `skills/xxyy-evm-sandwich-detector`：内部 allowlisted pool Sandwich 四态判断 Skill；默认禁止隐式调用。
+- `skills/onchain-transaction-inspector`：通用 EVM / Solana 单交易查询与证据解释 Skill；默认禁止隐式调用。
+- `skills/evm-sandwich-detector`：通用 EVM allowlisted pool Sandwich 四态判断 Skill；默认禁止隐式调用。
 - `docs/product-features`：知识库种子文档和静态资产。
 
 ## 运行模式
@@ -107,7 +108,8 @@ TRUST_PROXY=false
 - `pnpm run app:dev -- --ingest`：启动前只执行知识库 ingest。
 - `pnpm rag:refresh`：独立增量刷新 Job；`--full` 执行官网/媒体/X 全量重建，两种模式最后都会运行严格自动知识治理与发布队列；`--dry-run` 只验证固定计划。生产定时任务优先使用该入口。
 - `pnpm product:mcp:dev`：以 stdio 启动只读产品知识 MCP server；API、CLI 和 Telegram 内部使用同一 MCP server 的 in-memory transport。
-- `pnpm chain:mcp:serve`：启动内部 `xxyy-chain-analysis` stdio MCP；不自动读取 `.env`，且必须同时通过固定 manifest、未过期 `ready` attestation、完整 Provider/budget lineage 与独立 control DB 门禁。
+- `pnpm onchain:mcp:dev`（兼容别名 `pnpm chain:mcp:dev`）：启动通用 `onchain-analysis` stdio MCP；开发环境未配置时使用 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain 免费公共 RPC，生产环境禁止隐式公共默认值。
+- `pnpm onchain:mcp:serve`（兼容别名 `pnpm chain:mcp:serve`）：启动 XXYY 内部 readiness-gated `onchain-analysis` stdio composition；不自动读取 `.env`，且必须同时通过固定 manifest、未过期 `ready` attestation、完整 Provider/budget lineage 与独立 control DB 门禁。
 - `pnpm chain:control:migrate` 与 `pnpm chain:provision:*`：只用于隔离的链上控制面 provisioning；不自动加载 `.env`，不接入客服或 Agent。
 - `NODE_ENV=production pnpm run app:dev`：生产模式跳过本地 Docker，默认不刷新知识库；可加 `--sync` 或 `--full-sync` 显式更新。
 - `pnpm run telegram:dev`：启动 Telegram Bot long polling。
@@ -165,7 +167,8 @@ pnpm run app:dev -- --full-sync
 - `pnpm rag:evaluate`：运行便宜的 deterministic golden QA 子集；`pnpm rag:evaluate -- --provider` 使用正式 Agent/pgvector/OpenAI-compatible provider 做人工全链路评估。
 - `pnpm rag:ask -- "问题"`：命令行临时调用客服 Agent。
 - `pnpm product:mcp:dev`：为外部 MCP host 启动 `xxyy-product-support` stdio server，暴露只读 `search_product_docs`、Skill Resource 和 Prompt。
-- `pnpm chain:mcp:serve`：为受控内部 MCP host 启动 `xxyy-chain-analysis`，只暴露 `inspect_transaction` 与 `detect_sandwich`；任何 readiness 缺失、过期或 lineage 漂移都会失败关闭。
+- `pnpm onchain:mcp:dev`：为通用 MCP host 启动 `onchain-analysis`，暴露 `get_transaction`、`inspect_transaction` 与 `detect_sandwich`；默认免费 RPC 仅用于开发和小规模验证，默认未配置 archive/pool 时 Sandwich capability 不启用。
+- `pnpm chain:mcp:serve`：为受控内部 MCP host 启动相同的 `onchain-analysis` surface；任何 readiness 缺失、过期或 lineage 漂移都会失败关闭。
 - `pnpm agent:smoke`：检查已启动服务的 health、产品问题路线和边界路线。
 - `pnpm chain:control:migrate`：迁移独立 chain-control PostgreSQL。
 - `pnpm chain:provision:plan/attest/apply/receipt/verify`：生成 plan、机器签名、窗口内原子 apply，并验证 receipt、八条 grant lineage 和治理 audit chain；真实输入不得提交到仓库。
@@ -190,7 +193,8 @@ env -u DATABASE_URL -u POSTGRES_DB -u POSTGRES_USER -u POSTGRES_PASSWORD OPENAI_
 - 不要把真实 API key 写入测试、README 或日志。
 - 不要提交 chain-control request、plan、attestation、receipt、authority private key 或真实 identity/evidence fingerprint；通过受保护的运维通道提供。远程 control DB 必须验证 TLS，且不能与 Product RAG 共库。
 - 生产 API 服务端不负责迁移；迁移和正式知识写库由独立 `pnpm rag:refresh` Job、`pnpm rag:knowledge:automation:work`、`pnpm run app:dev -- --sync`、`pnpm run app:dev -- --full-sync`、`pnpm rag:ingest` 或 `pnpm rag:sync:x` 完成。本地 `pnpm run app:dev -- --sync` 可以为空知识库做首次 bootstrap。Telegram Bot 只允许创建、自动决定候选和排队，不直接写 pgvector。
-- Product MCP 只能读取正式产品知识；Chain MCP 只能读取 allowlisted 的公开 Ethereum/Uniswap 数据，不能接受 endpoint、任意 RPC、任意区块范围或私有账户输入。新增 MCP/Skill 必须分别固定 manifest/source/version、配置精确 grant，再通过显式 Tool bridge 暴露，禁止把 discovery 结果自动注册到 Planner。
+- Product MCP 只能读取正式产品知识；Onchain MCP 只能读取启动时配置或开发默认 allowlist 中的公开链数据，工具输入不能接受 endpoint、任意 RPC method、任意区块范围或私有账户输入。通用交易查询支持配置的 EVM chain id 与 Solana mainnet；深度 execution/Sandwich 仍要求 EVM archive Provider、验证过的 factory/pool 和完整数据覆盖。新增 MCP/Skill 必须分别固定 manifest/source/version、配置精确 grant，再通过显式 Tool bridge 暴露，禁止把 discovery 结果自动注册到 Planner。
+- 免费公共 RPC 只允许作为 `onchain:mcp:dev` 的非生产默认值；生产必须显式提供 Provider 配置和配额/SLA。Explorer URL 只用于网络识别与规范链接，Etherscan/Solscan 等需要 API key 的增强 API 不得伪装成免费默认数据源。
 - Chain Capability bridge 仅允许 `internal/(service|admin)` 或 `cli/admin` 可信调用方；Web/API/Telegram 不得创建 chain grant 或注册 chain Tool。生产 stdio 入口还必须逐次检查 readiness 有效时间窗，不能把仓库 fixture 或启动成功描述为 production ready。
 - 新增行为需要加测试；风险较高的改动跑 `pnpm check`。
 - 对外错误信息应清晰区分：

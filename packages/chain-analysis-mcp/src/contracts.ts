@@ -5,9 +5,14 @@ import {
   detectSandwichCapabilityResultSchema,
   inspectTransactionCapabilityResultSchema,
 } from '@xxyy/evm-chain-analysis-harness';
+import { evmDataAdapterDiagnosticSchema } from '@xxyy/evm-data-adapter';
 import { evmExecutionEnrichmentResultSchema } from '@xxyy/evm-execution-enrichment-core';
 import { evmPriceImpactSandwichResultSchema } from '@xxyy/evm-price-impact-sandwich-core';
 import { createSkillResultSchema } from '@xxyy/shared';
+import {
+  solanaDataAdapterDiagnosticSchema,
+  solanaTransactionSnapshotSchema,
+} from '@xxyy/solana-data-adapter';
 import {
   evmAddressSchema,
   evmChainIdSchema,
@@ -15,12 +20,17 @@ import {
   transactionAnalysisResultSchema,
 } from '@xxyy/transaction-analysis-core';
 
-export const CHAIN_ANALYSIS_MCP_SERVER_NAME = 'xxyy-chain-analysis';
-export const CHAIN_ANALYSIS_MCP_VERSION = '0.1.0';
+import { normalizePublicNetworkIdentifier } from './network-profiles.js';
+
+export const CHAIN_ANALYSIS_MCP_SERVER_NAME = 'onchain-analysis';
+export const CHAIN_ANALYSIS_MCP_VERSION = '0.3.0';
+export const GET_TRANSACTION_TOOL_NAME = 'get_transaction';
 export const INSPECT_TRANSACTION_TOOL_NAME = 'inspect_transaction';
 export const DETECT_SANDWICH_TOOL_NAME = 'detect_sandwich';
+export const GET_TRANSACTION_TIMEOUT_MS = 30_000;
 export const INSPECT_TRANSACTION_TIMEOUT_MS = 60_000;
 export const DETECT_SANDWICH_TIMEOUT_MS = 120_000;
+export const GET_TRANSACTION_MAX_OUTPUT_BYTES = 524_288;
 export const INSPECT_TRANSACTION_MAX_OUTPUT_BYTES = 524_288;
 export const DETECT_SANDWICH_MAX_OUTPUT_BYTES = 1_048_576;
 
@@ -35,6 +45,23 @@ export const inspectTransactionInputSchema = z
   .object({
     chainId: evmChainIdSchema,
     transactionHash: evmHashSchema,
+  })
+  .strict();
+
+export const publicChainNetworkSchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(96)
+  .refine(
+    (value) => normalizePublicNetworkIdentifier(value) !== undefined,
+    'Expected a supported network alias or canonical network id.',
+  );
+
+export const getTransactionInputSchema = z
+  .object({
+    network: publicChainNetworkSchema.optional(),
+    reference: z.string().trim().min(1).max(2_048),
   })
   .strict();
 
@@ -79,20 +106,70 @@ export const detectSandwichOutputSchema = createSkillResultSchema({
   mev: evmPriceImpactSandwichResultSchema.optional(),
 });
 
+const publicTransactionCommonShape = {
+  explorerUrl: z.string().url().optional(),
+  network: z.string().min(2).max(96),
+  transactionId: z.string().min(1).max(128),
+} as const;
+
+const evmPublicTransactionOutputSchema = z
+  .object({
+    ...publicTransactionCommonShape,
+    analysis: transactionAnalysisResultSchema,
+    chainId: evmChainIdSchema,
+    diagnostics: z.array(evmDataAdapterDiagnosticSchema).max(100),
+    family: z.literal('evm'),
+    status: z.enum(['insufficient_data', 'partial', 'success']),
+    summary: z.string().min(1).max(4_096),
+  })
+  .strict();
+
+const solanaPublicTransactionOutputSchema = z
+  .object({
+    ...publicTransactionCommonShape,
+    analysis: solanaTransactionSnapshotSchema.optional(),
+    diagnostics: z.array(solanaDataAdapterDiagnosticSchema).max(100),
+    family: z.literal('solana'),
+    status: z.enum(['insufficient_data', 'partial', 'success']),
+    summary: z.string().min(1).max(4_096),
+  })
+  .strict();
+
+export const getTransactionOutputSchema = z.discriminatedUnion('family', [
+  evmPublicTransactionOutputSchema,
+  solanaPublicTransactionOutputSchema,
+]);
+
 const chainCapabilityDescriptorSchema = z
   .object({
     chainId: evmChainIdSchema,
+    network: z.string().regex(/^eip155:[1-9]\d*$/u),
     protocols: z.array(z.enum(['uniswap_v2', 'uniswap_v3'])).max(2),
     tools: z
-      .array(z.enum([INSPECT_TRANSACTION_TOOL_NAME, DETECT_SANDWICH_TOOL_NAME]))
+      .array(
+        z.enum([
+          GET_TRANSACTION_TOOL_NAME,
+          INSPECT_TRANSACTION_TOOL_NAME,
+          DETECT_SANDWICH_TOOL_NAME,
+        ]),
+      )
       .min(1)
-      .max(2),
+      .max(3),
+  })
+  .strict();
+
+const nonEvmNetworkCapabilityDescriptorSchema = z
+  .object({
+    family: z.literal('solana'),
+    network: z.literal('solana:mainnet'),
+    tools: z.array(z.literal(GET_TRANSACTION_TOOL_NAME)).length(1),
   })
   .strict();
 
 export const chainAnalysisCapabilitiesSchema = z
   .object({
     chains: z.array(chainCapabilityDescriptorSchema).max(64),
+    networks: z.array(nonEvmNetworkCapabilityDescriptorSchema).max(8),
     runtimeStatus: z.enum(chainAnalysisRuntimeStatuses),
     version: z.literal(CHAIN_ANALYSIS_MCP_VERSION),
   })
@@ -100,8 +177,10 @@ export const chainAnalysisCapabilitiesSchema = z
 
 export type InspectTransactionInput = z.output<typeof inspectTransactionInputSchema>;
 export type DetectSandwichInput = z.output<typeof detectSandwichInputSchema>;
+export type GetTransactionInput = z.output<typeof getTransactionInputSchema>;
 export type InspectTransactionOutput = z.output<typeof inspectTransactionOutputSchema>;
 export type DetectSandwichOutput = z.output<typeof detectSandwichOutputSchema>;
+export type GetTransactionOutput = z.output<typeof getTransactionOutputSchema>;
 export type ChainAnalysisCapabilities = z.output<typeof chainAnalysisCapabilitiesSchema>;
 export type ChainAnalysisRuntimeStatus = (typeof chainAnalysisRuntimeStatuses)[number];
 
@@ -111,6 +190,10 @@ export interface ChainAnalysisHandler {
     options?: { signal?: AbortSignal },
   ): Promise<DetectSandwichOutput>;
   getCapabilities(): ChainAnalysisCapabilities;
+  getTransaction(
+    input: GetTransactionInput,
+    options?: { signal?: AbortSignal },
+  ): Promise<GetTransactionOutput>;
   inspectTransaction(
     input: InspectTransactionInput,
     options?: { signal?: AbortSignal },
@@ -123,6 +206,10 @@ export interface ChainAnalysisMcpClient {
     input: DetectSandwichInput,
     options?: { signal?: AbortSignal },
   ): Promise<DetectSandwichOutput>;
+  getTransaction(
+    input: GetTransactionInput,
+    options?: { signal?: AbortSignal },
+  ): Promise<GetTransactionOutput>;
   inspectTransaction(
     input: InspectTransactionInput,
     options?: { signal?: AbortSignal },

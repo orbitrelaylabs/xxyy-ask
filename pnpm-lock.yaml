@@ -93,6 +93,12 @@ importers:
       '@xxyy/evm-chain-analysis-readiness':
         specifier: workspace:*
         version: link:../../packages/evm-chain-analysis-readiness
+      '@xxyy/evm-data-adapter':
+        specifier: workspace:*
+        version: link:../../packages/evm-data-adapter
+      '@xxyy/solana-data-adapter':
+        specifier: workspace:*
+        version: link:../../packages/solana-data-adapter
       '@xxyy/transaction-analysis-core':
         specifier: workspace:*
         version: link:../../packages/transaction-analysis-core
@@ -209,6 +215,9 @@ importers:
       '@xxyy/shared':
         specifier: workspace:*
         version: link:../shared
+      '@xxyy/solana-data-adapter':
+        specifier: workspace:*
+        version: link:../solana-data-adapter
       '@xxyy/transaction-analysis-core':
         specifier: workspace:*
         version: link:../transaction-analysis-core
@@ -414,6 +423,12 @@ importers:
         version: 8.20.0
 
   packages/shared:
+    dependencies:
+      zod:
+        specifier: ^4.0.0
+        version: 4.4.3
+
+  packages/solana-data-adapter:
     dependencies:
       zod:
         specifier: ^4.0.0

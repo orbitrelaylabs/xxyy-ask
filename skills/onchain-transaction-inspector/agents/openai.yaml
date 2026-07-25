@@ -1,0 +1,12 @@
+interface:
+  display_name: 'Onchain Transaction Inspector'
+  short_description: 'Explain public EVM and Solana transactions'
+  default_prompt: 'Use $onchain-transaction-inspector to explain this public blockchain transaction with evidence.'
+dependencies:
+  tools:
+    - type: 'mcp'
+      value: 'onchain-analysis'
+      description: 'Read-only public EVM and Solana transaction analysis'
+      transport: 'stdio'
+policy:
+  allow_implicit_invocation: false

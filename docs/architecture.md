@@ -127,7 +127,7 @@ flowchart LR
 
 产品 bridge 固定注册 `product.skill.search_docs` 与 `product.mcp.search_docs` v1.0.0，数据范围只有 `product.public`，副作用是 `external_read`。API 使用可信 `web/anonymous`，CLI 使用 `cli/user`，Telegram 使用 `telegram/service`；请求 payload 不能覆盖这些组合层身份。
 
-内部链上路径另有 `packages/chain-analysis-mcp`、两个 project Skills 与四项 v0.1.0 Capability。factory 只接受 `internal/(service|admin)` 或 `cli/admin`；`apps/chain-operations-cli` 的 stdio composition root 还会在加载 Provider secrets 前验证固定 manifest、未过期 canonical `ready` attestation、三类 adapter policy、六个 Provider descriptor 与 budget lineage，并在每次调用重新检查时间窗。Web/API/Telegram 不创建这些 grant，也不注册 `inspect_transaction` / `detect_sandwich`。能力被注册不代表被授权，被授权也不代表会暴露给公开 Agent。完整契约见 [capability-plane.md](capability-plane.md)。
+链上能力由与产品域解耦的 `onchain-analysis` MCP、两个通用 project Skills 与六项 v0.3.0 Capability 提供。独立 MCP host 可用 `onchain:mcp:dev` 查询 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain，或配置其它 EVM；XXYY factory 仍只接受 `internal/(service|admin)` 或 `cli/admin`。`apps/chain-operations-cli` 的 production stdio composition root 会在加载 Provider secrets 前验证固定 manifest、未过期 canonical `ready` attestation、三类 adapter policy、六个 Provider descriptor 与 budget lineage，并在每次调用重新检查时间窗。Web/API/Telegram 不创建这些 grant，也不注册 `get_transaction` / `inspect_transaction` / `detect_sandwich`。能力被注册不代表被授权，被授权也不代表会暴露给公开 Agent。完整契约见 [capability-plane.md](capability-plane.md)。
 
 ## Read-only EVM Transaction Analysis Core v0.1（离线领域层）
 

@@ -58,6 +58,8 @@ export type {
   TrustedProductCapabilityCaller,
 } from './product-support-capabilities.js';
 export {
+  CHAIN_GET_MCP_CAPABILITY_ID,
+  CHAIN_GET_SKILL_CAPABILITY_ID,
   CHAIN_INSPECT_MCP_CAPABILITY_ID,
   CHAIN_INSPECT_SKILL_CAPABILITY_ID,
   CHAIN_SANDWICH_MCP_CAPABILITY_ID,

@@ -1,5 +1,6 @@
 export const chainAnalysisMcpErrorCodes = [
   'chain_not_configured',
+  'invalid_reference',
   'output_too_large',
   'pool_not_configured',
   'provider_unavailable',
@@ -69,11 +70,13 @@ export function classifyChainAnalysisMcpError(error: unknown): ChainAnalysisMcpE
 function safeMessageForCode(code: ChainAnalysisMcpErrorCode): string {
   switch (code) {
     case 'chain_not_configured':
-      return 'The requested chain is not enabled for XXYY chain analysis.';
+      return 'The requested public-chain network is not configured.';
+    case 'invalid_reference':
+      return 'The transaction reference or network is invalid or ambiguous.';
     case 'output_too_large':
       return 'The chain-analysis result exceeded the governed output limit.';
     case 'pool_not_configured':
-      return 'The requested pool is not allowlisted for XXYY Sandwich analysis.';
+      return 'The requested pool is not allowlisted for Sandwich analysis.';
     case 'provider_unavailable':
       return 'The governed chain-data providers are temporarily unavailable.';
     case 'request_aborted':
@@ -83,7 +86,7 @@ function safeMessageForCode(code: ChainAnalysisMcpErrorCode): string {
     case 'tool_timeout':
       return 'The chain-analysis request exceeded the governed time limit.';
     case 'tool_failure':
-      return 'XXYY chain-analysis MCP tool invocation failed.';
+      return 'The onchain-analysis MCP tool invocation failed.';
   }
 }
 

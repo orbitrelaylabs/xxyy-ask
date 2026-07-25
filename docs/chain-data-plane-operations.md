@@ -35,7 +35,7 @@ flowchart LR
   Audit --> Result["Validated adapter result"]
 
   Worker["Sampling / review / retention / reconciliation runtime"] --> Store["Postgres control store"]
-  Readiness["Pinned ready attestation<br/>policy + provider + budget lineage"] --> MCP["Internal xxyy-chain-analysis MCP"]
+  Readiness["Pinned ready attestation<br/>policy + provider + budget lineage"] --> MCP["Internal onchain-analysis production composition"]
   Manifest --> MCP
   Result --> MCP
 ```
@@ -191,7 +191,7 @@ pnpm chain:mcp:serve
 5. 要求 policy 覆盖 chain 1、三类 adapter、每类至少两个 Provider；
 6. 精确匹配 manifest 与 evidence 中六个 Provider descriptor/budget policy fingerprint；
 7. 通过后才解析 mounted secrets、创建 data plane 并连接 stdio；
-8. 每次 `inspect_transaction` / `detect_sandwich` 调用再次验证 readiness 时间窗。
+8. 每次 `get_transaction` / `inspect_transaction` / `detect_sandwich` 调用再次验证 readiness 时间窗。
 
 MCP stdout 只能写 JSON-RPC。Provider metric/alert 与安全化启动错误写 stderr。没有上述真实证明时，命令返回配置错误是预期行为；不得用 fixture fingerprint 绕过门禁。
 

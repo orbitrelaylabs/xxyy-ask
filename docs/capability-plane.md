@@ -1,4 +1,4 @@
-# MCP / Skill Capability Plane v0.3
+# MCP / Skill Capability Plane v0.4
 
 ## 当前状态
 
@@ -8,9 +8,11 @@ Capability Plane 已完成产品检索的公开运行面接入，以及链上分
 - MCP 只暴露只读 `search_product_docs`、`xxyy://skills/product-support` Resource 和 `xxyy_product_support` Prompt。
 - `skills/xxyy-product-support` 是项目级 Skill，规定检索、引用、证据不足与边界处理流程。
 - Web/API、CLI 和 Telegram 的 LangGraph runtime 都通过同一条 Skill → MCP bridge 检索产品知识。
-- `packages/chain-analysis-mcp` 提供内部 `xxyy-chain-analysis` MCP server/client、两个只读 Tool、capabilities/Skill Resources 与 Prompts。
-- `skills/xxyy-evm-transaction-inspector` 和 `skills/xxyy-evm-sandwich-detector` 默认禁止隐式调用；Chain Capability factory 只接受 `internal/(service|admin)` 或 `cli/admin`。
-- `pnpm chain:mcp:serve` 只有在固定 data-plane manifest 和 canonical readiness lineage 当前有效时才启动，且每次调用继续检查 attestation 时间窗。
+- `packages/chain-analysis-mcp` 提供与产品域解耦的 `onchain-analysis` MCP server/client、`get_transaction`、`inspect_transaction`、`detect_sandwich`、capabilities/Skill Resources 与 Prompts。
+- `get_transaction` 解析六条内置链的 Explorer 链接或显式 network + transaction id，通过配置的 EVM/Solana RPC 查询；工具输入不接受 endpoint。
+- `skills/onchain-transaction-inspector` 和 `skills/evm-sandwich-detector` 默认禁止隐式调用；XXYY Chain Capability factory 只接受 `internal/(service|admin)` 或 `cli/admin`。
+- `pnpm onchain:mcp:dev` 可用启动配置或非生产免费公共 RPC 运行 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain 基础交易查询；免费默认值不启用 Sandwich。
+- `pnpm chain:mcp:serve` 是 XXYY 的 production composition，只有在固定 data-plane manifest 和 canonical readiness lineage 当前有效时才启动，且每次调用继续检查 attestation 时间窗。
 - 交易哈希、Explorer、池子、链上取证、MEV、账户、订单、钱包余额和投资建议仍不开放。
 
 Planner 的业务工具列表仍只有经过审查的 `search_product_docs`。MCP discovery、Resource 或 Skill 元数据不会自动注册工具，也不会自动生成 grant。
@@ -43,7 +45,19 @@ pnpm product:mcp:dev
 
 stdio server 使用与正式 Product RAG 相同的 `.env`、embedding 和 pgvector 配置。stdout 专用于 MCP protocol。
 
-内部 Chain MCP 使用独立的生产数据面和 control DB：
+通用 MCP 的开发 composition 与 XXYY production composition 共享同一 server surface，但配置和可信度不同。基础开发路径为：
+
+```mermaid
+flowchart LR
+  Host["Generic MCP host"] --> MCP["onchain-analysis"]
+  MCP --> Resolve["Explorer URL / explicit network resolver"]
+  Resolve --> EVM["Configured EVM RPC<br/>Ethereum / BSC / other eip155"]
+  Resolve --> Solana["Configured Solana getTransaction RPC"]
+  EVM --> Query["get_transaction"]
+  Solana --> Query
+```
+
+XXYY 内部 production composition 使用独立的生产数据面和 control DB：
 
 ```mermaid
 flowchart LR
@@ -51,7 +65,7 @@ flowchart LR
   Tool --> Skill["chain.skill.* v0.1.0"]
   Skill --> MCP["chain.mcp.* v0.1.0"]
   MCP --> Client["MCP Client"]
-  Client --> Server["xxyy-chain-analysis"]
+  Client --> Server["onchain-analysis"]
   Server --> TimeGate["Per-call readiness window"]
   TimeGate --> Snapshot["Dual-provider snapshot"]
   TimeGate --> Execution["Dual-provider execution"]
@@ -68,10 +82,11 @@ flowchart LR
 ```
 
 ```bash
+pnpm onchain:mcp:dev
 pnpm chain:mcp:serve
 ```
 
-该命令不读取项目 `.env`。它要求 deployment environment 显式提供独立 control DB、manifest/secret mount、instance identity，以及：
+`onchain:mcp:dev` 读取当前进程环境中的 `ONCHAIN_RPC_CONFIG_JSON`；未配置且不是 production 时使用固定公共开发默认值。`chain:mcp:serve` 不读取项目 `.env`，并要求 deployment environment 显式提供独立 control DB、manifest/secret mount、instance identity，以及：
 
 - `CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT`；
 - `CHAIN_ANALYSIS_READINESS_FINGERPRINT`。
@@ -80,16 +95,18 @@ pnpm chain:mcp:serve
 
 ## 已注册能力
 
-| Capability                        | Source  | Risk     | Side effect     | Data scope                                | Agent 可见      |
-| --------------------------------- | ------- | -------- | --------------- | ----------------------------------------- | --------------- |
-| `product.skill.search_docs`       | `skill` | low      | `external_read` | `product.public`                          | 公开固定 bridge |
-| `product.mcp.search_docs`         | `mcp`   | low      | `external_read` | `product.public`                          | 不直接暴露      |
-| `chain.skill.inspect_transaction` | `skill` | moderate | `external_read` | public Ethereum transaction/execution     | 仅内部 factory  |
-| `chain.mcp.inspect_transaction`   | `mcp`   | moderate | `external_read` | public Ethereum transaction/execution     | 不直接暴露      |
-| `chain.skill.detect_sandwich`     | `skill` | moderate | `external_read` | public Ethereum transaction/execution/MEV | 仅内部 factory  |
-| `chain.mcp.detect_sandwich`       | `mcp`   | moderate | `external_read` | public Ethereum transaction/execution/MEV | 不直接暴露      |
+| Capability                        | Source  | Risk     | Side effect     | Data scope                           | Agent 可见      |
+| --------------------------------- | ------- | -------- | --------------- | ------------------------------------ | --------------- |
+| `product.skill.search_docs`       | `skill` | low      | `external_read` | `product.public`                     | 公开固定 bridge |
+| `product.mcp.search_docs`         | `mcp`   | low      | `external_read` | `product.public`                     | 不直接暴露      |
+| `chain.skill.get_transaction`     | `skill` | moderate | `external_read` | public EVM/Solana transaction        | 仅内部 factory  |
+| `chain.mcp.get_transaction`       | `mcp`   | moderate | `external_read` | public EVM/Solana transaction        | 不直接暴露      |
+| `chain.skill.inspect_transaction` | `skill` | moderate | `external_read` | public EVM transaction/execution     | 仅内部 factory  |
+| `chain.mcp.inspect_transaction`   | `mcp`   | moderate | `external_read` | public EVM transaction/execution     | 不直接暴露      |
+| `chain.skill.detect_sandwich`     | `skill` | moderate | `external_read` | public EVM transaction/execution/MEV | 仅内部 factory  |
+| `chain.mcp.detect_sandwich`       | `mcp`   | moderate | `external_read` | public EVM transaction/execution/MEV | 不直接暴露      |
 
-两项 Product 能力均固定为 `1.0.0`，单次 timeout 为 30 秒，最大 JSON 输出为 262144 bytes。四项 Chain 能力固定为 `0.1.0`；transaction inspection 的 timeout/output 上限为 60 秒/524288 bytes，Sandwich 为 120 秒/1048576 bytes。它们都是只读 external read，不要求确认或幂等 key。Skill adapter 只能调用同一 Registry 内已授权的 MCP capability。
+两项 Product 能力均固定为 `1.0.0`，单次 timeout 为 30 秒，最大 JSON 输出为 262144 bytes。六项 Chain 能力固定为 `0.3.0`；基础 transaction query 的 timeout/output 上限为 30 秒/524288 bytes，EVM transaction inspection 为 60 秒/524288 bytes，Sandwich 为 120 秒/1048576 bytes。它们都是只读 external read，不要求确认或幂等 key。Skill adapter 只能调用同一 Registry 内已授权的 MCP capability。
 
 可信调用身份由 composition root 固定，不能来自 Planner 或聊天 payload：
 
@@ -102,7 +119,7 @@ pnpm chain:mcp:serve
 
 每个 runtime 只创建覆盖自身 channel/principal 的两条精确 grant。使用其它 channel、principal、source、version、side effect 或 data scope 会在解析业务输入前拒绝。
 
-Chain registry 不使用上表中的公开调用身份。它在 factory 构造时硬拒绝任何不属于 `internal/(service|admin)` 或 `cli/admin` 的 caller，并为两个 Skill 与两个 MCP capability 创建四条仅覆盖该 caller 的 grant。公开 CustomerAgentRuntime 没有实例化该 registry，也没有把两个 Chain Tool 注册给 Planner。
+XXYY Chain registry 不使用上表中的公开调用身份。它在 factory 构造时硬拒绝任何不属于 `internal/(service|admin)` 或 `cli/admin` 的 caller，并为三个 Skill/MCP 对创建六条仅覆盖该 caller 的 grant。公开 CustomerAgentRuntime 没有实例化该 registry，也没有把三个 Chain Tool 注册给 Planner。独立 MCP host 可以安装通用 Skills，但这不自动改变 XXYY 授权。
 
 ## MCP 与 Skill Surface
 
@@ -132,11 +149,13 @@ Skill 是受控编排层，不是权限来源。Skill 文件提到某项能力�
 
 ### Chain Tools 与 Skills
 
-`inspect_transaction` 只接受 `chainId` 与一个 transaction hash；`detect_sandwich` 另要求一个已经验证、且位于启动 allowlist 的 pool address。MCP 不接受 endpoint、provider id、任意 JSON-RPC method、block range、账户凭证或私有数据。
+`get_transaction` 接受支持的 Explorer URL，或显式 `network` 与一个 transaction id。当前内置 URL resolver 支持 Solscan/Solana Explorer、Etherscan、BscScan、Basescan/Base Blockscout、Robinhood Blockscout 和 Stablescan；其它配置的 EVM 使用 `eip155:<chainId>` 与 raw hash。交易事实由启动时配置的 RPC 提供，Explorer API 不作为隐式来源。
+
+`inspect_transaction` 只接受 EVM `chainId` 与一个 transaction hash；`detect_sandwich` 另要求一个已经验证、且位于启动 allowlist 的 pool address。MCP 不接受 endpoint、provider id、任意 JSON-RPC method、block range、账户凭证或私有数据。
 
 输出复用 deterministic harness 的 transaction/execution/MEV projection，保留 evidence、coverage、conflicts、warnings、diagnostics、fingerprints 和 `success | partial | insufficient_data`。Sandwich verdict 原样保留 `confirmed | likely | unlikely | insufficient_data`；MCP 不返回构建判定所用的 raw observation payload。
 
-两个 Chain Skills 位于 `skills/xxyy-evm-transaction-inspector` 与 `skills/xxyy-evm-sandwich-detector`。Sandwich workflow 必须先检查交易，只能从已验证 swap evidence 选 pool；多 pool 时不得猜测。Skill metadata 的 `allow_implicit_invocation` 为 `false`，且 metadata 本身不授予执行权限。
+两个通用 Chain Skills 位于 `skills/onchain-transaction-inspector` 与 `skills/evm-sandwich-detector`。Transaction workflow 先执行 `get_transaction`，EVM 需要深度证据时再执行 `inspect_transaction`。Sandwich workflow 只能从已验证 swap evidence 选 pool；多 pool 时不得猜测。Skill metadata 的 `allow_implicit_invocation` 为 `false`，且 metadata 本身不授予执行权限。
 
 ## Manifest 与授权规则
 
@@ -185,4 +204,4 @@ Tool trace、Skill trace、MCP trace 和 RAG trace保持父子关系，便于定
 
 ## 仍未开放的能力
 
-Chain MCP/Skills 与内部 Capability bridge 已实现，但真实生产激活和公开客服编排仍未完成。仓库只有 synthetic/contract fixtures，没有真实 Provider credential、reviewed mainnet corpus、SLO/security/runbook evidence 或 canonical `ready` attestation，因此 `pnpm chain:mcp:serve` 在默认环境按设计失败关闭。Web/API/Telegram 继续拒绝交易与 MEV 请求；公开路由、回答编排、产品/安全/合规评审属于后续独立阶段。
+通用 `onchain-analysis` MCP/Skills、六链基础 transaction query 与 XXYY 内部 Capability bridge 已实现。`pnpm onchain:mcp:dev` 可以用于开发和小规模验证，但公共免费 RPC 没有 SLA，不能作为 XXYY production readiness 证明。深度 Chain production composition 仍只有 synthetic/contract fixtures，没有真实 Provider credential、reviewed mainnet corpus、SLO/security/runbook evidence 或 canonical `ready` attestation，因此 `pnpm chain:mcp:serve` 在默认环境按设计失败关闭。XXYY Web/API/Telegram 继续拒绝交易与 MEV 请求；公开路由、回答编排、产品/安全/合规评审属于后续独立阶段。
