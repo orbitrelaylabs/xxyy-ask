@@ -20,6 +20,7 @@ describe('fetchTelegramCurrentAdministratorIds', () => {
     );
 
     const ids = await fetchTelegramCurrentAdministratorIds({
+      apiBaseUrl: ' ',
       botToken: 'secret-token',
       chatId: '-100123',
       fetchImpl,

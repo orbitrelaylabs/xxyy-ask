@@ -45,7 +45,7 @@ interface TelegramApiResponse {
 }
 
 export function createTelegramApiClient(options: CreateTelegramApiClientOptions): TelegramApi {
-  const apiBaseUrl = (options.apiBaseUrl ?? 'https://api.telegram.org').replace(/\/+$/u, '');
+  const apiBaseUrl = normalizeApiBaseUrl(options.apiBaseUrl);
   const fetchImpl = options.fetch ?? fetch;
 
   return {
@@ -128,16 +128,34 @@ async function callTelegramMethod(
     | Record<keyof TelegramSendPhotoInput, unknown>
     | Record<keyof TelegramSendVideoInput, unknown>,
 ): Promise<unknown> {
-  const response = await fetchImpl(`${apiBaseUrl}/bot${botToken}/${method}`, {
-    body: JSON.stringify(payload),
-    headers: { 'content-type': 'application/json' },
-    method: 'POST',
-  });
-  const body = readTelegramApiResponse(await response.json());
+  let response: Awaited<ReturnType<TelegramFetch>>;
+  try {
+    response = await fetchImpl(`${apiBaseUrl}/bot${botToken}/${method}`, {
+      body: JSON.stringify(payload),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    });
+  } catch {
+    throw new TelegramApiError(method, 'Transport request failed.');
+  }
+  let rawBody: unknown;
+  try {
+    rawBody = await response.json();
+  } catch {
+    throw new TelegramApiError(method, 'Invalid JSON response.');
+  }
+  const body = readTelegramApiResponse(rawBody);
   if (!body.ok) {
     throw new TelegramApiError(method, body.description ?? 'Unknown Telegram API error.');
   }
   return body.result;
+}
+
+function normalizeApiBaseUrl(value: string | undefined): string {
+  const normalized = value?.trim();
+  return (
+    normalized === undefined || normalized.length === 0 ? 'https://api.telegram.org' : normalized
+  ).replace(/\/+$/u, '');
 }
 
 function readTelegramApiResponse(value: unknown): TelegramApiResponse {

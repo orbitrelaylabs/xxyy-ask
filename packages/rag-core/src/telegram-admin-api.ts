@@ -24,7 +24,12 @@ export async function fetchTelegramCurrentAdministratorIds(
 ): Promise<Set<string>> {
   const botToken = requireText(options.botToken, 'botToken');
   const chatId = requireText(options.chatId, 'chatId');
-  const apiBaseUrl = (options.apiBaseUrl ?? DEFAULT_TELEGRAM_API_BASE_URL).replace(/\/+$/u, '');
+  const configuredApiBaseUrl = options.apiBaseUrl?.trim();
+  const apiBaseUrl = (
+    configuredApiBaseUrl === undefined || configuredApiBaseUrl.length === 0
+      ? DEFAULT_TELEGRAM_API_BASE_URL
+      : configuredApiBaseUrl
+  ).replace(/\/+$/u, '');
   const timeoutMs = normalizeTimeout(options.requestTimeoutMs);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);

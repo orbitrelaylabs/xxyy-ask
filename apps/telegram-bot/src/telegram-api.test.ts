@@ -11,6 +11,41 @@ function createJsonResponse(body: unknown, init: { ok?: boolean; status?: number
 }
 
 describe('createTelegramApiClient', () => {
+  it('uses the official API base when the configured value is blank', async () => {
+    const fetch = vi.fn(() => Promise.resolve(createJsonResponse({ ok: true, result: [] })));
+    const api = createTelegramApiClient({
+      apiBaseUrl: ' ',
+      botToken: '123:abc',
+      fetch,
+    });
+
+    await api.getUpdates({ limit: 25, timeout: 12 });
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.telegram.org/bot123:abc/getUpdates',
+      expect.any(Object),
+    );
+  });
+
+  it('does not propagate credential-bearing transport errors', async () => {
+    const fetch = vi.fn(() =>
+      Promise.reject(
+        new TypeError('Failed to fetch https://api.telegram.org/bot123:abc/getUpdates'),
+      ),
+    );
+    const api = createTelegramApiClient({
+      botToken: '123:abc',
+      fetch,
+    });
+
+    const request = api.getUpdates({ limit: 25, timeout: 12 });
+
+    await expect(request).rejects.toThrow(
+      'Telegram Bot API getUpdates failed: Transport request failed.',
+    );
+    await expect(request).rejects.not.toThrow('123:abc');
+  });
+
   it('calls getUpdates with Telegram Bot API JSON payload', async () => {
     const fetch = vi.fn(() =>
       Promise.resolve(
