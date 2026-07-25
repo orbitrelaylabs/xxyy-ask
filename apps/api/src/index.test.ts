@@ -919,9 +919,14 @@ describe('createRequestHandler', () => {
       expect(Object.keys(serviceOptions).sort()).toEqual([
         'answerProvider',
         'config',
+        'productCapabilityCaller',
         'retriever',
         'tracer',
       ]);
+      expect(serviceOptions.productCapabilityCaller).toEqual({
+        channel: 'web',
+        principal: 'anonymous',
+      });
       expect(serviceOptions.retriever).toBe(retriever);
       expect(typeof serviceOptions.answerProvider.answer).toBe('function');
       expect(createLazyRetriever).toHaveBeenCalledTimes(1);

@@ -1,0 +1,141 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+
+import {
+  CHAIN_ANALYSIS_MCP_SERVER_NAME,
+  CHAIN_ANALYSIS_MCP_VERSION,
+  DETECT_SANDWICH_TOOL_NAME,
+  INSPECT_TRANSACTION_TOOL_NAME,
+  detectSandwichOutputSchema,
+  inspectTransactionOutputSchema,
+  type ChainAnalysisHandler,
+  type ChainAnalysisMcpClient,
+  type DetectSandwichInput,
+  type DetectSandwichOutput,
+  type InspectTransactionInput,
+  type InspectTransactionOutput,
+} from './contracts.js';
+import { ChainAnalysisMcpToolError, decodeChainAnalysisMcpError } from './errors.js';
+import { createChainAnalysisMcpServer } from './server.js';
+
+export interface CreateInMemoryChainAnalysisMcpClientOptions {
+  handler: ChainAnalysisHandler;
+}
+
+export function createInMemoryChainAnalysisMcpClient(
+  options: CreateInMemoryChainAnalysisMcpClientOptions,
+): ChainAnalysisMcpClient {
+  const server = createChainAnalysisMcpServer({ handler: options.handler });
+  const client = new Client({
+    name: `${CHAIN_ANALYSIS_MCP_SERVER_NAME}-agent-bridge`,
+    version: CHAIN_ANALYSIS_MCP_VERSION,
+  });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  let closed = false;
+  const ready = (async () => {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+  })();
+
+  const call = async (
+    name: typeof INSPECT_TRANSACTION_TOOL_NAME | typeof DETECT_SANDWICH_TOOL_NAME,
+    input: InspectTransactionInput | DetectSandwichInput,
+    signal: AbortSignal | undefined,
+  ): Promise<unknown> => {
+    if (closed) {
+      throw new ChainAnalysisMcpToolError(
+        'tool_failure',
+        'XXYY chain-analysis MCP client is closed.',
+      );
+    }
+    await ready;
+    let result: Awaited<ReturnType<Client['callTool']>>;
+    try {
+      result = await client.callTool(
+        { arguments: input, name },
+        undefined,
+        signal === undefined ? {} : { signal },
+      );
+    } catch (error) {
+      if (signal?.aborted === true) {
+        throw new ChainAnalysisMcpToolError('request_aborted');
+      }
+      throw new ChainAnalysisMcpToolError('tool_failure', undefined, { cause: error });
+    }
+    if (result.isError === true) {
+      const encodedError = findFirstTextContent(result.content);
+      const decodedError =
+        encodedError === undefined ? undefined : decodeChainAnalysisMcpError(encodedError);
+      throw decodedError ?? new ChainAnalysisMcpToolError('tool_failure');
+    }
+    return result.structuredContent;
+  };
+
+  return {
+    async close() {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      await ready.catch(() => undefined);
+      await Promise.allSettled([client.close(), server.close()]);
+    },
+
+    async detectSandwich(input, requestOptions = {}) {
+      return detectSandwichOutputSchema.parse(
+        await call(DETECT_SANDWICH_TOOL_NAME, input, requestOptions.signal),
+      );
+    },
+
+    async inspectTransaction(input, requestOptions = {}) {
+      return inspectTransactionOutputSchema.parse(
+        await call(INSPECT_TRANSACTION_TOOL_NAME, input, requestOptions.signal),
+      );
+    },
+  };
+}
+
+export function createChainAnalysisMcpClientStub(options: {
+  detectSandwich?: (
+    input: DetectSandwichInput,
+    signal?: AbortSignal,
+  ) => Promise<DetectSandwichOutput>;
+  inspectTransaction?: (
+    input: InspectTransactionInput,
+    signal?: AbortSignal,
+  ) => Promise<InspectTransactionOutput>;
+}): ChainAnalysisMcpClient {
+  return {
+    close() {
+      return Promise.resolve();
+    },
+    detectSandwich(input, requestOptions) {
+      if (options.detectSandwich === undefined) {
+        return Promise.reject(new ChainAnalysisMcpToolError('tool_failure'));
+      }
+      return options.detectSandwich(input, requestOptions?.signal);
+    },
+    inspectTransaction(input, requestOptions) {
+      if (options.inspectTransaction === undefined) {
+        return Promise.reject(new ChainAnalysisMcpToolError('tool_failure'));
+      }
+      return options.inspectTransaction(input, requestOptions?.signal);
+    },
+  };
+}
+
+function findFirstTextContent(value: unknown): string | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  for (const item of value as unknown[]) {
+    if (isRecord(item) && item.type === 'text' && typeof item.text === 'string') {
+      return item.text;
+    }
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}

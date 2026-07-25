@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { loadChainOperationsRuntimeConfig, type ChainOperationsEnv } from './runtime-config.js';
+import {
+  loadChainDataPlaneRuntimeConfig,
+  loadChainOperationsRuntimeConfig,
+  type ChainOperationsEnv,
+} from './runtime-config.js';
 
 const hash = `sha256:${'ab'.repeat(32)}`;
 
@@ -34,6 +38,21 @@ describe('chain operations runtime configuration', () => {
         NODE_ENV: 'production',
       }),
     ).toThrow(/cannot be enabled in production/u);
+  });
+
+  it('loads the MCP data-plane boundary without unrelated worker identities', () => {
+    expect(
+      loadChainDataPlaneRuntimeConfig({
+        CHAIN_CONTROL_DATABASE_URL: 'postgres://localhost/chain_control',
+        CHAIN_DATA_PLANE_INSTANCE_ID_HASH: hash,
+        CHAIN_DATA_PLANE_MANIFEST_FILE: '/controlled/manifest.json',
+        CHAIN_DATA_PLANE_SECRET_DIR: '/run/secrets/chain',
+        DATABASE_URL: 'postgres://localhost/product',
+      }),
+    ).toMatchObject({
+      controlDatabaseUrl: 'postgres://localhost/chain_control',
+      instanceIdHash: hash,
+    });
   });
 });
 

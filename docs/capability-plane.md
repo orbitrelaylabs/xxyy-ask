@@ -1,103 +1,188 @@
-# MCP / Skill Capability Plane v0.1
+# MCP / Skill Capability Plane v0.3
 
 ## 当前状态
 
-Capability Plane v0.1 是未来 MCP 和本地 Skill 的安全执行基础，当前只作为 `packages/agent-core` 的独立库存在。它没有接入 `CustomerAgentRuntime`、Planner、Web / Telegram / CLI 客服入口，也没有启动 MCP server 或注册链上、交易能力。
+Capability Plane 已完成产品检索的公开运行面接入，以及链上分析的内部受控接入，但没有扩大公开客服业务边界：
 
-现有客服运行面继续使用 `ToolRegistry`，生产业务工具仍只有 `search_product_docs`。Capability 的“被描述”“被注册”“被授权”和“被 Agent 暴露”是四个独立步骤，任何一步都不会隐式完成下一步。
+- `packages/product-qa-mcp` 提供 `xxyy-product-support` MCP server/client。
+- MCP 只暴露只读 `search_product_docs`、`xxyy://skills/product-support` Resource 和 `xxyy_product_support` Prompt。
+- `skills/xxyy-product-support` 是项目级 Skill，规定检索、引用、证据不足与边界处理流程。
+- Web/API、CLI 和 Telegram 的 LangGraph runtime 都通过同一条 Skill → MCP bridge 检索产品知识。
+- `packages/chain-analysis-mcp` 提供内部 `xxyy-chain-analysis` MCP server/client、两个只读 Tool、capabilities/Skill Resources 与 Prompts。
+- `skills/xxyy-evm-transaction-inspector` 和 `skills/xxyy-evm-sandwich-detector` 默认禁止隐式调用；Chain Capability factory 只接受 `internal/(service|admin)` 或 `cli/admin`。
+- `pnpm chain:mcp:serve` 只有在固定 data-plane manifest 和 canonical readiness lineage 当前有效时才启动，且每次调用继续检查 attestation 时间窗。
+- 交易哈希、Explorer、池子、链上取证、MEV、账户、订单、钱包余额和投资建议仍不开放。
 
-## 设计
+Planner 的业务工具列表仍只有经过审查的 `search_product_docs`。MCP discovery、Resource 或 Skill 元数据不会自动注册工具，也不会自动生成 grant。
+
+## 执行链
 
 ```mermaid
 flowchart LR
-  Caller["经批准的内部调用方"] --> Registry["CapabilityRegistry"]
-  Registry --> Manifest["Manifest 与版本校验"]
-  Manifest --> Policy["Deny-by-default Policy"]
-  Policy --> Input["Input Schema"]
-  Input --> Bounds["Timeout / Cancellation / Output Limit"]
-  Bounds --> Adapter["Transport-neutral Adapter"]
-  Adapter -.-> Skill["未来 Local Skill Adapter"]
-  Adapter -.-> MCP["未来 MCP Client Adapter"]
-  Adapter --> Output["Output Schema + JSON Boundary"]
-  Output --> Audit["脱敏 agent.capability Trace"]
+  Runtime["LangGraph CustomerAgentRuntime"] --> Tool["ToolRegistry: search_product_docs"]
+  Tool --> Skill["product.skill.search_docs v1.0.0"]
+  Skill --> SkillPolicy["Skill manifest + exact grant"]
+  SkillPolicy --> MCP["product.mcp.search_docs v1.0.0"]
+  MCP --> MCPPolicy["MCP manifest + exact grant"]
+  MCPPolicy --> Client["MCP Client"]
+  Client --> InMemory["Linked in-memory transport"]
+  InMemory --> Server["xxyy-product-support MCP Server"]
+  Server --> Retriever["Product RAG Retriever"]
+  Skill --> Audit["redacted agent.capability trace"]
+  MCP --> Audit
 
-  Runtime["当前 CustomerAgentRuntime"] --> Tools["现有 ToolRegistry"]
-  Tools --> Product["search_product_docs"]
-  Runtime -. "尚未接线" .-> Registry
+  Host["External MCP Host"] --> Stdio["stdio transport"]
+  Stdio --> Server
 ```
 
-代码职责：
+API、CLI 和 Telegram 使用 MCP SDK 的 linked in-memory transport，因此无需启动旁路子进程，但仍执行标准 MCP initialize 和 `tools/call`。同一 server surface 支持外部 MCP host 发现 Tool、Resource 和 Prompt；可运行：
 
-- `capability-contract.ts`：manifest、调用上下文和 adapter 契约。
-- `capability-policy.ts`：精确 grant 和默认拒绝策略。
-- `capability-registry.ts`：注册目录、执行门禁、资源边界与审计。
-- `index.ts`：只导出稳定的能力平面契约，不改变公开 Chat API。
+```bash
+pnpm product:mcp:dev
+```
 
-## Manifest
+stdio server 使用与正式 Product RAG 相同的 `.env`、embedding 和 pgvector 配置。stdout 专用于 MCP protocol。
 
-每个能力必须显式声明：
+内部 Chain MCP 使用独立的生产数据面和 control DB：
+
+```mermaid
+flowchart LR
+  Internal["Trusted internal/service or cli/admin"] --> Tool["Reviewed internal Tool"]
+  Tool --> Skill["chain.skill.* v0.1.0"]
+  Skill --> MCP["chain.mcp.* v0.1.0"]
+  MCP --> Client["MCP Client"]
+  Client --> Server["xxyy-chain-analysis"]
+  Server --> TimeGate["Per-call readiness window"]
+  TimeGate --> Snapshot["Dual-provider snapshot"]
+  TimeGate --> Execution["Dual-provider execution"]
+  TimeGate --> Observation["Dual archive-provider observation"]
+  Snapshot --> Harness["Deterministic composition"]
+  Execution --> Harness
+  Observation --> Harness
+  Harness --> Projection["Bounded structured projection"]
+
+  Attestation["Pinned canonical readiness"] --> Startup["Startup lineage gate"]
+  Manifest["Pinned manifest"] --> Startup
+  Evidence["Policy + provider + budget evidence"] --> Startup
+  Startup --> Server
+```
+
+```bash
+pnpm chain:mcp:serve
+```
+
+该命令不读取项目 `.env`。它要求 deployment environment 显式提供独立 control DB、manifest/secret mount、instance identity，以及：
+
+- `CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT`；
+- `CHAIN_ANALYSIS_READINESS_FINGERPRINT`。
+
+启动时会重读指定 readiness attestation、operations evidence 与 policy，要求状态为 `ready`、时间未过期、policy 覆盖 Ethereum chain 1 与 snapshot/execution/mev_observation 三类 adapter、每类至少两个 Provider，并逐条匹配 manifest 中的 Provider descriptor 与 budget policy fingerprint。先通过门禁才解析 Provider secrets。缺失、过期或 lineage 漂移都以稳定配置错误失败关闭。仓库没有提交真实 fingerprint、endpoint、credential 或 `ready` 证明。
+
+## 已注册能力
+
+| Capability                        | Source  | Risk     | Side effect     | Data scope                                | Agent 可见      |
+| --------------------------------- | ------- | -------- | --------------- | ----------------------------------------- | --------------- |
+| `product.skill.search_docs`       | `skill` | low      | `external_read` | `product.public`                          | 公开固定 bridge |
+| `product.mcp.search_docs`         | `mcp`   | low      | `external_read` | `product.public`                          | 不直接暴露      |
+| `chain.skill.inspect_transaction` | `skill` | moderate | `external_read` | public Ethereum transaction/execution     | 仅内部 factory  |
+| `chain.mcp.inspect_transaction`   | `mcp`   | moderate | `external_read` | public Ethereum transaction/execution     | 不直接暴露      |
+| `chain.skill.detect_sandwich`     | `skill` | moderate | `external_read` | public Ethereum transaction/execution/MEV | 仅内部 factory  |
+| `chain.mcp.detect_sandwich`       | `mcp`   | moderate | `external_read` | public Ethereum transaction/execution/MEV | 不直接暴露      |
+
+两项 Product 能力均固定为 `1.0.0`，单次 timeout 为 30 秒，最大 JSON 输出为 262144 bytes。四项 Chain 能力固定为 `0.1.0`；transaction inspection 的 timeout/output 上限为 60 秒/524288 bytes，Sandwich 为 120 秒/1048576 bytes。它们都是只读 external read，不要求确认或幂等 key。Skill adapter 只能调用同一 Registry 内已授权的 MCP capability。
+
+可信调用身份由 composition root 固定，不能来自 Planner 或聊天 payload：
+
+| 入口             | Channel    | Principal   |
+| ---------------- | ---------- | ----------- |
+| HTTP/Web         | `web`      | `anonymous` |
+| CLI              | `cli`      | `user`      |
+| Telegram Bot     | `telegram` | `service`   |
+| 默认内部 runtime | `agent`    | `service`   |
+
+每个 runtime 只创建覆盖自身 channel/principal 的两条精确 grant。使用其它 channel、principal、source、version、side effect 或 data scope 会在解析业务输入前拒绝。
+
+Chain registry 不使用上表中的公开调用身份。它在 factory 构造时硬拒绝任何不属于 `internal/(service|admin)` 或 `cli/admin` 的 caller，并为两个 Skill 与两个 MCP capability 创建四条仅覆盖该 caller 的 grant。公开 CustomerAgentRuntime 没有实例化该 registry，也没有把两个 Chain Tool 注册给 Planner。
+
+## MCP 与 Skill Surface
+
+### Tool
+
+`search_product_docs` 输入：
+
+```json
+{
+  "query": "XXYY Pro 权益",
+  "question": "XXYY Pro 有哪些权益？",
+  "topK": 6
+}
+```
+
+- `query` 必填。
+- `question` 可选，用完整原问题约束 citation selection。
+- `topK` 可选，内部上限固定为 20；reranker candidate expansion 仍受现有上限控制。
+
+输出经过 Zod、JSON serialization 和 byte limit 三层校验，包含安全化 chunks、citations、可选 attachments 和 confidence。embedding、tokens、凭证类文本和已隔离 prompt injection 不会作为原始内部数据返回。
+
+### Skill
+
+项目 Skill 位于 `skills/xxyy-product-support`。MCP server 同时将其运行说明作为 Resource 和 Prompt 暴露，供支持对应能力的 MCP host 使用。
+
+Skill 是受控编排层，不是权限来源。Skill 文件提到某项能力，不代表 Registry 已注册或已授权该能力。
+
+### Chain Tools 与 Skills
+
+`inspect_transaction` 只接受 `chainId` 与一个 transaction hash；`detect_sandwich` 另要求一个已经验证、且位于启动 allowlist 的 pool address。MCP 不接受 endpoint、provider id、任意 JSON-RPC method、block range、账户凭证或私有数据。
+
+输出复用 deterministic harness 的 transaction/execution/MEV projection，保留 evidence、coverage、conflicts、warnings、diagnostics、fingerprints 和 `success | partial | insufficient_data`。Sandwich verdict 原样保留 `confirmed | likely | unlikely | insufficient_data`；MCP 不返回构建判定所用的 raw observation payload。
+
+两个 Chain Skills 位于 `skills/xxyy-evm-transaction-inspector` 与 `skills/xxyy-evm-sandwich-detector`。Sandwich workflow 必须先检查交易，只能从已验证 swap evidence 选 pool；多 pool 时不得猜测。Skill metadata 的 `allow_implicit_invocation` 为 `false`，且 metadata 本身不授予执行权限。
+
+## Manifest 与授权规则
+
+每个 Capability 必须声明：
 
 | 字段                   | 约束                                                                 |
 | ---------------------- | -------------------------------------------------------------------- |
-| `id`                   | 小写、带命名空间，例如 `chain.inspect_transaction`                   |
-| `version`              | 精确 semver；授权不会自动跨版本继承                                  |
-| `source`               | `builtin`、`skill` 或 `mcp`，且必须和 adapter 来源一致               |
+| `id`                   | 小写 namespace id                                                    |
+| `version`              | 精确 semver；grant 不跨版本继承                                      |
+| `source`               | `builtin`、`skill` 或 `mcp`，必须与 adapter 一致                     |
 | `risk`                 | `low`、`moderate`、`high` 或 `critical`                              |
 | `sideEffect`           | `none`、`external_read`、`external_write` 或 `financial_transaction` |
-| `dataScopes`           | 能力所读取或处理的数据范围；必须非空且无重复                         |
+| `dataScopes`           | 非空、唯一的最小数据范围                                             |
 | `requiresConfirmation` | 外部写入和金融交易必须为 `true`                                      |
 | `idempotency`          | 外部写入和金融交易必须为 `required`                                  |
-| `limits`               | 单次调用的超时和最大 JSON 输出字节数                                 |
+| `limits`               | timeout 与最大 JSON 输出 bytes                                       |
 
-Registry 在注册时重新解析并冻结 manifest。MCP discovery 或 Skill 元数据未来只能形成“待审核定义”，不得未经本地风险标注和版本固定就自动注册。
-
-## 授权模型
-
-默认 policy 没有 grant，因此即使能力已经注册，也不能执行。一个 grant 必须同时覆盖以下维度：
-
-- 精确 capability id、version 和 source；
-- 调用 channel 和 principal；
-- 不低于 manifest 的最大风险等级；
-- side effect；
-- manifest 声明的全部 data scopes。
-
-`channel`、`principal` 和 `userConfirmed` 是可信组合层传入的安全上下文，不能由 Planner、模型输出或未经认证的请求字段直接指定。未来确认流程还必须把确认记录绑定到具体 capability、版本和输入摘要；v0.1 的布尔字段只定义执行门禁，不等于已经实现用户确认 UI 或防重放凭证。
-
-外部写入和金融交易还有独立于可替换 policy 的执行器硬门禁：必须带用户确认和至少 8 字符的 idempotency key。当前 v0.1 只强制 key 存在并将其传给 adapter；真正的跨进程去重、结果重放和 exactly-once 语义必须由未来 adapter 或持久化协调器实现，在完成前不得开放写能力。
+能力被描述、注册、授权和暴露给 Agent 是四个独立步骤。远端 MCP discovery 或本地 Skill metadata 只能作为待审核定义，不能隐式完成后续步骤。
 
 ## 单次调用流程
 
-1. 校验 channel、principal、request id、确认状态和可选取消信号。
-2. 查找精确注册的 capability；未注册调用也会产生不含输入值的审计记录。
-3. 执行 policy；默认拒绝，且在拒绝时不会解析业务输入或调用 adapter。
-4. 对已授权请求执行 input schema。
-5. 取 manifest 限制和 Registry 全局限制中的更小值作为实际超时与输出上限。
-6. 调用 adapter，并向其传递组合后的 `AbortSignal`。超时或上游取消时 Registry 会立即停止等待；adapter 契约要求同时停止底层网络或进程工作。
-7. 校验 output schema，确认结果可 JSON 序列化并检查 UTF-8 字节数。
-8. 返回结果，只把固定元数据、值类型、字段/元素数量和大小摘要写入 `agent.capability` trace。
+1. 使用 composition root 固定的 channel/principal 创建调用上下文。
+2. 查找精确 capability id；未注册调用也写入不含 payload 的审计记录。
+3. 执行 deny-by-default policy。
+4. 校验 input schema。
+5. 取 manifest 与 Registry 全局 timeout/output limit 中的更小值。
+6. Skill capability 调用 MCP capability，MCP Client 通过 transport 执行 `tools/call`。
+7. 校验 MCP structured output、Capability output schema、JSON serialization 和大小。
+8. 返回 ToolRegistry，由 observation 和 answer composer 继续处理。
+
+Product MCP handler 将配置类故障编码为稳定错误类别；进程内 client 会恢复为现有 `EmbeddingConfigurationError`、`VectorStoreConfigurationError` 或 `VectorStoreUnavailableError`，保证 API 继续区分 embedding 配置、vector store 配置和运行时不可用。Chain MCP 只跨协议返回 `chain_not_configured`、`pool_not_configured`、`provider_unavailable`、`request_aborted`、`runtime_not_ready`、`tool_timeout`、`output_too_large` 或 `tool_failure`。其它 provider/adapter 错误不会把异常原文、endpoint 或 credential 跨 MCP 边界返回。
 
 ## 审计与隐私
 
-`agent.capability` 可以记录 capability id/version/source、channel、principal、风险、副作用、data scope 数量、policy 结果、有效 timeout/output limit、是否提供确认和幂等 key，以及输入/输出的值类型、字段/元素数量和输出字节数。字段名也视为调用方可控数据，不进入 trace。
+`agent.capability` 只记录 capability id/version/source、channel、principal、risk、side effect、data scope 数量、policy 结果、实际 limits、输入/输出类型与字段/元素数量、输出 bytes。
 
 禁止记录：
 
-- capability 输入值或输出值；
-- idempotency key 原文；
-- session / user id、Authorization、私钥或 API key；
-- RPC 返回的完整交易、钱包或账户数据；
-- 错误堆栈和 adapter 内部凭证。
+- capability 输入或输出值；
+- 字段名、完整 query、chunk 正文或 citation 正文；
+- session/user id、Authorization、私钥、API key 或 idempotency key；
+- MCP/Provider 异常堆栈与 endpoint；
+- 账户、钱包或私有交易数据。
 
-## 未来能力分层
+Tool trace、Skill trace、MCP trace 和 RAG trace保持父子关系，便于定位失败层，同时不扩大明文日志。
 
-下表是规划分类，不代表已经注册或可调用：
+## 仍未开放的能力
 
-| 能力示例                    | 建议风险 / 副作用                | 数据范围                        | 当前状态                                       |
-| --------------------------- | -------------------------------- | ------------------------------- | ---------------------------------------------- |
-| `chain.inspect_transaction` | moderate / external read         | `chain.public`                  | 最小请求/结果 projection 已实现；未注册        |
-| `chain.detect_sandwich`     | moderate / external read         | `chain.public`                  | 离线 composition/evaluation 已实现；能力未注册 |
-| `trade.analyze_execution`   | high / external read             | `chain.public`, `market.public` | 未实现；仍需禁止投资建议                       |
-| `account.read_private`      | high / external read             | `account.private`               | 长期不进入公开客服                             |
-| `trade.submit_transaction`  | critical / financial transaction | `wallet.private`                | 不在当前产品范围                               |
-
-第一批真正接入的能力应只选公开数据、只读、可离线评测的链上分析，并先限于内部或管理 channel。底层标准 RPC allowlist、snapshot provenance、基础交易事实、受控 callTracer/pool metadata adapter、离线 trace/revert/swap 语义、MEV observation adapter、price-impact/Sandwich 四态 core、composition/evaluation harness，以及 sampling、target-agnostic candidate handoff、单槽 owner review work queue、reviewed replay / production evidence 控制面已经分别实现。当前只有 synthetic regression 和 contract-only governance fixture：没有 reviewed 主网 corpus、真实 owner/provider backend 或有效 production evidence，综合 evaluator 按设计保持 `blocked`。仍需 v0.14b 的真实审批/采样/复核、部署共享配额/circuit、持久审计、告警/SLO、安全演练，以及后续独立的 Skill/Capability adapter、授权 grant、显式 bridge 和运行面安全审查。Capability Plane 本身不会让 Planner 自动发现或执行能力。
+Chain MCP/Skills 与内部 Capability bridge 已实现，但真实生产激活和公开客服编排仍未完成。仓库只有 synthetic/contract fixtures，没有真实 Provider credential、reviewed mainnet corpus、SLO/security/runbook evidence 或 canonical `ready` attestation，因此 `pnpm chain:mcp:serve` 在默认环境按设计失败关闭。Web/API/Telegram 继续拒绝交易与 MEV 请求；公开路由、回答编排、产品/安全/合规评审属于后续独立阶段。

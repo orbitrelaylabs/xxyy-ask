@@ -7,6 +7,8 @@ const fingerprintSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 export type ChainOperationsEnv = Partial<
   Record<
     | 'CHAIN_CONTROL_DATABASE_URL'
+    | 'CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT'
+    | 'CHAIN_ANALYSIS_READINESS_FINGERPRINT'
     | 'CHAIN_DATA_PLANE_ALLOW_INSECURE_LOCALHOST'
     | 'CHAIN_DATA_PLANE_INSTANCE_ID_HASH'
     | 'CHAIN_DATA_PLANE_MANIFEST_FILE'
@@ -33,19 +35,22 @@ export class ChainOperationsCliError extends Error {
   }
 }
 
-export interface ChainOperationsRuntimeConfig {
+export interface ChainDataPlaneRuntimeConfig {
   allowInsecureLocalhost: boolean;
   controlDatabaseUrl: string;
   instanceIdHash: string;
   manifestFile: string;
-  reconciliationWorkerIdHash: string;
-  retentionWorkerIdHash: string;
   secretDirectory: string;
 }
 
-export function loadChainOperationsRuntimeConfig(
+export interface ChainOperationsRuntimeConfig extends ChainDataPlaneRuntimeConfig {
+  reconciliationWorkerIdHash: string;
+  retentionWorkerIdHash: string;
+}
+
+export function loadChainDataPlaneRuntimeConfig(
   env: ChainOperationsEnv,
-): ChainOperationsRuntimeConfig {
+): ChainDataPlaneRuntimeConfig {
   const instanceIdHash = parseHash(
     env.CHAIN_DATA_PLANE_INSTANCE_ID_HASH,
     'CHAIN_DATA_PLANE_INSTANCE_ID_HASH',
@@ -64,16 +69,25 @@ export function loadChainOperationsRuntimeConfig(
     manifestFile: path.resolve(
       requiredText(env.CHAIN_DATA_PLANE_MANIFEST_FILE, 'Manifest file is required.'),
     ),
+    secretDirectory: path.resolve(
+      requiredText(env.CHAIN_DATA_PLANE_SECRET_DIR, 'Secret directory is required.'),
+    ),
+  };
+}
+
+export function loadChainOperationsRuntimeConfig(
+  env: ChainOperationsEnv,
+): ChainOperationsRuntimeConfig {
+  const dataPlane = loadChainDataPlaneRuntimeConfig(env);
+  return {
+    ...dataPlane,
     reconciliationWorkerIdHash: parseHash(
-      env.CHAIN_RECONCILIATION_WORKER_ID_HASH ?? instanceIdHash,
+      env.CHAIN_RECONCILIATION_WORKER_ID_HASH ?? dataPlane.instanceIdHash,
       'CHAIN_RECONCILIATION_WORKER_ID_HASH',
     ),
     retentionWorkerIdHash: parseHash(
       env.CHAIN_RETENTION_WORKER_ID_HASH,
       'CHAIN_RETENTION_WORKER_ID_HASH',
-    ),
-    secretDirectory: path.resolve(
-      requiredText(env.CHAIN_DATA_PLANE_SECRET_DIR, 'Secret directory is required.'),
     ),
   };
 }

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChatResponse, ChatStreamEvent } from '@xxyy/shared';
+import { createProductQaMcpClientStub, type ProductSearchOutput } from '@xxyy/product-qa-mcp';
 import {
   createInMemoryQualityTracer,
   LlmConfigurationError,
@@ -144,6 +145,45 @@ describe('createCustomerAgentChatService', () => {
     expect(retrieveCalls).toEqual([{ question: 'XXYY Pro 有哪些权益？', topK: 8 }]);
   });
 
+  it('uses an injected MCP client behind the Skill capability bridge', async () => {
+    const search = vi.fn((input: { query: string }, signal?: AbortSignal) => {
+      expect(signal).toBeInstanceOf(AbortSignal);
+      return Promise.resolve(createProductSearchOutput(input.query));
+    });
+    const service = createCustomerAgentChatService({
+      answerProvider: {
+        answer(input) {
+          return Promise.resolve({
+            answer: `MCP-backed answer from ${input.retrievedChunks[0]?.id}`,
+            citations: [],
+            confidence: 0.8,
+            intent: input.classification.intent,
+          });
+        },
+      },
+      planner: createScriptedPlannerModel([]),
+      productCapabilityCaller: {
+        channel: 'web',
+        principal: 'anonymous',
+      },
+      productMcpClient: createProductQaMcpClientStub(search),
+    });
+
+    await expect(
+      service.ask({ channel: 'web', message: 'XXYY Pro 有哪些权益？' }),
+    ).resolves.toMatchObject({
+      answer: 'MCP-backed answer from pro-benefits',
+      agentRoute: 'product_answer',
+    });
+    expect(search).toHaveBeenCalledWith(
+      {
+        query: 'XXYY Pro 有哪些权益？',
+        question: 'XXYY Pro 有哪些权益？',
+      },
+      expect.any(AbortSignal),
+    );
+  });
+
   it('propagates one tracer through request, tool, and reranking layers', async () => {
     const { records, tracer } = createInMemoryQualityTracer();
     const service = createCustomerAgentChatService({
@@ -180,6 +220,8 @@ describe('createCustomerAgentChatService', () => {
       'agent.classify',
       'agent.guard',
       'agent.tool',
+      'agent.capability',
+      'agent.capability',
       'rag.metadata_rerank',
       'agent.observe',
       'agent.answer_composer',
@@ -187,7 +229,15 @@ describe('createCustomerAgentChatService', () => {
     const root = records.find((record) => record.name === 'chat.request');
     const tool = records.find((record) => record.name === 'agent.tool');
     const rerank = records.find((record) => record.name === 'rag.metadata_rerank');
-    expect(rerank?.parentId).toBe(tool?.id);
+    const skillCapability = records.find(
+      (record) => record.name === 'agent.capability' && record.metadata?.source === 'skill',
+    );
+    const mcpCapability = records.find(
+      (record) => record.name === 'agent.capability' && record.metadata?.source === 'mcp',
+    );
+    expect(skillCapability?.parentId).toBe(tool?.id);
+    expect(mcpCapability?.parentId).toBe(skillCapability?.id);
+    expect(rerank?.parentId).toBe(mcpCapability?.id);
     expect(records.find((record) => record.name === 'agent.observe')).toMatchObject({
       outputs: { sufficient: true },
       parentId: root?.id,
@@ -708,6 +758,33 @@ function createRetrievedChunk(overrides: Partial<RetrievedChunk> = {}): Retrieve
       ...base.metadata,
       ...overrides.metadata,
     },
+  };
+}
+
+function createProductSearchOutput(query: string): ProductSearchOutput {
+  const chunk = createRetrievedChunk();
+  return {
+    chunks: [
+      {
+        documentId: chunk.documentId,
+        id: chunk.id,
+        lexicalScore: chunk.lexicalScore,
+        metadata: chunk.metadata,
+        rank: chunk.rank,
+        score: chunk.score,
+        sourceBoost: chunk.sourceBoost,
+        text: `${chunk.text} ${query}`,
+        vectorScore: chunk.vectorScore,
+      },
+    ],
+    citations: [
+      {
+        excerpt: chunk.text,
+        file: chunk.metadata.file,
+        title: chunk.metadata.title,
+      },
+    ],
+    confidence: chunk.score,
   };
 }
 

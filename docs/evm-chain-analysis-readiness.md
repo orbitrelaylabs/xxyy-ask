@@ -2,13 +2,13 @@
 
 ## 当前状态
 
-`@xxyy/evm-chain-analysis-readiness` 是一个未接线、无网络 I/O 的离线控制面包。它解决三个问题：
+`@xxyy/evm-chain-analysis-readiness` 是一个无网络 I/O 的离线控制面包。它解决三个问题：
 
 1. 未来公开主网样本如何在真实采集前形成来源/保留审批、分层 sampling policy、确定性 quota plan 和 evidence manifest；
 2. 公开主网 replay case 在进入 `@xxyy/evm-chain-analysis-harness` 前，如何经过可审计的采集、单 owner 复核、修订、保留和删除流程；
 3. 未来真实 provider 数据面需要提交哪些预算、审计、告警、共享熔断、SLO、故障演练、安全和 runbook 证据，才能判断是否具备内部试用条件。
 
-本契约包没有真实主网样本、真实来源/法务审批、endpoint、credential、数据库 client、Redis 或 RPC client，也不读取环境变量。独立 control-store 已实现 Postgres 治理与共享控制 backend，data-plane 包与私有 operations CLI 已实现 opaque secret、双 Provider composition、持久请求审计和 worker handler runtime；它们均未部署、未配置真实 grant/provider/credential，也没有注册 Capability、MCP、Skill、LangGraph tool、API、Web 或 Telegram 入口。当前公开客服仍只回答产品知识问题，交易哈希、Explorer、池子、链上取证和 MEV 请求继续返回边界或澄清回复。私有运行边界见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
+本契约包没有真实主网样本、真实来源/法务审批、endpoint、credential、数据库 client、Redis 或 RPC client，也不读取环境变量。独立 control-store 已实现 Postgres 治理与共享控制 backend，data-plane 包与私有 operations CLI 已实现 opaque secret、双 Provider composition、持久请求审计和 worker handler runtime；内部 Chain MCP/Skills 与 Capability bridge 也已实现，但 stdio composition 必须从 control DB 重读指定 attestation，并只在 `ready`、未过期且 Provider/budget lineage 与固定 manifest 完全一致时启动。仓库没有这些真实生产输入，API、Web、Telegram 与公开 LangGraph 仍不注册链上 Tool。当前公开客服继续只回答产品知识问题。私有运行边界见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
 
 ## 总体流程
 

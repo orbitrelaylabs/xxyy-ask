@@ -1,0 +1,12 @@
+interface:
+  display_name: 'XXYY Product Support'
+  short_description: 'Search official XXYY product knowledge via MCP'
+  default_prompt: 'Use $xxyy-product-support to answer this XXYY product question with official citations.'
+dependencies:
+  tools:
+    - type: 'mcp'
+      value: 'xxyy-product-support'
+      description: 'Read-only access to governed XXYY product knowledge'
+      transport: 'stdio'
+policy:
+  allow_implicit_invocation: true

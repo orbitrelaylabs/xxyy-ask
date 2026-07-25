@@ -2,9 +2,9 @@
 
 ## 当前状态
 
-`@xxyy/evm-chain-analysis-harness` 是未接线、不执行网络 I/O 的离线组合与评测包。它把已经归一化的 transaction snapshot、可选 execution trace/pool metadata、已经由受控 adapter 验证的 MEV observation，以及现有 price-impact/Sandwich core 组合成一个可重放 pipeline。
+`@xxyy/evm-chain-analysis-harness` 是不执行网络 I/O 的离线组合与评测包。它把已经归一化的 transaction snapshot、可选 execution trace/pool metadata、已经由受控 adapter 验证的 MEV observation，以及现有 price-impact/Sandwich core 组合成一个可重放 pipeline。
 
-该包同时定义未来 `chain.inspect_transaction` 与 `chain.detect_sandwich` 的最小 transport-neutral 请求和结构化结果，但没有注册 Capability manifest、授权 grant、MCP tool、LangGraph tool 或任何 API/CLI/Telegram 入口。公开客服对交易哈希、Explorer、池子、链上取证和 MEV 请求仍返回既有边界或澄清回复。
+该包定义 `chain.inspect_transaction` 与 `chain.detect_sandwich` 的最小 transport-neutral 请求和结构化结果；内部 `packages/chain-analysis-mcp` 已在包外提供 MCP Tool、Skill Resource 与精确 Capability bridge。harness 自身仍不注册 manifest/grant、不实例化 transport，也不进入公开 LangGraph/API/Telegram。公开客服对交易哈希、Explorer、池子、链上取证和 MEV 请求继续返回既有边界或澄清回复。
 
 ## 设计目标
 
@@ -13,7 +13,7 @@
 - chain、transaction、block、index、pool 和 canonical provider block 不能闭合时 fail closed；
 - 合成回归与人工审核样本分层，禁止用合成 fixture 冒充主网质量；
 - 统一计算 precision、recall、abstention、coverage、unsupported rate、provider cost 与 byte determinism；
-- 在任何运行面接线前，用显式质量门禁证明是否具备内部试用条件。
+- 在真实运行面激活前，用显式质量门禁证明是否具备内部试用条件。
 
 ## 离线数据流
 
@@ -205,8 +205,8 @@ recall 显式把 positive abstention 放进分母，避免系统通过大量弃�
 - 读取环境变量、真实 endpoint、provider credential 或任意网络资源；
 - 实例化三个 RPC adapter 或选择 provider；
 - 注册 Capability manifest/grant 或修改 `CapabilityRegistry`；
-- 被 `agent-core`、`rag-core`、API、CLI、Telegram、Web 或 LangGraph 引用；
-- 暴露 MCP server/tool；
+- 依赖 `agent-core`、`rag-core`、MCP SDK、API、Telegram、Web 或 LangGraph；
+- 自行暴露 MCP server/tool；包外 adapter 只能传入已校验领域对象；
 - 改变公开客服边界。
 
 验证命令：
@@ -223,4 +223,4 @@ pnpm check
 
 下一阶段不是直接接入客服，而是由 owner 完成真实来源/法律/保留审批和自动验证，部署现有 shared-control data plane，再按已定义 plan 实际采集、重放和复核公开主网样本，验证 metrics/alerting 与安全演练，并让 governed corpus 实际通过 internal readiness gate。
 
-只有 reviewed corpus、真实 provider 安全运维、内部授权、Capability adapter 和运行面安全审查全部通过，才考虑在内部/管理 channel 受限注册链上能力。公开客服入口仍需独立产品与安全决策。
+内部 MCP/Skill/Capability adapter 的仓库实现已经完成，但只有 reviewed corpus、真实 provider 安全运维、canonical `ready` attestation 和运行面安全审查全部通过，才允许用生产配置启动。公开客服入口仍需独立产品与安全决策。

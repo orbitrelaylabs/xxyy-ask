@@ -1110,6 +1110,10 @@ function createCachedChatServiceLoader(
     cachedService = createCustomerAgentChatService({
       answerProvider: createLazyAnswerProvider(config, tracer),
       config,
+      productCapabilityCaller: {
+        channel: 'web',
+        principal: 'anonymous',
+      },
       retriever,
       tracer,
     });

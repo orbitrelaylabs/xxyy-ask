@@ -6,10 +6,10 @@ XXYY 客服 Agentic RAG 项目。当前阶段暂时收敛为知识库产品问�
 
 - 产品功能、配置步骤、权益说明和官方更新相关问题会走 Product RAG。
 - 交易哈希、公开 explorer 链接、池子查询、链上取证和泛 MEV 问题暂不分析，统一返回边界/澄清回复。
-- 暂不暴露 MCP server，也不保留或注册本地 project skills；仓库中的 Capability Plane、EVM 交易/执行/MEV 离线核心、三个只读 RPC adapter、离线组合评测 harness、sampling/reviewed replay/production readiness 控制面、Postgres control backend 及私有双 Provider data plane 都尚未接入客服运行面。`chain-control-cli` 只负责 production provisioning，`chain-operations-cli` 只负责受控 provider/worker 运维。
+- 已接入只读 `xxyy-product-support` MCP server 和同名 project Skill。另已实现内部 `xxyy-chain-analysis` MCP、transaction inspector / Sandwich detector Skills，以及仅允许 `internal/service|admin`、`cli/admin` 的 Capability bridge；它们只有在 canonical readiness 为未过期 `ready` 且 manifest/Provider/budget lineage 精确匹配时才能连接，Web/API/Telegram 仍不注册链上工具。
 - 不查询用户账户、订单、钱包余额或私有交易记录，不提供投资建议。
 
-最终产品需求与总体设计见 [docs/target-product-design.md](docs/target-product-design.md)，当前功能状态见 [docs/feature-status.md](docs/feature-status.md)，全自动知识演进流程见 [docs/knowledge-evolution.md](docs/knowledge-evolution.md)，未来 MCP / Skill 安全执行契约见 [docs/capability-plane.md](docs/capability-plane.md)，离线 EVM 交易核心见 [docs/transaction-analysis-core.md](docs/transaction-analysis-core.md)，执行语义增强见 [docs/evm-execution-enrichment.md](docs/evm-execution-enrichment.md)，价格影响与 Sandwich 判定见 [docs/evm-price-impact-sandwich.md](docs/evm-price-impact-sandwich.md)，受控标准 RPC 数据边界见 [docs/evm-data-adapter.md](docs/evm-data-adapter.md)，受控执行数据边界见 [docs/evm-execution-data-adapter.md](docs/evm-execution-data-adapter.md)，同区块 MEV observation 数据边界见 [docs/evm-mev-observation-data-adapter.md](docs/evm-mev-observation-data-adapter.md)，离线组合与评测见 [docs/evm-chain-analysis-harness.md](docs/evm-chain-analysis-harness.md)，主网采样计划与 evidence intake 见 [docs/evm-chain-analysis-sampling.md](docs/evm-chain-analysis-sampling.md)，manifest 到 candidate 的无偏交接见 [docs/evm-chain-analysis-sampling-handoff.md](docs/evm-chain-analysis-sampling-handoff.md)，单 owner 复核任务队列见 [docs/evm-chain-analysis-review-work-queue.md](docs/evm-chain-analysis-review-work-queue.md)，reviewed replay 与生产数据面就绪控制见 [docs/evm-chain-analysis-readiness.md](docs/evm-chain-analysis-readiness.md)，Postgres 治理与共享控制 backend 见 [docs/evm-chain-analysis-control-store.md](docs/evm-chain-analysis-control-store.md)，production provisioning 运维见 [docs/chain-control-provisioning-operations.md](docs/chain-control-provisioning-operations.md)，Provider/worker data plane 运维见 [docs/chain-data-plane-operations.md](docs/chain-data-plane-operations.md)，可重算 readiness 证据账本见 [docs/evm-chain-analysis-readiness-evidence-ledger.md](docs/evm-chain-analysis-readiness-evidence-ledger.md)，生产运行说明见 [docs/production-readiness.md](docs/production-readiness.md)，后续规划见 [docs/roadmap.md](docs/roadmap.md)。
+最终产品需求与总体设计见 [docs/target-product-design.md](docs/target-product-design.md)，当前功能状态见 [docs/feature-status.md](docs/feature-status.md)，全自动知识演进流程见 [docs/knowledge-evolution.md](docs/knowledge-evolution.md)，MCP / Skill 安全执行与当前接入见 [docs/capability-plane.md](docs/capability-plane.md)，离线 EVM 交易核心见 [docs/transaction-analysis-core.md](docs/transaction-analysis-core.md)，执行语义增强见 [docs/evm-execution-enrichment.md](docs/evm-execution-enrichment.md)，价格影响与 Sandwich 判定见 [docs/evm-price-impact-sandwich.md](docs/evm-price-impact-sandwich.md)，受控标准 RPC 数据边界见 [docs/evm-data-adapter.md](docs/evm-data-adapter.md)，受控执行数据边界见 [docs/evm-execution-data-adapter.md](docs/evm-execution-data-adapter.md)，同区块 MEV observation 数据边界见 [docs/evm-mev-observation-data-adapter.md](docs/evm-mev-observation-data-adapter.md)，离线组合与评测见 [docs/evm-chain-analysis-harness.md](docs/evm-chain-analysis-harness.md)，主网采样计划与 evidence intake 见 [docs/evm-chain-analysis-sampling.md](docs/evm-chain-analysis-sampling.md)，manifest 到 candidate 的无偏交接见 [docs/evm-chain-analysis-sampling-handoff.md](docs/evm-chain-analysis-sampling-handoff.md)，单 owner 复核任务队列见 [docs/evm-chain-analysis-review-work-queue.md](docs/evm-chain-analysis-review-work-queue.md)，reviewed replay 与生产数据面就绪控制见 [docs/evm-chain-analysis-readiness.md](docs/evm-chain-analysis-readiness.md)，Postgres 治理与共享控制 backend 见 [docs/evm-chain-analysis-control-store.md](docs/evm-chain-analysis-control-store.md)，production provisioning 运维见 [docs/chain-control-provisioning-operations.md](docs/chain-control-provisioning-operations.md)，Provider/worker data plane 运维见 [docs/chain-data-plane-operations.md](docs/chain-data-plane-operations.md)，可重算 readiness 证据账本见 [docs/evm-chain-analysis-readiness-evidence-ledger.md](docs/evm-chain-analysis-readiness-evidence-ledger.md)，生产运行说明见 [docs/production-readiness.md](docs/production-readiness.md)，后续规划见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 项目结构
 
@@ -17,7 +17,7 @@ XXYY 客服 Agentic RAG 项目。当前阶段暂时收敛为知识库产品问�
 apps/
   api/          HTTP API 和 Web UI 服务入口
   chain-control-cli/  隔离的 production provisioning 与 receipt/audit 验证入口
-  chain-operations-cli/  隔离的双 Provider、共享控制与 worker 运维入口
+  chain-operations-cli/  隔离的双 Provider、共享控制、worker 运维与 readiness-gated Chain MCP 入口
   cli/          RAG ingest、X sync、migrate、stats、ask 命令
   telegram-bot/ Telegram Bot long polling 入口
   web/          静态聊天页面
@@ -25,19 +25,25 @@ packages/
   shared/       共享类型和聊天契约
   knowledge/    产品文档加载、Markdown chunk、tokenize、embedding provider
   rag-core/     意图分类、检索、pgvector store、LLM 回答和边界回复
-  agent-core/   LangGraph 客服 runtime、tool registry，以及未接线的 MCP/Skill capability plane
-  transaction-analysis-core/  未接线、无网络依赖的只读 EVM 交易事实计算
-  evm-data-adapter/  未接线、allowlisted 且有资源上限的只读 EVM JSON-RPC 归一化
-  evm-execution-enrichment-core/  未接线、离线的 trace/revert/Uniswap swap 语义增强
-  evm-execution-data-adapter/  未接线、allowlisted 的 callTracer 和 pool/factory metadata 验证
-  evm-price-impact-sandwich-core/  未接线、离线的 price impact 和 Sandwich 四态判定
-  evm-mev-observation-data-adapter/  未接线、allowlisted 的同区块 MEV observation 构建与验证
-  evm-chain-analysis-harness/  未接线、离线的链上分析组合、回放评测与质量门禁
-  evm-chain-analysis-readiness/  未接线、离线的 sampling/handoff/reviewed replay 治理与生产就绪控制面
-  evm-chain-analysis-control-store/  未接线的 Postgres sampling/handoff/review/readiness ledger/共享控制 backend
-  evm-chain-analysis-data-plane/  未接线的双 Provider composition、secret、budget/circuit/cache/audit/worker runtime
+  agent-core/   LangGraph 客服 runtime、tool registry，以及已接入产品检索的 MCP/Skill capability plane
+  product-qa-mcp/  只读产品知识 MCP server/client、Skill Resource/Prompt 和 stdio 入口
+  chain-analysis-mcp/  内部交易检查与 Sandwich 判断 MCP server/client、Skill Resource/Prompt
+  transaction-analysis-core/  无网络依赖、由内部 Chain MCP 组合的只读 EVM 交易事实计算
+  evm-data-adapter/  私有、allowlisted 且有资源上限的只读 EVM JSON-RPC 归一化
+  evm-execution-enrichment-core/  由内部 Chain MCP 组合的离线 trace/revert/Uniswap swap 语义增强
+  evm-execution-data-adapter/  私有 allowlisted callTracer 和 pool/factory metadata 验证
+  evm-price-impact-sandwich-core/  由内部 Chain MCP 组合的离线 price impact 和 Sandwich 四态判定
+  evm-mev-observation-data-adapter/  私有 allowlisted 同区块 MEV observation 构建与验证
+  evm-chain-analysis-harness/  内部 Chain MCP 复用的离线链上分析组合、回放评测与质量门禁
+  evm-chain-analysis-readiness/  sampling/handoff/reviewed replay 治理与生产就绪控制面
+  evm-chain-analysis-control-store/  Postgres sampling/handoff/review/readiness ledger/共享控制 backend
+  evm-chain-analysis-data-plane/  私有双 Provider composition、secret、budget/circuit/cache/audit/worker runtime
 docs/
   product-features/ 产品知识库种子文档和静态资产
+skills/
+  xxyy-product-support/  通过只读 MCP 检索正式产品知识的项目 Skill
+  xxyy-evm-transaction-inspector/  内部单交易证据解释 Skill
+  xxyy-evm-sandwich-detector/  内部 allowlisted pool Sandwich 四态判断 Skill
 ```
 
 ## 环境准备
@@ -61,6 +67,8 @@ POSTGRES_PASSWORD=replace_me_with_a_strong_password
 CHAIN_CONTROL_DATABASE_URL=
 CHAIN_CONTROL_AUTHORITY_SYSTEM_ID=
 CHAIN_CONTROL_AUTHORITY_PUBLIC_KEY_FILE=
+CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT=
+CHAIN_ANALYSIS_READINESS_FINGERPRINT=
 
 OPENAI_API_KEY=...
 OPENAI_BASE_URL=https://api.openai.com/v1
@@ -180,10 +188,16 @@ pnpm run app:dev -- --full-sync  # 启动前全量同步官网与 X / Twitter �
 pnpm run api:dev                 # 只启动 API + Web 服务入口
 pnpm run web:dev                 # 只启动 Vite Web
 pnpm run telegram:dev            # 启动 Telegram Bot
+pnpm product:mcp:dev             # 启动只读产品知识 stdio MCP server
+pnpm chain:mcp:serve             # readiness 通过后启动内部链上分析 stdio MCP
 pnpm check                       # lint + format check + typecheck + tests + deterministic golden QA
 ```
 
 `pnpm install` 会自动启用仓库内的 `pre-commit`、`commit-msg` 和 `pre-push`。本地门禁与 GitHub Actions 共用提交消息和质量检查规则，详见[开发质量门禁](docs/development-workflow.md)。
+
+`pnpm product:mcp:dev` 暴露一个 read-only MCP tool `search_product_docs`，以及 `xxyy://skills/product-support` Skill Resource 和 `xxyy_product_support` Prompt。API、CLI 和 Telegram 不需要额外进程：它们在同一进程内通过 MCP SDK 的 linked in-memory transport 调用完全相同的 server，再由 Capability Registry 对 `product.skill.search_docs → product.mcp.search_docs` 两层执行精确授权、超时、输出大小和脱敏审计。MCP discovery 不会自动扩展 Planner 工具列表。
+
+`pnpm chain:mcp:serve` 暴露只读 `inspect_transaction` 与 `detect_sandwich`、capabilities Resource、两个 Skill Resources 和 Prompts。该命令不自动加载 `.env`，stdout 只承载 MCP protocol；启动前必须固定 `CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT` 与 `CHAIN_ANALYSIS_READINESS_FINGERPRINT`，并从独立 control DB 重读 attestation、operations evidence 和 policy。证明缺失、非 `ready`、过期或 Provider/budget lineage 漂移都会失败关闭；进程启动后每次调用仍检查有效时间窗。仓库当前没有真实生产证明，因此这不是公开客服入口或 production-ready 声明。
 
 RAG 和数据库命令：
 
@@ -218,6 +232,7 @@ pnpm chain:provision:attest -- --plan /secure/plan.json --private-key /run/secre
 pnpm chain:provision:apply -- --plan /secure/plan.json --attestation /secure/attestation.json --out /secure/receipt.json
 pnpm chain:provision:receipt -- --plan-id production_provisioning_plan_...
 pnpm chain:provision:verify -- --plan-id production_provisioning_plan_... --attestation /secure/attestation.json
+pnpm chain:mcp:serve
 ```
 
 这些命令要求与 Product RAG 分离的数据库、真实 evidence fingerprint 和受保护 Ed25519 机器身份。完整时间窗口、密钥、TLS、最小权限和核验流程见 [Chain Control Production Provisioning Operations](docs/chain-control-provisioning-operations.md)。

@@ -2504,6 +2504,10 @@ function createCliChatRuntime(
     service: createCustomerAgentChatService({
       answerProvider: createLazyAnswerProvider(config, tracer),
       config,
+      productCapabilityCaller: {
+        channel: 'cli',
+        principal: 'user',
+      },
       retriever,
       tracer,
     }),

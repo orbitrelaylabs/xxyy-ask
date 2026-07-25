@@ -17,14 +17,16 @@
 - [x] 新旧规则策略：当前问题默认排除被 `supersedes` 替代的知识，历史追溯问题仍可检索旧版本。
 - [x] RAG Trustworthiness v0.2：知识正文和标题/章节元数据先执行凭证脱敏与 prompt injection 隔离；回答上下文按 chunk、完整句子和限制条件打包；模型回答在返回前执行本地 claim grounding，未被安全证据支持的数字、限制、支持状态或操作事实会降级为确定性回答。流式路径先完成同一校验，避免无证据 token 已发送后无法撤回。
 - [x] Bounded Agent Loop v0.3：普通产品问题用完整原问题执行一次检索后直接合成；比较/多模块问题由 observation 识别缺失维度并允许一次或多次受限 query rewrite。max steps、重复输入和无新增证据共同阻止死循环，ask/stream 使用同一充分性与 composer 契约。
-- [x] Capability Plane v0.1：`packages/agent-core` 提供独立、未接线的 manifest/adapter/registry、默认拒绝授权、确认/幂等硬门禁、timeout/cancellation/output limit 和脱敏审计契约，为未来自建 MCP / Skill 做准备；当前客服工具列表和 Chat API 不变。
-- [x] Read-only EVM Transaction Analysis Core v0.1：独立纯 TypeScript 包离线分析 normalized transaction snapshot，确定性输出 success/reverted/pending/unknown、原生/ERC-20 资产变化、精确 gas fee、timeline、统一 Evidence/SkillResult、warnings 和 diagnostics；没有网络/MCP/Agent 接线。
+- [x] Capability Plane v0.2：`packages/agent-core` 的 manifest/adapter/registry、默认拒绝授权、确认/幂等硬门禁、timeout/cancellation/output limit 和脱敏审计已接入产品检索；`product.skill.search_docs` 只能在固定 channel/principal grant 下调用 `product.mcp.search_docs`，其它能力不会因 discovery 自动进入 Planner。
+- [x] Product MCP / Skill v1.0：`packages/product-qa-mcp` 提供 stdio 与 linked in-memory 两种 MCP transport、只读 `search_product_docs`、Skill Resource 和 Prompt；`skills/xxyy-product-support` 已按项目 Skill 结构落地。Web/API、CLI 和 Telegram 共用 `ToolRegistry → Skill capability → MCP capability → MCP protocol → Product RAG` 链路，公开 Chat API 契约不变。
+- [x] Read-only EVM Transaction Analysis Core v0.1：独立纯 TypeScript 包离线分析 normalized transaction snapshot，确定性输出 success/reverted/pending/unknown、原生/ERC-20 资产变化、精确 gas fee、timeline、统一 Evidence/SkillResult、warnings 和 diagnostics；核心自身仍无网络/MCP/Agent 依赖，由内部 Chain MCP composition 调用。
 - [x] Allowlisted Read-only EVM Data Adapter v0.1：独立包用启动时 chain/provider allowlist 调用四个标准只读 JSON-RPC，验证 chain/hash/block/index，限制 endpoint、redirect、header、batch、timeout、retry 和 response bytes，将多 provider 结果无损归一化为 snapshot 并保留 diagnostics/conflicts；没有生产 endpoint 或运行面接线。
-- [x] EVM Execution Enrichment Core v0.1：独立离线包校验最多 250 节点/32 层的扁平 call trace，只有成功 receipt 且调用及祖先均成功时才应用 internal native transfer；严格解码 Solidity Error/Panic/custom selector 和带显式 pool/token metadata 的 Uniswap V2/V3 swap，缺失或畸形输入显式降级；没有 trace provider、网络/MCP/Agent 接线。
+- [x] EVM Execution Enrichment Core v0.1：独立离线包校验最多 250 节点/32 层的扁平 call trace，只有成功 receipt 且调用及祖先均成功时才应用 internal native transfer；严格解码 Solidity Error/Panic/custom selector 和带显式 pool/token metadata 的 Uniswap V2/V3 swap，缺失或畸形输入显式降级；核心自身无网络/MCP/Agent 依赖，由内部 Chain MCP composition 调用。
 - [x] Allowlisted EVM Execution Data Adapter v0.1：独立未接线包用启动时 chain/provider/factory allowlist 获取固定 Geth callTracer，在精确 block 验证 pool/factory code、token、V3 fee 和 factory `getPair/getPool` 反查；限制 endpoint、method、calldata、timeout、响应、trace 和 pool 资源，保留脱敏 diagnostics 与 semantic provider conflicts；没有生产 provider 或运行面接线。
-- [x] EVM Price Impact / Sandwich Detection Core v0.1：独立离线包校验最多 256 笔同区块同 pool swap、pre/post state、actor token delta、coverage 和 conflicts；用 bigint 复刻 V2 exact-input 与 V3 单 active-range rounding，输出 price impact、counterfactual victim loss 和 `confirmed | likely | unlikely | insufficient_data` 四态 verdict；没有网络、LLM、MCP/Agent 接线。
-- [x] Allowlisted MEV Observation Data Adapter v0.1：独立未接线包从启动时冻结的 archive provider、chain 和 V2/V3 pool allowlist 验证 canonical block/order、精确 pool logs 与成功 receipts；用 parent/end state 锚定 V2 Sync 或 V3 单 active-range event replay，计算 transaction actor 的直接 token delta，并将多 provider block/swap/state/delta conflicts 投影到 price-impact/Sandwich core；具备进程内 QPS、并发、缓存、熔断、成本和脱敏 metrics 控制，没有真实 endpoint 或运行面接线。
-- [x] EVM Chain Analysis Composition & Evaluation Harness v0.1：独立离线包把 normalized snapshot、可选 execution trace/metadata、已验证 MEV observation 和 price-impact/Sandwich core 组合为阶段化、fail-closed、可重放结果；定义未来 `chain.inspect_transaction` / `chain.detect_sandwich` 最小契约，提供 synthetic/reviewed corpus 分层、precision/recall/abstention/coverage/cost/determinism 报告及 regression/internal-readiness 门禁；当前只有合成回归样本，未注册 Capability 或接入运行面。
+- [x] EVM Price Impact / Sandwich Detection Core v0.1：独立离线包校验最多 256 笔同区块同 pool swap、pre/post state、actor token delta、coverage 和 conflicts；用 bigint 复刻 V2 exact-input 与 V3 单 active-range rounding，输出 price impact、counterfactual victim loss 和 `confirmed | likely | unlikely | insufficient_data` 四态 verdict；核心自身无网络或 LLM 依赖，由内部 Chain MCP composition 调用。
+- [x] Allowlisted MEV Observation Data Adapter v0.1：内部只读包从启动时冻结的 archive provider、chain 和 V2/V3 pool allowlist 验证 canonical block/order、精确 pool logs 与成功 receipts；用 parent/end state 锚定 V2 Sync 或 V3 单 active-range event replay，计算 transaction actor 的直接 token delta，并将多 provider block/swap/state/delta conflicts 投影到 price-impact/Sandwich core；具备进程内 QPS、并发、缓存、熔断、成本和脱敏 metrics 控制，已由 readiness-gated Chain MCP composition 调用，但没有真实 endpoint 或公开运行面接线。
+- [x] EVM Chain Analysis Composition & Evaluation Harness v0.1：独立离线包把 normalized snapshot、可选 execution trace/metadata、已验证 MEV observation 和 price-impact/Sandwich core 组合为阶段化、fail-closed、可重放结果；定义 `chain.inspect_transaction` / `chain.detect_sandwich` 最小契约，提供 synthetic/reviewed corpus 分层、precision/recall/abstention/coverage/cost/determinism 报告及 regression/internal-readiness 门禁；当前只有合成回归样本，公开运行面仍不调用。
+- [x] Internal Chain MCP / Skills v0.1：`packages/chain-analysis-mcp` 提供真实 MCP server/client、`inspect_transaction`、`detect_sandwich`、capabilities/Skill Resources 与 Prompts，并只投影确定性 transaction/execution/MEV 结果，不返回 raw observation。两个 project Skills 默认 `allow_implicit_invocation: false`；`agent-core` 只为 `internal/(service|admin)` 或 `cli/admin` 创建四条精确 Skill/MCP grants。`pnpm chain:mcp:serve` 还要求固定 manifest/readiness 指纹，从 control DB 重读未过期 `ready` attestation 并核对 policy、六个 Provider descriptor 与 budget lineage；每次调用继续检查时间窗。
 - [x] Reviewed Replay & Production Readiness Control Plane v0.1（single-owner profile）：独立离线包定义 content-addressed candidate、敏感信息拒绝、单 owner 复核、标签争议、revision/supersession、retention/tombstone 和 reviewed corpus 导出；同时定义 secret reference、跨实例预算 lease/settlement、脱敏审计、共享 circuit、SLO/告警、故障演练、安全/runbook evidence 与综合 `blocked | degraded | ready` evaluator。当前只有 contract-only 测试 fixture，没有真实 reviewed 主网样本、已部署 provider backend 或运行面接线，因此不会产生可发布的 ready 结论。
 - [x] Mainnet Sampling Plan & Evidence Intake Control Plane v0.1：readiness 包定义 content-addressed source/legal/retention approval evidence、强制 V2/V3/route/outcome/data/conflict/reorg/special-token coverage 的 strata policy、确定性 quota slots、public-chain manifest 和 coverage gap evaluator；所有 fixture 都是 contract-only，不代表真实审批、采集或 reviewed evidence。
 - [x] Sampling Manifest → Reviewed Replay Candidate Handoff v0.1：readiness 包确定性闭合 manifest 与初始 candidate 的 chain/transaction/block、dimension、source/scan/retention/time lineage，并用 `target_agnostic_no_exclusion` 显式保留 target deviation；control store 原子写 candidate、retention job、handoff 与审计。它不代表 replay/标签已审核，也不创建真实样本。
@@ -40,14 +42,12 @@
 - [x] 不查询用户账户、订单、钱包余额或私有交易记录。
 - [x] 不执行代开通、代取消、代修改等账户或订单动作。
 - [x] 不提供投资建议、收益承诺或买卖建议。
-- [x] 交易哈希、交易链接、池子查询、链上取证和泛 MEV 分析请求当前不处理。
+- [x] Web/API/Telegram 收到交易哈希、交易链接、池子查询、链上取证和泛 MEV 分析请求时当前不处理；内部 Chain MCP 的存在不改变公开路由。
 - [x] 产品知识库、embedding、chat LLM 或 vector store 配置缺失时，对外错误应清晰区分配置缺失和运行时不可用。
 
 ## Paused
 
-- [ ] 实际 MCP server / adapter 暂停：不再提供 `product:mcp:dev`、`tx:mcp:dev` 或 MCP smoke 脚本；Capability Plane 基础库不启动 server，也不连接远端 MCP。
-- [ ] Project skills 暂停：不再保留仓库内 `skills/` 目录，Capability Plane 当前没有注册本地 Skill。
-- [ ] 公开交易分析入口仍暂停：EVM transaction/execution/MEV cores、三个 RPC adapter、composition/evaluation harness、readiness/control store 与私有双 Provider data plane 都没有 Capability 注册或 Agent bridge；`chain-control-cli` 只做 production provisioning，`chain-operations-cli` 只做受控 provider/worker 运维。聊天中交易、Explorer、链上取证和 MEV 问题继续进入边界/澄清回复。
+- [ ] 链上公开交易分析入口仍暂停：内部 MCP/Skills、Capability bridge 与 fail-closed stdio composition root 已完成，但 Web/API/Telegram 不创建 chain grant、不注册 chain Tool。真实 Provider、reviewed 主网 corpus、SLO/security/runbook evidence 和 canonical `ready` attestation 尚未提供，聊天中的交易、Explorer、链上取证和 MEV 问题继续进入边界/澄清回复。
 
 ## Planned Or Not Yet Complete
 
@@ -55,4 +55,4 @@
 - [ ] 更多渠道接入：在不改变客服 Agent 核心边界的前提下，继续接入更多入口。
 - [ ] Telegram 知识覆盖增强：在保持严格自动决策与直接回复来源约束的前提下，评估多消息线程、编辑/删除事件和更完整的群上下文；不引入 `/approve`、`/reject` 逐条人工流程。
 - [ ] 安全与隐私增强：继续完善数据保留、删除策略和生产告警；Product RAG 的 prompt injection 隔离与敏感信息脱敏已落地。
-- [ ] 链上生产激活（Goal 20B）待 owner 执行：仓库已提供受控 request/plan、Ed25519 machine attestation、独立数据库 CLI、15 分钟 application window、receipt/8-grant lineage/audit verification，并通过一次性 PostgreSQL 集成验证。真实受控人工账号、四个 service account、authority key/policy evidence、目标生产 Postgres、Provider、workers、主网 corpus 和 readiness attestation 仍未部署；完成前不接入运行面，也不声明 production ready。
+- [ ] 链上生产激活（Goal 20B）待 owner 执行：仓库已提供受控 request/plan、Ed25519 machine attestation、独立数据库 CLI、15 分钟 application window、receipt/8-grant lineage/audit verification、内部 MCP/Skills 与 readiness-gated composition root。真实受控人工账号、四个 service account、authority key/policy evidence、目标生产 Postgres、Provider、workers、主网 corpus 和 readiness attestation 仍未部署；完成前内部入口按设计不能启动，也不声明 production ready。

@@ -66,6 +66,8 @@ describe('quality trace end-to-end smoke', () => {
       'agent.classify',
       'agent.guard',
       'agent.tool',
+      'agent.capability',
+      'agent.capability',
       'rag.query_embedding',
       'rag.pgvector_candidates',
       'rag.metadata_rerank',
@@ -77,13 +79,21 @@ describe('quality trace end-to-end smoke', () => {
     ]);
     const productRoot = records[0];
     const tool = records.find((record) => record.name === 'agent.tool');
+    const skillCapability = records.find(
+      (record) => record.name === 'agent.capability' && record.metadata?.source === 'skill',
+    );
+    const mcpCapability = records.find(
+      (record) => record.name === 'agent.capability' && record.metadata?.source === 'mcp',
+    );
     expect(tool?.parentId).toBe(productRoot?.id);
+    expect(skillCapability?.parentId).toBe(tool?.id);
+    expect(mcpCapability?.parentId).toBe(skillCapability?.id);
     for (const dependency of records.filter((record) =>
       ['rag.query_embedding', 'rag.pgvector_candidates', 'rag.metadata_rerank'].includes(
         record.name,
       ),
     )) {
-      expect(dependency.parentId).toBe(tool?.id);
+      expect(dependency.parentId).toBe(mcpCapability?.id);
     }
     const observe = records.find((record) => record.name === 'agent.observe');
     const composer = records.find((record) => record.name === 'agent.answer_composer');

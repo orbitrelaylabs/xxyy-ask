@@ -10,7 +10,7 @@
 
 每个 adapter 必须恰好配置两个不同 provider organization、failure domain、endpoint secret reference 和 provider id。MEV provider 必须声明 archive；其余两类禁止伪称 archive requirement。配置只保存 `secretref:`，endpoint 和 header value 只能在进程启动时从受控挂载解析。
 
-该执行面仍然是私有的：它没有注册 Capability、MCP、Skill、LangGraph tool，也没有被 API、Web、Telegram、Product RAG 或客服 Agent 导入。仓库中的 schema、fake provider 和本地 PostgreSQL 验证不等于真实 provider 已采购、生产 worker 已部署或 readiness 已通过。
+该执行面仍然是私有的。`packages/chain-analysis-mcp`、两个 project Skills 和 `agent-core` 内部 Capability factory 已连接这套数据边界；`apps/chain-operations-cli` 提供 readiness-gated stdio composition root。但 API、Web、Telegram、Product RAG 和公开客服 Agent 都不创建 chain grant 或注册 chain Tool。仓库中的 schema、fake provider 和本地 PostgreSQL 验证不等于真实 provider 已采购、生产 worker 已部署或 readiness 已通过。
 
 ## 请求路径
 
@@ -35,6 +35,9 @@ flowchart LR
   Audit --> Result["Validated adapter result"]
 
   Worker["Sampling / review / retention / reconciliation runtime"] --> Store["Postgres control store"]
+  Readiness["Pinned ready attestation<br/>policy + provider + budget lineage"] --> MCP["Internal xxyy-chain-analysis MCP"]
+  Manifest --> MCP
+  Result --> MCP
 ```
 
 一次真实 HTTP attempt 的固定顺序为：
@@ -107,15 +110,17 @@ secret 可以含 endpoint path/query 中的 token，但不会出现在 manifest�
 
 私有 CLI 不自动读取项目 `.env`：
 
-| 变量                                        | 约束                                                           |
-| ------------------------------------------- | -------------------------------------------------------------- |
-| `CHAIN_CONTROL_DATABASE_URL`                | 与 Product RAG 分离；远程必须 `sslmode=verify-ca/verify-full`  |
-| `CHAIN_DATA_PLANE_MANIFEST_FILE`            | 受控、bounded JSON manifest                                    |
-| `CHAIN_DATA_PLANE_SECRET_DIR`               | provider secret mount root                                     |
-| `CHAIN_DATA_PLANE_INSTANCE_ID_HASH`         | 持有 `provider_operator` grant 的 service-account hash         |
-| `CHAIN_RECONCILIATION_WORKER_ID_HASH`       | 默认同 data-plane instance；必须持有 `provider_operator` grant |
-| `CHAIN_RETENTION_WORKER_ID_HASH`            | 独立 retention service-account hash                            |
-| `CHAIN_DATA_PLANE_ALLOW_INSECURE_LOCALHOST` | 仅测试；`NODE_ENV=production` 时强制拒绝                       |
+| 变量                                             | 约束                                                           |
+| ------------------------------------------------ | -------------------------------------------------------------- |
+| `CHAIN_CONTROL_DATABASE_URL`                     | 与 Product RAG 分离；远程必须 `sslmode=verify-ca/verify-full`  |
+| `CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT` | 只供 Chain MCP；必须精确匹配已加载 manifest                    |
+| `CHAIN_ANALYSIS_READINESS_FINGERPRINT`           | 只供 Chain MCP；指定 control DB 中 canonical attestation       |
+| `CHAIN_DATA_PLANE_MANIFEST_FILE`                 | 受控、bounded JSON manifest                                    |
+| `CHAIN_DATA_PLANE_SECRET_DIR`                    | provider secret mount root                                     |
+| `CHAIN_DATA_PLANE_INSTANCE_ID_HASH`              | 持有 `provider_operator` grant 的 service-account hash         |
+| `CHAIN_RECONCILIATION_WORKER_ID_HASH`            | 默认同 data-plane instance；必须持有 `provider_operator` grant |
+| `CHAIN_RETENTION_WORKER_ID_HASH`                 | 独立 retention service-account hash                            |
+| `CHAIN_DATA_PLANE_ALLOW_INSECURE_LOCALHOST`      | 仅测试；`NODE_ENV=production` 时强制拒绝                       |
 
 `DATABASE_URL` 或 `POSTGRES_DB/HOST/PORT` 仅用于比较 Product RAG database identity；若相同，CLI 拒绝运行。
 
@@ -169,6 +174,27 @@ pnpm chain:worker:retention
 
 `createProductionWorkerRuntime()` 还提供 sampling 和 single-owner review 的 claim/handler/complete/fail 边界。handler 失败只持久化稳定 error code 的 SHA-256，不保存 provider body 或异常原文。真实 sampling collector、manifest/candidate handoff 和 owner review 输入属于 Goal 20B-3；在该 handler 完成和部署前，不要启动这两个 worker，也不能把空队列或 contract fixture 当作 reviewed corpus。
 
+### 6. 内部 Chain MCP
+
+只有 Goal 20B-3/20B-4 已产生真实 governed corpus、operations evidence 和 canonical `ready` attestation 后，受控内部 MCP host 才可运行：
+
+```bash
+pnpm chain:mcp:serve
+```
+
+启动顺序固定为：
+
+1. 校验并重读 content-addressed manifest；
+2. 从独立 control DB 读取指定 readiness attestation；
+3. 要求 `status=ready`、`evaluatedAt <= now < nextEvaluationAt`；
+4. 重读其 operations evidence 与 policy；
+5. 要求 policy 覆盖 chain 1、三类 adapter、每类至少两个 Provider；
+6. 精确匹配 manifest 与 evidence 中六个 Provider descriptor/budget policy fingerprint；
+7. 通过后才解析 mounted secrets、创建 data plane 并连接 stdio；
+8. 每次 `inspect_transaction` / `detect_sandwich` 调用再次验证 readiness 时间窗。
+
+MCP stdout 只能写 JSON-RPC。Provider metric/alert 与安全化启动错误写 stderr。没有上述真实证明时，命令返回配置错误是预期行为；不得用 fixture fingerprint 绕过门禁。
+
 ## Metrics 与告警
 
 managed transport 只发出脱敏结构：
@@ -196,6 +222,8 @@ managed transport 只发出脱敏结构：
 ```bash
 pnpm --filter @xxyy/evm-chain-analysis-data-plane typecheck
 pnpm --filter @xxyy/evm-chain-analysis-data-plane test
+pnpm --filter @xxyy/chain-analysis-mcp typecheck
+pnpm --filter @xxyy/chain-analysis-mcp test
 pnpm --filter @xxyy/chain-operations-cli typecheck
 pnpm --filter @xxyy/chain-operations-cli test
 pnpm check

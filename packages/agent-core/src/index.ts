@@ -47,3 +47,25 @@ export {
 export type { CapabilityRegistry, CreateCapabilityRegistryOptions } from './capability-registry.js';
 export { createCustomerAgentChatService } from './customer-agent-chat-service.js';
 export type { CreateCustomerAgentChatServiceOptions } from './customer-agent-chat-service.js';
+export {
+  PRODUCT_SEARCH_MCP_CAPABILITY_ID,
+  PRODUCT_SEARCH_SKILL_CAPABILITY_ID,
+  createProductSupportCapabilityRegistry,
+  createProductSupportSkillTool,
+} from './product-support-capabilities.js';
+export type {
+  CreateProductSupportCapabilityRegistryOptions,
+  TrustedProductCapabilityCaller,
+} from './product-support-capabilities.js';
+export {
+  CHAIN_INSPECT_MCP_CAPABILITY_ID,
+  CHAIN_INSPECT_SKILL_CAPABILITY_ID,
+  CHAIN_SANDWICH_MCP_CAPABILITY_ID,
+  CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
+  createInternalChainAnalysisCapabilityRegistry,
+  createInternalChainAnalysisTools,
+} from './chain-analysis-capabilities.js';
+export type {
+  CreateInternalChainAnalysisCapabilityRegistryOptions,
+  InternalChainAnalysisCaller,
+} from './chain-analysis-capabilities.js';

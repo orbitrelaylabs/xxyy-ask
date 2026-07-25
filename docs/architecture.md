@@ -105,23 +105,29 @@ flowchart LR
   SyncX --> PgVector
 ```
 
-## Capability Plane v0.1（尚未接入客服运行面）
+## Capability Plane v0.3、Product MCP 与内部 Chain MCP / Skills
 
-`packages/agent-core` 另有独立的 `CapabilityRegistry`，为未来 Skill / MCP adapter 提供 transport-neutral manifest、精确授权和有界执行契约。它与当前 `ToolRegistry` 分离，尚未由 LangGraph、Planner、API、CLI 或 Telegram 创建和调用。
+`packages/agent-core` 的 `CapabilityRegistry` 保持与 `ToolRegistry` 分离。产品检索已通过显式 bridge 接入公开 CustomerAgentRuntime；`packages/product-qa-mcp` 同时提供 stdio server 和进程内 linked transport，`skills/xxyy-product-support` 定义检索与回答边界。Planner 仍只看到经过审查的 `search_product_docs`，不会根据 MCP discovery 自动增加工具。
 
 ```mermaid
 flowchart LR
-  Approved["经批准的内部调用方"] --> Registry["CapabilityRegistry"]
-  Registry --> Manifest["Manifest / Version"]
-  Manifest --> Policy["Deny-by-default Policy"]
-  Policy --> Bounds["Schema / Timeout / Cancel / Output Limit"]
-  Bounds --> Adapter["Skill 或 MCP Adapter 契约"]
-  Adapter --> Trace["脱敏 agent.capability Trace"]
-
-  Runtime["CustomerAgentRuntime"] -. "当前未接线" .-> Registry
+  Runtime["CustomerAgentRuntime"] --> Tool["ToolRegistry: search_product_docs"]
+  Tool --> Skill["product.skill.search_docs"]
+  Skill --> SkillGrant["Skill 精确 Grant"]
+  SkillGrant --> MCP["product.mcp.search_docs"]
+  MCP --> MCPGrant["MCP 精确 Grant"]
+  MCPGrant --> Protocol["MCP linked in-memory transport"]
+  Protocol --> Server["xxyy-product-support MCP Server"]
+  Server --> RAG["Product RAG Retriever"]
+  Skill --> Trace["脱敏 agent.capability Trace"]
+  MCP --> Trace
+  External["外部 MCP Host"] --> Stdio["stdio transport"]
+  Stdio --> Server
 ```
 
-能力被注册不代表被授权，被授权也不代表会暴露给 Agent。外部写入和金融交易 manifest 必须声明确认与幂等要求，执行器会再次硬校验；当前没有任何实际 MCP/Skill、链上或交易能力注册。完整契约与后续接入顺序见 [capability-plane.md](capability-plane.md)。
+产品 bridge 固定注册 `product.skill.search_docs` 与 `product.mcp.search_docs` v1.0.0，数据范围只有 `product.public`，副作用是 `external_read`。API 使用可信 `web/anonymous`，CLI 使用 `cli/user`，Telegram 使用 `telegram/service`；请求 payload 不能覆盖这些组合层身份。
+
+内部链上路径另有 `packages/chain-analysis-mcp`、两个 project Skills 与四项 v0.1.0 Capability。factory 只接受 `internal/(service|admin)` 或 `cli/admin`；`apps/chain-operations-cli` 的 stdio composition root 还会在加载 Provider secrets 前验证固定 manifest、未过期 canonical `ready` attestation、三类 adapter policy、六个 Provider descriptor 与 budget lineage，并在每次调用重新检查时间窗。Web/API/Telegram 不创建这些 grant，也不注册 `inspect_transaction` / `detect_sandwich`。能力被注册不代表被授权，被授权也不代表会暴露给公开 Agent。完整契约见 [capability-plane.md](capability-plane.md)。
 
 ## Read-only EVM Transaction Analysis Core v0.1（离线领域层）
 
@@ -155,7 +161,7 @@ adapter 把递归 call frame 迭代归一化为 250 节点、32 层、单 bytes 
 
 Sandwich 判定使用 `confirmed | likely | unlikely | insufficient_data` 四态门禁。`confirmed` 必须同时具备相邻 front/victim/back 顺序、同一非 victim actor、方向反转、连续 pool state、受害者反事实损失、pool-token 正收益和精确 actor asset loop；缺 actor delta 最多为 `likely`，只有完整 coverage 和反例才可为 `unlikely`，来源冲突或不支持语义返回 `insufficient_data`。
 
-该 core 不构建真实 block neighborhood，不获取 transaction-boundary archive state，不处理跨 tick/multi-hop/特殊代币，也不推断意图或扣除 gas/builder 成本。它没有 Capability/MCP/Agent/API/CLI/Telegram 引用，因此不会改变公开客服边界。详细设计见 [evm-price-impact-sandwich.md](evm-price-impact-sandwich.md)。
+该 core 不构建真实 block neighborhood，不获取 transaction-boundary archive state，不处理跨 tick/multi-hop/特殊代币，也不推断意图或扣除 gas/builder 成本。核心自身仍无网络、MCP 或 Agent 依赖；内部 Chain MCP 可通过受控 composition 调用它，但公开 API/Web/Telegram 不引用该能力。详细设计见 [evm-price-impact-sandwich.md](evm-price-impact-sandwich.md)。
 
 ## Allowlisted MEV Observation Data Adapter v0.1（未接线数据边界）
 
@@ -163,7 +169,7 @@ Sandwich 判定使用 `confirmed | likely | unlikely | insufficient_data` 四态
 
 V2 以 parent reserves 为起点，按 `Sync` / `Swap` 顺序重放 transaction-boundary state，并用 block-end reserves 闭合；V3 读取 parent `slot0`、active liquidity、tick spacing、有限 bitmap words 和两端 initialized tick，以 Swap event 重放单 active-range state，再与 block-end state 对账。receipt 中 token0/token1 Transfer 只计算 transaction `from` 的直接 raw delta，不做 router beneficiary 或多地址 actor 聚类。
 
-每个 provider 独立生成完整 core input，并比较 block/order、swap、pool state 和 actor delta 语义指纹；分歧作为 source conflict 投影到 price-impact/Sandwich core，领域判断随即 fail closed。client 保留 provider-local 防御；私有 data-plane composition root 额外强制两个独立 archive provider、跨实例 budget/circuit、bounded cache、持久审计与脱敏 metrics。仓库仍没有真实 endpoint/credential 或 Capability/MCP/Agent/API/Web/Telegram 接线。详细设计见 [evm-mev-observation-data-adapter.md](evm-mev-observation-data-adapter.md) 与 [chain-data-plane-operations.md](chain-data-plane-operations.md)。
+每个 provider 独立生成完整 core input，并比较 block/order、swap、pool state 和 actor delta 语义指纹；分歧作为 source conflict 投影到 price-impact/Sandwich core，领域判断随即 fail closed。client 保留 provider-local 防御；私有 data-plane composition root 额外强制两个独立 archive provider、跨实例 budget/circuit、bounded cache、持久审计与脱敏 metrics。内部 Chain MCP composition 已连接该边界，但仓库仍没有真实 endpoint/credential 或 canonical `ready` 证明，API/Web/Telegram 继续隔离。详细设计见 [evm-mev-observation-data-adapter.md](evm-mev-observation-data-adapter.md) 与 [chain-data-plane-operations.md](chain-data-plane-operations.md)。
 
 ## EVM Chain Analysis Composition & Evaluation Harness v0.1（未接线离线组合层）
 
@@ -171,7 +177,7 @@ V2 以 parent reserves 为起点，按 `Sync` / `Swap` 顺序重放 transaction-
 
 同一包定义 synthetic/reviewed replay corpus、chain/protocol/router/data-state/tier coverage matrix，以及 precision、recall（包含 positive abstention）、false-positive/false-negative、unsupported rate、provider cost、expected match 和 byte determinism 报告。synthetic regression gate 只证明组合回归；internal readiness gate 强制 reviewed 样本量和更高质量阈值。当前六个合成 case 明确不能通过 internal readiness，不代表主网效果。
 
-该 harness 不实例化 RPC adapter，不读取环境变量或 endpoint，也未被 app、LangGraph、`ToolRegistry`、`CapabilityRegistry`、CLI、Telegram 或 MCP 引用。未来能力契约不等于能力已注册；公开客服边界保持不变。详细设计见 [evm-chain-analysis-harness.md](evm-chain-analysis-harness.md)。
+该 harness 自身不实例化 RPC adapter，也不读取环境变量或 endpoint。内部 Chain MCP handler 现在以已验证 adapter 输出调用它并投影两个只读 Capability；公开 LangGraph、API、Web 和 Telegram 仍不注册这些工具。详细设计见 [evm-chain-analysis-harness.md](evm-chain-analysis-harness.md)。
 
 ## Reviewed Replay & Production Readiness Control Plane v0.1（未接线）
 
@@ -179,7 +185,7 @@ V2 以 parent reserves 为起点，按 `Sync` / `Swap` 顺序重放 transaction-
 
 同一包定义只含 `secretref:` 的 provider descriptor、跨实例 budget lease/settlement、脱敏持久审计 event、共享 circuit state/coordinator interface、SLO/告警、故障演练、安全和 incident runbook evidence contract。综合 evaluator 把 governed corpus export、该 corpus 的 harness report 和生产证据闭合，并固定调用不可由 caller 弱化的 `internalReadinessQualityGate`，输出稳定的 `blocked | degraded | ready` 和逐项 reason。
 
-readiness 契约包自身不实现 owner identity、数据库或真实 provider。独立的 `packages/evm-chain-analysis-control-store` 已实现可注入 client 的 Postgres 持久化层：不可变 sampling/handoff/governance artifact、authorization/revocation、sampling/retention job lease、handoff 单槽 owner review work queue、可重算 readiness evidence ledger、哈希链 audit、budget window/lease/settlement/reconciliation、provider request event 和 circuit history/head CAS。`packages/evm-chain-analysis-data-plane` 在包外组合三个 adapter，解析 opaque secret、执行双 provider/shared controls/cache/audit，并提供四类 worker handler runtime；私有 `apps/chain-control-cli` 与 `apps/chain-operations-cli` 是仅有的部署入口。它们都没有生产 grant、真实 endpoint/credential、主网 corpus 或 readiness 证明，也未被 Agent、Capability、MCP、API、Web 或 Telegram 引用；contract-only readiness 结果保持 `blocked`。详细设计见 [evm-chain-analysis-sampling.md](evm-chain-analysis-sampling.md)、[evm-chain-analysis-sampling-handoff.md](evm-chain-analysis-sampling-handoff.md)、[evm-chain-analysis-review-work-queue.md](evm-chain-analysis-review-work-queue.md)、[evm-chain-analysis-readiness.md](evm-chain-analysis-readiness.md)、[evm-chain-analysis-control-store.md](evm-chain-analysis-control-store.md)、[evm-chain-analysis-readiness-evidence-ledger.md](evm-chain-analysis-readiness-evidence-ledger.md) 与 [chain-data-plane-operations.md](chain-data-plane-operations.md)。
+readiness 契约包自身不实现 owner identity、数据库或真实 provider。独立的 `packages/evm-chain-analysis-control-store` 已实现可注入 client 的 Postgres 持久化层：不可变 sampling/handoff/governance artifact、authorization/revocation、sampling/retention job lease、handoff 单槽 owner review work queue、可重算 readiness evidence ledger、哈希链 audit、budget window/lease/settlement/reconciliation、provider request event 和 circuit history/head CAS。`packages/evm-chain-analysis-data-plane` 在包外组合三个 adapter，解析 opaque secret、执行双 provider/shared controls/cache/audit，并提供四类 worker handler runtime；私有 `apps/chain-control-cli` 与 `apps/chain-operations-cli` 是仅有的部署入口。Chain MCP stdio composition root 已在后者落地，但没有生产 grant、真实 endpoint/credential、主网 corpus 或 readiness 证明时按设计不能启动；contract-only readiness 结果保持 `blocked`，公开 API/Web/Telegram 仍未连接。详细设计见 [evm-chain-analysis-sampling.md](evm-chain-analysis-sampling.md)、[evm-chain-analysis-sampling-handoff.md](evm-chain-analysis-sampling-handoff.md)、[evm-chain-analysis-review-work-queue.md](evm-chain-analysis-review-work-queue.md)、[evm-chain-analysis-readiness.md](evm-chain-analysis-readiness.md)、[evm-chain-analysis-control-store.md](evm-chain-analysis-control-store.md)、[evm-chain-analysis-readiness-evidence-ledger.md](evm-chain-analysis-readiness-evidence-ledger.md) 与 [chain-data-plane-operations.md](chain-data-plane-operations.md)。
 
 ## 说明
 
@@ -193,7 +199,7 @@ readiness 契约包自身不实现 owner identity、数据库或真实 provider�
 - 上下文打包在总预算内为多个 chunk 公平保留空间，再按问题词、数字、完整句子、列表和限制/条件信号选择内容。只有无法继续拆分的单个内容单元才允许带省略号截短，并记录 included/omitted/quarantined/truncated 统计。
 - 模型回答完成后执行本地 claim grounding，不增加第二次模型调用。每个关键陈述都要与安全知识片段在数字、支持/不支持极性和有效词项上对齐；失败时返回 deterministic grounded answer。成功时引用只从实际支撑 claim 的 chunk 生成，并用问题和回答选择相关 excerpt。
 - 为避免流式 token 发出后无法撤回，answer provider 会先缓冲模型流、完成同一 grounding 校验，再发送原始有效 deltas 或安全降级回答。`status` 事件和公开 `ChatStreamEvent`/`ChatResponse` 契约保持不变；代价是 answer delta 的首包会晚于模型完成，但校验是本地线性计算，不引入额外网络往返。
-- 当前客服 `ToolRegistry` 只注册 `search_product_docs` 业务工具；独立 Capability Plane、离线 EVM transaction/execution/MEV cores、三个未接线 RPC adapter、组合评测 harness、readiness 控制面和 Postgres control backend 都不会改变 Planner 的工具列表，交易分析、池子查询、链上取证和 MCP adapter 暂不接入运行面。
+- 当前客服 `ToolRegistry` 只注册 `search_product_docs` 业务工具；该工具已通过 Product Skill/MCP 双层 Capability 执行。离线 EVM transaction/execution/MEV cores、三个未接线 RPC adapter、组合评测 harness、readiness 控制面和 Postgres control backend 不会改变 Planner 工具列表，交易分析、池子查询和链上取证 MCP adapter 仍不接入运行面。
 - LLM 超时、限流、模型路由不可用、非 JSON、不可用答案或 claim grounding 失败时，会降级为本地 grounded answer；embedding 对超时、429 和 5xx 做有界重试。
 - 知识库按来源分为 `official_docs`（仅 `docs.xxyy.io`）、`x_updates`（仅 `x.com/useXXYYio`）和 `admin_verified`（客服群严格自动治理知识）；支持全量入库、X 增量同步，以及管理员身份验证、Curator、确定性自动决策和隔离发布 Worker 组成的群聊知识闭环。
 - 图片 OCR、视频解析和官方 X 媒体会把原始媒体地址写入 chunk 元数据；被选为回答依据的 chunk 可同时返回相关截图、本地 MP4 或外部视频链接。

@@ -1,0 +1,26 @@
+{
+  "name": "@xxyy/chain-analysis-mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./test-fixtures": "./src/fixture-handler.test-helper.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@xxyy/evm-chain-analysis-harness": "workspace:*",
+    "@xxyy/evm-data-adapter": "workspace:*",
+    "@xxyy/evm-execution-data-adapter": "workspace:*",
+    "@xxyy/evm-execution-enrichment-core": "workspace:*",
+    "@xxyy/evm-mev-observation-data-adapter": "workspace:*",
+    "@xxyy/evm-price-impact-sandwich-core": "workspace:*",
+    "@xxyy/shared": "workspace:*",
+    "@xxyy/transaction-analysis-core": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "scripts": {
+    "test": "vitest run src",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

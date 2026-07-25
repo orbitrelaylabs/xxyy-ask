@@ -7,6 +7,7 @@
 - [知识来源与分类](knowledge-sources.md)
 - [开发质量门禁](development-workflow.md)
 - [功能状态](feature-status.md)
+- [MCP / Skill Capability Plane](capability-plane.md)
 - [生产运行、安全与观测](production-readiness.md)
 - [全自动知识演进与 Knowledge Curator](knowledge-evolution.md)
 - [Scheduler-safe Knowledge Refresh](knowledge-refresh-operations.md)
@@ -35,16 +36,20 @@
 
 ## 当前系统
 
-当前项目是 XXYY 产品客服 Agentic RAG 系统，正式路径为 LangGraph JS + Postgres + pgvector + OpenAI-compatible embeddings/chat completion。当前运行面只保留知识库产品问答，不暴露 MCP server、本地 project skills 或交易分析入口。
+当前项目是 XXYY 产品客服 Agentic RAG 系统，正式路径为 LangGraph JS + Postgres + pgvector + OpenAI-compatible embeddings/chat completion。公开运行面只保留知识库产品问答；Product MCP/Skill 已正式接入，Chain MCP/Skills 仅完成内部、readiness-gated 的受控接入，交易分析客服入口仍不开放。
 
 - `packages/shared`：共享类型与聊天请求/响应契约。
 - `packages/knowledge`：产品文档加载、Markdown chunk、tokenize 和 embedding provider。
 - `packages/rag-core`：意图分类、检索、pgvector、可信作者、Knowledge Curator、知识治理服务、LLM answer provider 和边界回复。
-- `packages/agent-core`：LangGraph customer runtime、planner/state 合约和产品问答工具。
-- `packages/evm-chain-analysis-harness`：未接线的 transaction/execution/MEV 离线组合、replay corpus 评测和质量门禁。
-- `packages/evm-chain-analysis-readiness`：未接线的 sampling plan/evidence intake、manifest/candidate handoff、reviewed replay 治理、生产运维证据契约和综合 readiness evaluator；当前不含真实审批、主网 corpus 或 provider backend。
-- `packages/evm-chain-analysis-control-store`：未接线的 Postgres sampling/handoff/治理 artifact、sampling/retention/review work queue、可重算 readiness evidence ledger、哈希链审计、共享 budget 和 circuit CAS backend；当前不含生产配置、真实授权/审批或主网证据。
-- `packages/evm-chain-analysis-data-plane`：未接线的双 Provider composition、opaque secret resolver、共享 budget/circuit、bounded cache、持久请求审计、metrics/alert 与四类 worker handler runtime；当前不含真实 credential、部署或 readiness 证明。
+- `packages/agent-core`：LangGraph customer runtime、planner/state 合约、Capability Registry 和产品问答 Skill bridge。
+- `packages/product-qa-mcp`：只读产品知识 MCP server/client、Skill Resource/Prompt 和 stdio 入口。
+- `packages/chain-analysis-mcp`：内部只读交易检查与 Sandwich 判断 MCP server/client、Skill Resource/Prompt 和 readiness 调用门禁。
+- `skills/xxyy-product-support`：项目级产品支持 Skill。
+- `skills/xxyy-evm-transaction-inspector` / `skills/xxyy-evm-sandwich-detector`：默认不隐式调用的内部链上分析 Skills。
+- `packages/evm-chain-analysis-harness`：内部 Chain MCP 复用的 transaction/execution/MEV 离线组合、replay corpus 评测和质量门禁。
+- `packages/evm-chain-analysis-readiness`：sampling plan/evidence intake、manifest/candidate handoff、reviewed replay 治理、生产运维证据契约和综合 readiness evaluator；当前不含真实审批、主网 corpus 或 provider backend。
+- `packages/evm-chain-analysis-control-store`：Postgres sampling/handoff/治理 artifact、sampling/retention/review work queue、可重算 readiness evidence ledger、哈希链审计、共享 budget 和 circuit CAS backend；当前不含生产配置、真实授权/审批或主网证据。
+- `packages/evm-chain-analysis-data-plane`：由运维入口与 readiness-gated Chain MCP 使用的私有双 Provider composition、opaque secret resolver、共享 budget/circuit、bounded cache、持久请求审计、metrics/alert 与四类 worker handler runtime；当前不含真实 credential、部署或 readiness 证明。
 - `apps/cli`：`rag:ask`、`rag:ingest`、`rag:migrate`、`rag:stats`、`rag:sync:x`，以及可信作者、Telegram 候选导入、修订、审核和发布命令。
 - `apps/api`：`GET /`、`GET /health`、`GET /health/deep`、`POST /api/chat`、`POST /api/chat/stream`、`GET /assets/*`。
 - `apps/telegram-bot`：Telegram Bot long polling 入口，复用 LangGraph 客服 Agent。
@@ -60,6 +65,8 @@ pnpm run app:status              # 查看后台容器状态
 pnpm run app:logs                # 跟随后台服务日志
 pnpm run app:dev -- --sync       # 启动前增量抓取 X 更新并同步知识库
 pnpm run app:dev -- --full-sync  # 启动前全量重抓 X 更新并重建知识库
+pnpm product:mcp:dev             # 启动只读产品知识 stdio MCP server
+pnpm chain:mcp:serve             # 仅在 canonical readiness 有效时启动内部 Chain MCP
 pnpm check                       # lint + format check + typecheck + tests + deterministic golden QA
 pnpm agent:smoke                 # 轻量验证已启动服务的 health 和核心 agentRoute
 ```
@@ -79,6 +86,8 @@ pnpm rag:refresh -- --full
 pnpm rag:stats
 pnpm rag:evaluate
 pnpm run telegram:dev
+pnpm product:mcp:dev
+pnpm chain:mcp:serve
 ```
 
 `pnpm run app:dev -- --sync` 会执行增量 `x:scrape` 和 `rag:sync:x` 后启动服务；`--full-sync` 会同步官网、图片/视频可检索内容，执行文档审计和全量 X scrape，再正式 ingest。生产定时刷新使用独立 `pnpm rag:refresh` Job，不由 API/Telegram 自行运行。外部参考资料不进入正式知识库。

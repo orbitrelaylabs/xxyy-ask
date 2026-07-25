@@ -1,5 +1,10 @@
 import type { RagIndex } from '@xxyy/shared';
 import {
+  createInMemoryProductQaMcpClient,
+  createProductSearchHandler,
+  type ProductQaMcpClient,
+} from '@xxyy/product-qa-mcp';
+import {
   LlmConfigurationError,
   loadRagConfig,
   type AnswerProvider,
@@ -13,8 +18,12 @@ import {
   type CustomerAgentRuntime,
 } from './langgraph-customer-runtime.js';
 import { createOpenAiCompatiblePlannerModel, type PlannerModel } from './planner-model.js';
+import {
+  createProductSupportCapabilityRegistry,
+  createProductSupportSkillTool,
+  type TrustedProductCapabilityCaller,
+} from './product-support-capabilities.js';
 import { createAgentTools } from './tools/agent-tools.js';
-import { createProductTools } from './tools/product-tools.js';
 import { createToolRegistry } from './tool-registry.js';
 
 export interface CreateCustomerAgentChatServiceOptions {
@@ -22,6 +31,8 @@ export interface CreateCustomerAgentChatServiceOptions {
   config?: Partial<RagConfig>;
   index?: RagIndex;
   planner?: PlannerModel;
+  productCapabilityCaller?: TrustedProductCapabilityCaller;
+  productMcpClient?: ProductQaMcpClient;
   retriever?: Retriever;
   tracer?: QualityTracer;
 }
@@ -37,14 +48,31 @@ export function createCustomerAgentChatService(
     registry.register(tool);
   }
 
-  for (const tool of createProductTools({
-    ...(options.config === undefined ? {} : { config: options.config }),
-    ...(options.index === undefined ? {} : { index: options.index }),
-    ...(options.retriever === undefined ? {} : { retriever: options.retriever }),
+  const productMcpClient =
+    options.productMcpClient ??
+    createInMemoryProductQaMcpClient({
+      handler: createProductSearchHandler({
+        ...(options.config === undefined ? {} : { config: options.config }),
+        ...(options.index === undefined ? {} : { index: options.index }),
+        ...(options.retriever === undefined ? {} : { retriever: options.retriever }),
+        ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
+      }),
+    });
+  const productCapabilityCaller = options.productCapabilityCaller ?? {
+    channel: 'agent',
+    principal: 'service',
+  };
+  const capabilityRegistry = createProductSupportCapabilityRegistry({
+    caller: productCapabilityCaller,
+    mcpClient: productMcpClient,
     ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
-  })) {
-    registry.register(tool);
-  }
+  });
+  registry.register(
+    createProductSupportSkillTool({
+      caller: productCapabilityCaller,
+      registry: capabilityRegistry,
+    }),
+  );
 
   return createLangGraphCustomerRuntime({
     answerProvider: options.answerProvider,

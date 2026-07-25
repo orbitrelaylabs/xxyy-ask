@@ -1,0 +1,12 @@
+interface:
+  display_name: 'XXYY EVM Sandwich Detector'
+  short_description: 'Assess Sandwich evidence for an EVM swap'
+  default_prompt: 'Use $xxyy-evm-sandwich-detector to assess whether this EVM swap shows Sandwich evidence.'
+dependencies:
+  tools:
+    - type: 'mcp'
+      value: 'xxyy-chain-analysis'
+      description: 'Governed read-only EVM transaction and Sandwich analysis'
+      transport: 'stdio'
+policy:
+  allow_implicit_invocation: false

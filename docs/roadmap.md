@@ -69,7 +69,7 @@
 
 ## Paused / Out of Scope
 
-- [ ] 实际 MCP adapter、MCP server 和 project skills：当前阶段仍不作为对外或本地调用入口；v0.6 只交付未接线的安全能力平面契约。
+- [ ] 链上 MCP / Skill 的生产与公开激活：内部 server/client、两个 Skills、精确 Capability factory 和 fail-closed stdio composition 已实现；真实 production readiness 通过前不能启动，Web/API/Telegram 仍不注册、不授权、不暴露。
 - [ ] 公开交易分析、池子查询和链上取证入口：当前客服入口只做知识库产品回答，相关问题进入边界/澄清回复；离线 EVM transaction/execution/MEV cores 和未接线 RPC data adapters 不扩大运行面。
 - [ ] 账户、订单、钱包余额、私有交易记录和投资建议：长期保持边界，不进入自动回答或自动操作链路。
 
@@ -122,9 +122,9 @@
 
 成功标准：服务能安全暴露给真实用户；异常请求、错误回答和模型成本可观测；敏感数据有明确处理策略。
 
-## v0.6 MCP / Skill Capability Plane Foundation
+## v0.6 MCP / Skill Capability Plane And Product Integration
 
-目标：在不扩大当前客服能力边界的前提下，为未来自行实现的 MCP / Skill 建立与 LangGraph 解耦、默认拒绝、可审计的执行契约。
+目标：在不扩大当前客服能力边界的前提下，建立与 LangGraph 解耦、默认拒绝、可审计的 MCP / Skill 执行契约，并先接入正式产品知识检索。
 
 - [x] Transport-neutral manifest：能力显式声明 namespace id、精确 semver、source、risk、side effect、data scopes、确认/幂等要求和单次资源限制。
 - [x] 独立 CapabilityRegistry：目录只暴露冻结后的 manifest，不暴露 adapter；注册校验来源一致性和重复 id，不会自动加入 Planner 工具列表。
@@ -132,10 +132,14 @@
 - [x] Bounded executor：使用 manifest 与全局限制中的更小值执行 timeout、上游 cancellation、input/output schema、JSON 边界和最大输出字节检查。
 - [x] 副作用硬门禁：外部写入和金融交易必须声明并提供确认与 idempotency key，即使替换自定义 policy 也不能绕过；持久化去重和 exactly-once 留给未来 adapter / coordinator。
 - [x] 脱敏审计：`agent.capability` 只记录固定 manifest/policy 元数据、值类型、字段/元素数量和输出大小，不记录字段名、payload 或 idempotency key 原文。
-- [x] 运行面隔离：当前 LangGraph、Web/API、Telegram、CLI 和 `ToolRegistry` 不创建或调用 CapabilityRegistry，生产业务工具仍只有 `search_product_docs`。
-- [ ] 实现第一个只读 Capability / Skill adapter，并通过显式 bridge 暴露给 Agent；底层 RPC data adapter 不会自动完成注册，仍需单独授权、运行面审查和评测后再开启。
+- [x] Product MCP server：`packages/product-qa-mcp` 通过 stdio 对外提供只读 `search_product_docs`、Skill Resource 和 Prompt；应用内使用 MCP SDK linked in-memory transport，不需要旁路子进程。
+- [x] Project Skill：`skills/xxyy-product-support` 定义检索、引用、证据不足和客服边界工作流，并声明同名 MCP 依赖。
+- [x] 显式 Agent bridge：生产 `search_product_docs` 依次执行 `product.skill.search_docs → product.mcp.search_docs`，两层都固定 source/version/data scope/channel/principal grant；Web/API、CLI、Telegram 共用该路径。
+- [x] Planner 隔离：MCP discovery 和 Skill 元数据不会自动注册工具，Planner 仍只看到审查过的 `search_product_docs`。
+- [x] 内部链上只读 Capability / Skill adapter：`xxyy-chain-analysis` 提供 `inspect_transaction` / `detect_sandwich`、两个默认不隐式调用的 Skills、仅内部/CLI admin grants、MCP protocol integration test 和 readiness-gated stdio composition；公开 Planner 不自动获得工具。
+- [ ] Chain MCP 生产激活：提供真实 Provider、governed mainnet corpus、operations evidence 与 canonical `ready` attestation，验证实际部署后再启动内部进程；公开客服接入另行评审。
 
-成功标准：未授权、版本漂移、来源/通道/数据范围不匹配和缺少确认/幂等的调用全部失败；超时、取消、超限与非 JSON 输出有稳定错误；当前客服行为和 Chat API 契约保持不变。详细设计见 [capability-plane.md](capability-plane.md)。
+成功标准：产品检索实际穿过 MCP protocol 和 Skill/MCP 双层 Capability；未授权、版本漂移、来源/通道/数据范围不匹配和缺少确认/幂等的调用全部失败；超时、取消、超限与非 JSON 输出有稳定错误；当前客服边界和 Chat API 契约保持不变。详细设计见 [capability-plane.md](capability-plane.md)。
 
 ## v0.7 Read-only EVM Transaction Analysis Core
 
@@ -167,7 +171,7 @@
 - [x] 多 provider 协调：按配置顺序确定 canonical 数据，保留 missing/invalid/present 状态、关键字段 conflicts、来源观测时间和响应 SHA-256。
 - [x] Adapter 状态：独立输出 `success | partial | insufficient_data` 和稳定 diagnostics；下游 core 仍独立生成领域 SkillResult。
 - [x] 可重放 provider contract tests：使用注入 fetch 和合成 JSON-RPC fixtures 覆盖成功、缺失、冲突、错误链、非法 payload、重试、timeout、abort、响应超限和公开边界隔离。
-- [ ] 配置生产 provider、共享 QPS/熔断/缓存/metrics，并实现内部 Capability bridge；需单独安全目标和授权后才能启用。
+- [ ] 配置真实生产 provider、共享 QPS/熔断/缓存/metrics，并用 canonical `ready` attestation 激活已实现的内部 Capability bridge；需单独安全目标和授权后才能启用。
 
 成功标准：运行时不能注入 endpoint 或写 RPC；错误 chain fail closed，hash/block/index 关联不一致显式降级；相同 fixtures 生成字节一致、无精度损失且带 provenance 的 snapshot；provider 局部失败和冲突安全降级；现有 Agent/API/Telegram/CLI 行为不变。详细设计见 [evm-data-adapter.md](evm-data-adapter.md)。
 
@@ -364,7 +368,7 @@
 
 待执行发布门禁 **v0.14b2b2b / Goal 20B：Production Activation Gate**：
 
-状态：`pending_owner_execution`。第二名真人不再是前置条件；当前仍缺少真实生产基础设施、Provider、evidence、workers、主网 corpus 和演练，因此继续阻止内部 Capability bridge 和任何 production-ready 声明。
+状态：`pending_owner_execution`。第二名真人不再是前置条件；当前仍缺少真实生产基础设施、Provider、evidence、workers、主网 corpus 和演练，因此继续阻止已实现内部 Capability bridge 的实际启动和任何 production-ready 声明。
 
 后续执行顺序固定为：
 
@@ -372,7 +376,7 @@
 2. **Goal 20B-2 / Provider & Worker Data Plane**：仓库侧已增加双独立 Provider manifest、mounted secret resolver、三个 adapter 的私有 composition root、共享 budget/circuit、bounded cache、failover/持久审计/脱敏 metrics-alert 契约、四类 worker handler runtime、bootstrap/probe/retention/reconciliation CLI，并通过一次性空库 PostgreSQL 原子结算/审计验证；真实两家 Provider、credential、scheduler/collector/on-call route 和 sampling/review handler 仍待生产部署与验证。
 3. **Goal 20B-3 / Reviewed Mainnet Corpus**：按 plan 采集 Ethereum 主网公开样本，完成 manifest → candidate handoff，由唯一 owner 从单槽队列重放并批准/拒绝，形成真实 governed corpus。
 4. **Goal 20B-4 / Production Readiness Gate**：执行故障演练，形成 SLO/security/runbook evidence，在固定 corpus 上收敛误报、漏报与 abstention，并由 evidence ledger 重算真实 readiness attestation；成功标准只能是 canonical evaluator 返回 `ready`。
-5. **Goal 24 / First MCP-Skill Capability**：在 20B-4 `ready` 后，把 `chain.inspect_transaction` 与 `chain.detect_sandwich` 封装为内部只读能力，复用现有核心并增加显式授权、超时、成本、审计和结构化错误。
+5. **Goal 24 / First Chain MCP-Skill Capability**：仓库实现已提前完成：`chain.inspect_transaction` 与 `chain.detect_sandwich` 已封装为内部只读 MCP/Skills，具备显式授权、超时、成本、审计、结构化错误与 readiness/manifest lineage 门禁；实际进程仍必须等 20B-4 返回未过期 `ready` 后才能启动，现有 Product MCP/Skill 不构成链上 readiness 证据。
 6. **Goal 25 / Agent Multi-capability Orchestration**：Product RAG 继续处理产品知识，链上意图路由到已授权能力；LangGraph 负责有界工具循环、证据聚合、拒答和最终回答，输出来源、置信度、完整性与 unsupported reason。
 7. **Goal 26 / Product Entry & Continuous Operations**：在独立安全/产品评审后逐步开放 Web/Telegram 链上入口，并并行推进 Telegram 教学命令、知识质量、更多渠道、删除/保留、隐私和生产告警。
 
@@ -385,9 +389,9 @@
 - [ ] 实现 secret manager 配置解析、metrics/alerting 和 provider failover；配置数据库最小权限、加密、备份、保留策略，并验证 budget/circuit/audit backend unavailable 时 fail closed。
 - [ ] 执行 timeout、rate limit、provider conflict、reorg、审计/预算/circuit backend unavailable 等演练，提交新鲜 SLO、告警、security 和 runbook evidence。
 - [ ] 在固定 governed corpus 上持续运行 harness，逐条审阅 false positive、false negative 和 positive abstention，实际达到并锁定 internal-readiness gate。
-- [ ] 通过 evidence ledger 持久化精确 policy/evidence/report、重新计算真实 readiness attestation 并输出独立审计记录；只有 evaluator 为 `ready` 才能提出下一阶段内部 Capability Adapter & Authorization Bridge 方案。
+- [ ] 通过 evidence ledger 持久化精确 policy/evidence/report、重新计算真实 readiness attestation 并输出独立审计记录；只有 evaluator 为 `ready` 才能向已实现的内部 Capability Adapter & Authorization Bridge 提供生产启动配置。
 
-只有 Goal 20B 和后续 v0.14b2b internal-readiness gate 实际通过，且真实 provider 安全与运维评审完成后，才进入内部 Capability Adapter & Authorization Bridge 的生产激活；公开客服接入仍需另行决策。
+只有 Goal 20B 和后续 v0.14b2b internal-readiness gate 实际通过，且真实 provider 安全与运维评审完成后，已实现的内部 Capability Adapter & Authorization Bridge 才能生产激活；公开客服接入仍需另行决策。
 
 ## GitHub Planning Convention
 

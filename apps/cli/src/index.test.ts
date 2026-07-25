@@ -1003,9 +1003,14 @@ describe('runCli', () => {
         expect(Object.keys(options).sort()).toEqual([
           'answerProvider',
           'config',
+          'productCapabilityCaller',
           'retriever',
           'tracer',
         ]);
+        expect(options.productCapabilityCaller).toEqual({
+          channel: 'cli',
+          principal: 'user',
+        });
         return {
           ask,
           stream: vi.fn(),

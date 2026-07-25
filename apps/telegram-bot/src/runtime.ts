@@ -54,6 +54,10 @@ export function createTelegramChatRuntime(
   const service = createCustomerAgentChatService({
     answerProvider: createLazyAnswerProvider(config, tracer),
     config,
+    productCapabilityCaller: {
+      channel: 'telegram',
+      principal: 'service',
+    },
     retriever,
     tracer,
   });

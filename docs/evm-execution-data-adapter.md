@@ -2,9 +2,9 @@
 
 ## 当前状态
 
-`@xxyy/evm-execution-data-adapter` 是未接线的公开链执行数据边界。它从启动时配置的 provider 获取 Geth `debug_traceTransaction` / `callTracer`，并在指定历史 block 上读取和验证 Uniswap V2/V3 pool metadata，输出可以直接交给 `@xxyy/evm-execution-enrichment-core` 的 `EvmCallTrace` 与 `EvmPoolMetadata`。
+`@xxyy/evm-execution-data-adapter` 是内部专用的公开链执行数据边界。它从启动时配置的 provider 获取 Geth `debug_traceTransaction` / `callTracer`，并在指定历史 block 上读取和验证 Uniswap V2/V3 pool metadata，输出可以直接交给 `@xxyy/evm-execution-enrichment-core` 的 `EvmCallTrace` 与 `EvmPoolMetadata`。
 
-该包没有内置 endpoint 或环境变量 loader；隔离的私有 data-plane composition root 现可从 opaque secret mount 为它配置双 provider 和共享控制，但仓库没有真实 credential/部署。它没有被 API、Web、Telegram、LangGraph、`ToolRegistry`、`CapabilityRegistry` 或 MCP 引用。公开客服仍拒绝交易哈希、Explorer、链上取证和 MEV 分析；实现一个数据 adapter 不等于能力已注册、已授权或已对用户开放。私有接线路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
+该包没有内置 endpoint 或环境变量 loader；隔离的私有 data-plane composition root 可从 opaque secret mount 为它配置双 provider 和共享控制，内部 `xxyy-chain-analysis` MCP 在 readiness 门禁通过后消费其结果。仓库没有真实 credential/部署；API、Web、Telegram 和公开 LangGraph 仍不引用它。实现内部 MCP adapter 不等于能力已对用户开放。私有接线路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
 
 现有 `@xxyy/evm-data-adapter` 的标准 RPC allowlist 仍保持 transaction、receipt、chain id 和 block 四个方法不变。执行数据使用独立包和独立 RPC call schema，避免把通用 `debug_*` 或任意 `eth_call` 权限加入基础 snapshot client。
 
@@ -24,8 +24,8 @@ flowchart LR
   Reconcile --> Data["Trace + Verified Pool Metadata"]
   Data --> Core["Execution Enrichment Core"]
 
-  Runtime["CustomerAgentRuntime"] -. "未接线" .-> Adapter
-  Capability["CapabilityRegistry"] -. "未注册" .-> Adapter
+  Internal["Internal Chain MCP"] --> Adapter
+  Runtime["Public CustomerAgentRuntime"] -. "未接线" .-> Internal
 ```
 
 调用方只提交：

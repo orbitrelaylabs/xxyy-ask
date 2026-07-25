@@ -4,7 +4,7 @@
 
 `@xxyy/evm-data-adapter` 是 `@xxyy/transaction-analysis-core` 之前的只读数据边界。它通过受控的标准 EVM JSON-RPC 获取公开 transaction、receipt、chain id 和 block，将 hex quantity 无精度损失地转换为 normalized `EvmTransactionSnapshot`，再由离线领域核心计算交易事实。本 adapter 的四方法 allowlist 不扩大；额外 trace 和 pool metadata 由独立的 [EVM Execution Data Adapter](evm-execution-data-adapter.md) 获取并验证。
 
-该包已经实现且被隔离的私有 data-plane composition root 引用，但仓库没有真实 RPC endpoint/credential 或生产部署。它仍未被 LangGraph、`ToolRegistry`、`CapabilityRegistry`、公开 CLI、API、Web 或 Telegram 引用，也不是 MCP server/capability adapter；公开客服收到交易、Explorer、链上取证或 MEV 问题时仍返回现有边界回复。私有接线路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
+该包已经实现且被隔离的私有 data-plane composition root 引用；内部 `xxyy-chain-analysis` MCP 可在 canonical readiness 门禁通过后经该 composition 获取 snapshot。adapter 自身仍不是 MCP server/capability adapter，仓库也没有真实 RPC endpoint/credential 或生产部署。公开 LangGraph、API、Web 和 Telegram 不注册链上 Tool，收到交易、Explorer、链上取证或 MEV 问题时仍返回现有边界回复。私有接线路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
 
 ## 组件边界
 
@@ -19,8 +19,8 @@ flowchart LR
   Reconcile --> Snapshot["EvmTransactionSnapshot"]
   Snapshot --> Core["Transaction Analysis Core"]
 
-  Capability["CapabilityRegistry"] -. "未注册" .-> Adapter
-  Runtime["CustomerAgentRuntime"] -. "未接线" .-> Capability
+  Internal["Internal Chain MCP"] --> Adapter
+  Runtime["Public CustomerAgentRuntime"] -. "未接线" .-> Internal
 ```
 
 领域核心仍然没有网络依赖。adapter 不计算 success/reverted 的资产变化，不解码 ERC-20，也不调用 LLM；它只负责可信获取、校验、归一化和来源协调。
