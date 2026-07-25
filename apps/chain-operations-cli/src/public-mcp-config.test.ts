@@ -1,49 +1,69 @@
+import { readFileSync } from 'node:fs';
+import { parseEnv } from 'node:util';
+
 import { describe, expect, it } from 'vitest';
 
-import {
-  PUBLIC_BASE_RPC_ENDPOINT,
-  PUBLIC_BSC_RPC_ENDPOINT,
-  PUBLIC_ETHEREUM_RPC_ENDPOINT,
-  PUBLIC_ROBINHOOD_RPC_ENDPOINT,
-  PUBLIC_SOLANA_RPC_ENDPOINT,
-  PUBLIC_STABLE_RPC_ENDPOINT,
-  loadPublicOnchainMcpConfig,
-} from './public-mcp-config.js';
+import { loadPublicOnchainMcpConfig } from './public-mcp-config.js';
 
 describe('public onchain MCP configuration', () => {
-  it('uses free public RPC defaults only outside production', () => {
-    const config = loadPublicOnchainMcpConfig({});
-    expect(config).toMatchObject({
+  it('requires the same explicit RPC configuration in every environment', () => {
+    expect(() => loadPublicOnchainMcpConfig({})).toThrow('ONCHAIN_RPC_CONFIG_JSON is required');
+    expect(() => loadPublicOnchainMcpConfig({ NODE_ENV: 'production' })).toThrow(
+      'ONCHAIN_RPC_CONFIG_JSON is required',
+    );
+  });
+
+  it('keeps the six public convenience RPCs in .env.example instead of runtime code', () => {
+    const example = parseEnv(
+      readFileSync(new URL('../../../.env.example', import.meta.url), 'utf8'),
+    );
+    expect(example.ONCHAIN_RPC_CONFIG_JSON).toBeTypeOf('string');
+    const config = loadPublicOnchainMcpConfig({
+      ONCHAIN_ALLOW_INSECURE_LOCALHOST: example.ONCHAIN_ALLOW_INSECURE_LOCALHOST ?? 'false',
+      ONCHAIN_RPC_CONFIG_JSON: example.ONCHAIN_RPC_CONFIG_JSON ?? '',
+    });
+    const productionConfig = loadPublicOnchainMcpConfig({
+      NODE_ENV: 'production',
+      ONCHAIN_ALLOW_INSECURE_LOCALHOST: example.ONCHAIN_ALLOW_INSECURE_LOCALHOST ?? 'false',
+      ONCHAIN_RPC_CONFIG_JSON: example.ONCHAIN_RPC_CONFIG_JSON ?? '',
+    });
+
+    expect(config).toEqual({
+      allowInsecureLocalhost: false,
       evm: [
         {
           chainId: '1',
-          providers: [{ endpoint: PUBLIC_ETHEREUM_RPC_ENDPOINT }],
+          providers: [{ endpoint: 'https://ethereum-rpc.publicnode.com', id: 'ethereum_public' }],
         },
         {
           chainId: '56',
-          providers: [{ endpoint: PUBLIC_BSC_RPC_ENDPOINT }],
+          providers: [{ endpoint: 'https://bsc-dataseed-public.bnbchain.org', id: 'bsc_public' }],
         },
         {
           chainId: '8453',
-          providers: [{ endpoint: PUBLIC_BASE_RPC_ENDPOINT }],
+          providers: [{ endpoint: 'https://mainnet.base.org', id: 'base_public' }],
         },
         {
           chainId: '4663',
-          providers: [{ endpoint: PUBLIC_ROBINHOOD_RPC_ENDPOINT }],
+          providers: [
+            {
+              endpoint: 'https://rpc.mainnet.chain.robinhood.com',
+              id: 'robinhood_public',
+            },
+          ],
         },
         {
           chainId: '988',
-          providers: [{ endpoint: PUBLIC_STABLE_RPC_ENDPOINT }],
+          providers: [{ endpoint: 'https://rpc.stable.xyz', id: 'stable_public' }],
         },
       ],
-      profile: 'public_development_defaults',
+      profile: 'configured',
       solana: {
-        providers: [{ endpoint: PUBLIC_SOLANA_RPC_ENDPOINT }],
+        network: 'solana:mainnet',
+        providers: [{ endpoint: 'https://api.mainnet.solana.com', id: 'solana_public' }],
       },
     });
-    expect(() => loadPublicOnchainMcpConfig({ NODE_ENV: 'production' })).toThrow(
-      'required in production',
-    );
+    expect(productionConfig).toEqual(config);
   });
 
   it('accepts a strict startup-time provider configuration', () => {
@@ -79,6 +99,14 @@ describe('public onchain MCP configuration', () => {
       loadPublicOnchainMcpConfig({
         NODE_ENV: 'production',
         ONCHAIN_ALLOW_INSECURE_LOCALHOST: 'true',
+        ONCHAIN_RPC_CONFIG_JSON: JSON.stringify({
+          evm: [
+            {
+              chainId: '1',
+              providers: [{ endpoint: 'http://localhost:8545', id: 'local' }],
+            },
+          ],
+        }),
       }),
     ).toThrow('forbidden in production');
   });

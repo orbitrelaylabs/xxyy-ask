@@ -4,12 +4,43 @@ import { loadPublicOnchainMcpConfig } from './public-mcp-config.js';
 import { createPublicOnchainMcpHandler } from './public-mcp-runtime.js';
 
 const HASH = `0x${'ab'.repeat(32)}`;
+const SIX_CHAIN_CONFIG = JSON.stringify({
+  evm: [
+    {
+      chainId: '1',
+      providers: [{ endpoint: 'https://ethereum.example/rpc', id: 'ethereum' }],
+    },
+    {
+      chainId: '56',
+      providers: [{ endpoint: 'https://bsc.example/rpc', id: 'bsc' }],
+    },
+    {
+      chainId: '8453',
+      providers: [{ endpoint: 'https://base.example/rpc', id: 'base' }],
+    },
+    {
+      chainId: '4663',
+      providers: [{ endpoint: 'https://robinhood.example/rpc', id: 'robinhood' }],
+    },
+    {
+      chainId: '988',
+      providers: [{ endpoint: 'https://stable.example/rpc', id: 'stable' }],
+    },
+  ],
+  solana: {
+    network: 'solana:mainnet',
+    providers: [{ endpoint: 'https://solana.example/rpc', id: 'solana' }],
+  },
+});
 
 describe('createPublicOnchainMcpHandler', () => {
   it('advertises all six XXYY product chains without enabling Sandwich by default', () => {
-    const handler = createPublicOnchainMcpHandler(loadPublicOnchainMcpConfig({}), {
-      fetchImpl: () => Promise.reject(new Error('not used')),
-    });
+    const handler = createPublicOnchainMcpHandler(
+      loadPublicOnchainMcpConfig({ ONCHAIN_RPC_CONFIG_JSON: SIX_CHAIN_CONFIG }),
+      {
+        fetchImpl: () => Promise.reject(new Error('not used')),
+      },
+    );
     expect(handler.getCapabilities()).toMatchObject({
       chains: [
         {

@@ -9,7 +9,7 @@
 - `confirmed | likely | unlikely | insufficient_data` 四态 Sandwich verdict；
 - 可引用的 transaction、block、pool-state 和 calculation Evidence，以及稳定 diagnostics。
 
-该包没有 RPC、Indexer、Explorer、环境变量、LLM、LangGraph、Capability 或 MCP 依赖。通用 `onchain-analysis` MCP 可把已验证 observation 交给该纯函数 core；免费公共 RPC 默认配置不会声称具备这种 evidence。XXYY API、公开 CLI、Telegram 和客服 Agent 仍不注册相关工具，交易哈希、Explorer、链上取证和 MEV 问题继续走公开客服边界回复。
+该包没有 RPC、Indexer、Explorer、环境变量、LLM、LangGraph、Capability 或 MCP 依赖。通用 `onchain-analysis` MCP 可把已验证 observation 交给该纯函数 core；`.env.example` 中的免费公共 RPC 便利配置不会声称具备这种 evidence。XXYY API、公开 CLI、Telegram 和客服 Agent 仍不注册相关工具，交易哈希、Explorer、链上取证和 MEV 问题继续走公开客服边界回复。
 
 `confirmed` 只确认本 v0.1 证据模型中的同 pool 三笔交易结构，不推断攻击者主观意图，也不等于法律判断。`attackerProfitRaw` 是 profit token 的 raw gross gain，`intermediateRemainderRaw` 单独记录另一 pool token 的剩余量；两者都未扣 gas、builder payment、借贷费或其他链下成本。
 

@@ -4,7 +4,7 @@
 
 `@xxyy/evm-data-adapter` 是 `@xxyy/transaction-analysis-core` 之前的只读数据边界。它通过受控的标准 EVM JSON-RPC 获取公开 transaction、receipt、chain id 和 block，将 hex quantity 无精度损失地转换为 normalized `EvmTransactionSnapshot`，再由离线领域核心计算交易事实。本 adapter 的四方法 allowlist 不扩大；额外 trace 和 pool metadata 由独立的 [EVM Execution Data Adapter](evm-execution-data-adapter.md) 获取并验证。
 
-该包已经实现且被通用 `onchain-analysis` 开发 composition 与隔离的私有生产 data-plane composition 引用。开发 composition 可从启动配置或非生产公共默认值获取基础 EVM snapshot；内部生产 composition 仍需 canonical readiness 门禁。adapter 自身不是 MCP server/capability adapter。公开 LangGraph、API、Web 和 Telegram 仍不注册链上 Tool，收到交易、Explorer、链上取证或 MEV 问题时继续返回现有边界回复。通用配置见 [Onchain Analysis MCP / Skills](onchain-analysis-mcp.md)，私有生产路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
+该包已经实现且被通用 `onchain-analysis` composition 与隔离的私有生产 data-plane composition 引用。通用 composition 只从必填的启动配置获取基础 EVM snapshot；运行时代码不内置 RPC endpoint，`.env.example` 仅提供公共便利值。内部生产 composition 仍需 canonical readiness 门禁。adapter 自身不是 MCP server/capability adapter。公开 LangGraph、API、Web 和 Telegram 仍不注册链上 Tool，收到交易、Explorer、链上取证或 MEV 问题时继续返回现有边界回复。通用配置见 [Onchain Analysis MCP / Skills](onchain-analysis-mcp.md)，私有生产路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
 
 ## 组件边界
 

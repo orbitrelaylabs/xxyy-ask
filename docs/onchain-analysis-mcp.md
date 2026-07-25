@@ -30,7 +30,13 @@ Etherscan V2 与 Solscan Pro API 都需要 API key，因此不作为“免费默
 
 ## 启动
 
-开发或小规模验证：
+先从模板创建本地配置：
+
+```bash
+cp .env.example .env
+```
+
+然后启动开发或小规模验证入口：
 
 ```bash
 pnpm onchain:mcp:dev
@@ -42,9 +48,11 @@ pnpm onchain:mcp:dev
 pnpm chain:mcp:dev
 ```
 
-未设置 `ONCHAIN_RPC_CONFIG_JSON` 且 `NODE_ENV` 不是 `production` 时，固定使用：
+该入口自动读取工作区根目录 `.env`，同名 shell 环境变量优先。`ONCHAIN_RPC_CONFIG_JSON` 在所有 `NODE_ENV` 下都必填；运行时代码不内置 RPC endpoint，也不会按开发/生产环境选择 Provider。
 
-| Network                 | 默认 RPC                                   |
+根目录 `.env.example` 提供以下可直接启动的便利配置：
+
+| Network                 | `.env.example` 公共 RPC                    |
 | ----------------------- | ------------------------------------------ |
 | Ethereum mainnet        | `https://ethereum-rpc.publicnode.com`      |
 | BNB Smart Chain mainnet | `https://bsc-dataseed-public.bnbchain.org` |
@@ -53,7 +61,7 @@ pnpm chain:mcp:dev
 | Stable mainnet          | `https://rpc.stable.xyz`                   |
 | Solana mainnet          | `https://api.mainnet.solana.com`           |
 
-这些地址均来自链方或公开服务文档。Base、Robinhood 和 Solana 明确说明公共 endpoint 会限流或不建议用于生产；Ethereum PublicNode、BSC 和 Stable 默认值同样不提供本项目可依赖的 SLA。参考：
+这些地址均来自链方或公开服务文档。Base、Robinhood 和 Solana 明确说明公共 endpoint 会限流或不建议用于生产；Ethereum PublicNode、BSC 和 Stable 示例值同样不提供本项目可依赖的 SLA。参考：
 
 - [BNB Smart Chain JSON-RPC endpoints](https://docs.bnbchain.org/bnb-smart-chain/developers/json_rpc/json-rpc-endpoint/)
 - [Base network configuration](https://docs.base.org/base-chain/quickstart/connecting-to-base)
@@ -63,13 +71,13 @@ pnpm chain:mcp:dev
 - [Ethereum nodes as a service](https://ethereum.org/developers/docs/nodes-and-clients/nodes-as-a-service/)
 - [PublicNode Ethereum endpoint](https://ethereum-rpc.publicnode.com/)
 
-这些默认值没有 SLA，可能限流、阻断或缺少历史/trace 能力，只用于开发、演示和小规模验证。`NODE_ENV=production` 时缺少显式配置会启动失败。
+这些示例值没有 SLA，可能限流、阻断或缺少历史/trace 能力，只用于开发、演示和小规模验证。生产环境沿用同一 `ONCHAIN_RPC_CONFIG_JSON` 结构，但应将 endpoint 替换为有配额和 SLA 的托管 Provider。任何环境缺少该变量都会启动失败。
 
 ## 自定义 RPC
 
-通过进程环境传入严格 JSON；配置只在启动时解析，聊天或 MCP Tool 输入不能传 endpoint、header 或任意 RPC method。
+直接编辑根目录 `.env` 中的严格 JSON，或通过进程环境覆盖；配置只在启动时解析，聊天或 MCP Tool 输入不能传 endpoint、header 或任意 RPC method。
 
-```bash
+```dotenv
 ONCHAIN_RPC_CONFIG_JSON='{
   "evm": [
     {
@@ -127,7 +135,13 @@ ONCHAIN_RPC_CONFIG_JSON='{
       }
     ]
   }
-}' pnpm onchain:mcp:dev
+}'
+```
+
+保存 `.env` 后启动：
+
+```bash
+pnpm onchain:mcp:dev
 ```
 
 生产配置应至少使用独立 Provider、secret manager、共享预算/熔断、缓存、持久审计、监控和告警。现有：

@@ -8,13 +8,6 @@ import {
 
 import { ChainOperationsCliError } from './runtime-config.js';
 
-export const PUBLIC_ETHEREUM_RPC_ENDPOINT = 'https://ethereum-rpc.publicnode.com';
-export const PUBLIC_BSC_RPC_ENDPOINT = 'https://bsc-dataseed-public.bnbchain.org';
-export const PUBLIC_BASE_RPC_ENDPOINT = 'https://mainnet.base.org';
-export const PUBLIC_ROBINHOOD_RPC_ENDPOINT = 'https://rpc.mainnet.chain.robinhood.com';
-export const PUBLIC_STABLE_RPC_ENDPOINT = 'https://rpc.stable.xyz';
-export const PUBLIC_SOLANA_RPC_ENDPOINT = 'https://api.mainnet.solana.com';
-
 const MAX_CONFIG_JSON_BYTES = 131_072;
 
 const publicMcpConfigSchema = z
@@ -31,7 +24,7 @@ export type PublicOnchainMcpEnv = Partial<
 export interface PublicOnchainMcpConfig {
   allowInsecureLocalhost: boolean;
   evm: EvmChainRpcConfig[];
-  profile: 'configured' | 'public_development_defaults';
+  profile: 'configured';
   solana?: SolanaDataAdapterConfig;
 }
 
@@ -42,20 +35,9 @@ export function loadPublicOnchainMcpConfig(env: PublicOnchainMcpEnv): PublicOnch
   }
   const rawConfig = env.ONCHAIN_RPC_CONFIG_JSON?.trim();
   if (rawConfig === undefined || rawConfig.length === 0) {
-    if (env.NODE_ENV === 'production') {
-      throw configurationError(
-        'ONCHAIN_RPC_CONFIG_JSON is required in production; public development defaults are disabled.',
-      );
-    }
-    return {
-      allowInsecureLocalhost,
-      evm: defaultEvmConfig(),
-      profile: 'public_development_defaults',
-      solana: {
-        network: 'solana:mainnet',
-        providers: [{ endpoint: PUBLIC_SOLANA_RPC_ENDPOINT, id: 'solana_public' }],
-      },
-    };
+    throw configurationError(
+      'ONCHAIN_RPC_CONFIG_JSON is required; define it in the workspace .env or process environment.',
+    );
   }
   if (Buffer.byteLength(rawConfig, 'utf8') > MAX_CONFIG_JSON_BYTES) {
     throw configurationError('ONCHAIN_RPC_CONFIG_JSON exceeds the configured size limit.');
@@ -84,31 +66,6 @@ export function loadPublicOnchainMcpConfig(env: PublicOnchainMcpEnv): PublicOnch
     profile: 'configured',
     ...(result.data.solana === undefined ? {} : { solana: result.data.solana }),
   };
-}
-
-function defaultEvmConfig(): EvmChainRpcConfig[] {
-  return [
-    {
-      chainId: '1',
-      providers: [{ endpoint: PUBLIC_ETHEREUM_RPC_ENDPOINT, id: 'ethereum_public' }],
-    },
-    {
-      chainId: '56',
-      providers: [{ endpoint: PUBLIC_BSC_RPC_ENDPOINT, id: 'bsc_public' }],
-    },
-    {
-      chainId: '8453',
-      providers: [{ endpoint: PUBLIC_BASE_RPC_ENDPOINT, id: 'base_public' }],
-    },
-    {
-      chainId: '4663',
-      providers: [{ endpoint: PUBLIC_ROBINHOOD_RPC_ENDPOINT, id: 'robinhood_public' }],
-    },
-    {
-      chainId: '988',
-      providers: [{ endpoint: PUBLIC_STABLE_RPC_ENDPOINT, id: 'stable_public' }],
-    },
-  ];
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {

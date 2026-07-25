@@ -108,7 +108,7 @@ TRUST_PROXY=false
 - `pnpm run app:dev -- --ingest`：启动前只执行知识库 ingest。
 - `pnpm rag:refresh`：独立增量刷新 Job；`--full` 执行官网/媒体/X 全量重建，两种模式最后都会运行严格自动知识治理与发布队列；`--dry-run` 只验证固定计划。生产定时任务优先使用该入口。
 - `pnpm product:mcp:dev`：以 stdio 启动只读产品知识 MCP server；API、CLI 和 Telegram 内部使用同一 MCP server 的 in-memory transport。
-- `pnpm onchain:mcp:dev`（兼容别名 `pnpm chain:mcp:dev`）：启动通用 `onchain-analysis` stdio MCP；开发环境未配置时使用 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain 免费公共 RPC，生产环境禁止隐式公共默认值。
+- `pnpm onchain:mcp:dev`（兼容别名 `pnpm chain:mcp:dev`）：启动通用 `onchain-analysis` stdio MCP；自动读取根目录 `.env` 中必填的 `ONCHAIN_RPC_CONFIG_JSON`，`.env.example` 为 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain 提供可直接替换的免费公共 RPC 示例。
 - `pnpm onchain:mcp:serve`（兼容别名 `pnpm chain:mcp:serve`）：启动 XXYY 内部 readiness-gated `onchain-analysis` stdio composition；不自动读取 `.env`，且必须同时通过固定 manifest、未过期 `ready` attestation、完整 Provider/budget lineage 与独立 control DB 门禁。
 - `pnpm chain:control:migrate` 与 `pnpm chain:provision:*`：只用于隔离的链上控制面 provisioning；不自动加载 `.env`，不接入客服或 Agent。
 - `NODE_ENV=production pnpm run app:dev`：生产模式跳过本地 Docker，默认不刷新知识库；可加 `--sync` 或 `--full-sync` 显式更新。
@@ -193,8 +193,8 @@ env -u DATABASE_URL -u POSTGRES_DB -u POSTGRES_USER -u POSTGRES_PASSWORD OPENAI_
 - 不要把真实 API key 写入测试、README 或日志。
 - 不要提交 chain-control request、plan、attestation、receipt、authority private key 或真实 identity/evidence fingerprint；通过受保护的运维通道提供。远程 control DB 必须验证 TLS，且不能与 Product RAG 共库。
 - 生产 API 服务端不负责迁移；迁移和正式知识写库由独立 `pnpm rag:refresh` Job、`pnpm rag:knowledge:automation:work`、`pnpm run app:dev -- --sync`、`pnpm run app:dev -- --full-sync`、`pnpm rag:ingest` 或 `pnpm rag:sync:x` 完成。本地 `pnpm run app:dev -- --sync` 可以为空知识库做首次 bootstrap。Telegram Bot 只允许创建、自动决定候选和排队，不直接写 pgvector。
-- Product MCP 只能读取正式产品知识；Onchain MCP 只能读取启动时配置或开发默认 allowlist 中的公开链数据，工具输入不能接受 endpoint、任意 RPC method、任意区块范围或私有账户输入。通用交易查询支持配置的 EVM chain id 与 Solana mainnet；深度 execution/Sandwich 仍要求 EVM archive Provider、验证过的 factory/pool 和完整数据覆盖。新增 MCP/Skill 必须分别固定 manifest/source/version、配置精确 grant，再通过显式 Tool bridge 暴露，禁止把 discovery 结果自动注册到 Planner。
-- 免费公共 RPC 只允许作为 `onchain:mcp:dev` 的非生产默认值；生产必须显式提供 Provider 配置和配额/SLA。Explorer URL 只用于网络识别与规范链接，Etherscan/Solscan 等需要 API key 的增强 API 不得伪装成免费默认数据源。
+- Product MCP 只能读取正式产品知识；Onchain MCP 只能读取 `ONCHAIN_RPC_CONFIG_JSON` 或生产 secret/manifest 中启动时配置的公开链数据，工具输入不能接受 endpoint、任意 RPC method、任意区块范围或私有账户输入。通用交易查询支持配置的 EVM chain id 与 Solana mainnet；深度 execution/Sandwich 仍要求 EVM archive Provider、验证过的 factory/pool 和完整数据覆盖。新增 MCP/Skill 必须分别固定 manifest/source/version、配置精确 grant，再通过显式 Tool bridge 暴露，禁止把 discovery 结果自动注册到 Planner。
+- 免费公共 RPC 只存在于 `.env.example` 的便利配置中，运行时代码不得内置 endpoint 或按 `NODE_ENV` 选择 Provider；生产部署必须使用同一配置结构显式替换为具备配额/SLA 的 Provider。Explorer URL 只用于网络识别与规范链接，Etherscan/Solscan 等需要 API key 的增强 API 不得伪装成 RPC 数据源。
 - Chain Capability bridge 仅允许 `internal/(service|admin)` 或 `cli/admin` 可信调用方；Web/API/Telegram 不得创建 chain grant 或注册 chain Tool。生产 stdio 入口还必须逐次检查 readiness 有效时间窗，不能把仓库 fixture 或启动成功描述为 production ready。
 - 新增行为需要加测试；风险较高的改动跑 `pnpm check`。
 - 对外错误信息应清晰区分：

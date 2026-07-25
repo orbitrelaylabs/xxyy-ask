@@ -70,8 +70,9 @@ CHAIN_CONTROL_AUTHORITY_SYSTEM_ID=
 CHAIN_CONTROL_AUTHORITY_PUBLIC_KEY_FILE=
 CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT=
 CHAIN_ANALYSIS_READINESS_FINGERPRINT=
-# Optional for pnpm onchain:mcp:dev; production requires an explicit strict JSON config.
-ONCHAIN_RPC_CONFIG_JSON=
+# Required by pnpm onchain:mcp:dev. Copy the six-chain public example from .env.example,
+# then replace its endpoints with managed Providers for production.
+ONCHAIN_RPC_CONFIG_JSON='{"evm":[...],"solana":{...}}'
 ONCHAIN_ALLOW_INSECURE_LOCALHOST=false
 
 OPENAI_API_KEY=...
@@ -193,7 +194,7 @@ pnpm run api:dev                 # 只启动 API + Web 服务入口
 pnpm run web:dev                 # 只启动 Vite Web
 pnpm run telegram:dev            # 启动 Telegram Bot
 pnpm product:mcp:dev             # 启动只读产品知识 stdio MCP server
-pnpm onchain:mcp:dev             # 启动通用六链查询 MCP；非生产有免费 RPC 默认值
+pnpm onchain:mcp:dev             # 从根目录 .env 启动通用六链查询 MCP
 pnpm chain:mcp:serve             # readiness 通过后启动内部链上分析 stdio MCP
 pnpm check                       # lint + format check + typecheck + tests + deterministic golden QA
 ```
@@ -202,7 +203,7 @@ pnpm check                       # lint + format check + typecheck + tests + det
 
 `pnpm product:mcp:dev` 暴露一个 read-only MCP tool `search_product_docs`，以及 `xxyy://skills/product-support` Skill Resource 和 `xxyy_product_support` Prompt。API、CLI 和 Telegram 不需要额外进程：它们在同一进程内通过 MCP SDK 的 linked in-memory transport 调用完全相同的 server，再由 Capability Registry 对 `product.skill.search_docs → product.mcp.search_docs` 两层执行精确授权、超时、输出大小和脱敏审计。MCP discovery 不会自动扩展 Planner 工具列表。
 
-`pnpm onchain:mcp:dev` 启动与产品域解耦的 `onchain-analysis` server，暴露 `get_transaction`、`inspect_transaction`、`detect_sandwich`、capabilities Resource、两个 Skill Resources 和 Prompts。它解析 Solscan/Solana Explorer、Etherscan、BscScan、Basescan/Base Blockscout、Robinhood Blockscout、Stablescan 链接，并从启动时配置的 RPC 获取事实；非生产未配置时使用六条固定免费公共 RPC，生产环境禁止这种隐式默认。免费节点默认只启用基础交易查询，不具备可靠 Sandwich 所需的 archive/pool 数据。
+`pnpm onchain:mcp:dev` 启动与产品域解耦的 `onchain-analysis` server，暴露 `get_transaction`、`inspect_transaction`、`detect_sandwich`、capabilities Resource、两个 Skill Resources 和 Prompts。它自动读取根目录 `.env`，解析 Solscan/Solana Explorer、Etherscan、BscScan、Basescan/Base Blockscout、Robinhood Blockscout、Stablescan 链接，并从必填的 `ONCHAIN_RPC_CONFIG_JSON` 获取 RPC allowlist。代码不内置 endpoint，也不按 `NODE_ENV` 选择 Provider；`.env.example` 提供可直接启动的六链公共配置，生产使用相同结构替换为托管 Provider。免费节点只适合基础交易查询，不具备可靠 Sandwich 所需的 archive/pool 数据。
 
 `pnpm chain:mcp:serve` 启动相同 MCP surface 的 XXYY 内部 production composition。该命令不自动加载 `.env`，stdout 只承载 MCP protocol；启动前必须固定 `CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT` 与 `CHAIN_ANALYSIS_READINESS_FINGERPRINT`，并从独立 control DB 重读 attestation、operations evidence 和 policy。证明缺失、非 `ready`、过期或 Provider/budget lineage 漂移都会失败关闭；进程启动后每次调用仍检查有效时间窗。仓库当前没有真实生产证明，因此这不是公开客服入口或 production-ready 声明。通用配置与能力矩阵见 [Onchain Analysis MCP / Skills](docs/onchain-analysis-mcp.md)。
 

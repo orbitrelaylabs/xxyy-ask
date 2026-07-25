@@ -68,7 +68,7 @@ pnpm run app:logs                # 跟随后台服务日志
 pnpm run app:dev -- --sync       # 启动前增量抓取 X 更新并同步知识库
 pnpm run app:dev -- --full-sync  # 启动前全量重抓 X 更新并重建知识库
 pnpm product:mcp:dev             # 启动只读产品知识 stdio MCP server
-pnpm onchain:mcp:dev             # 用可配置 RPC 启动通用链上查询 MCP；非生产有免费默认值
+pnpm onchain:mcp:dev             # 从根目录 .env 的必填 RPC 配置启动通用链上查询 MCP
 pnpm chain:mcp:serve             # 仅在 canonical readiness 有效时启动内部 Chain MCP
 pnpm check                       # lint + format check + typecheck + tests + deterministic golden QA
 pnpm agent:smoke                 # 轻量验证已启动服务的 health 和核心 agentRoute

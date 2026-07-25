@@ -11,7 +11,7 @@ Capability Plane 已完成产品检索的公开运行面接入，以及链上分
 - `packages/chain-analysis-mcp` 提供与产品域解耦的 `onchain-analysis` MCP server/client、`get_transaction`、`inspect_transaction`、`detect_sandwich`、capabilities/Skill Resources 与 Prompts。
 - `get_transaction` 解析六条内置链的 Explorer 链接或显式 network + transaction id，通过配置的 EVM/Solana RPC 查询；工具输入不接受 endpoint。
 - `skills/onchain-transaction-inspector` 和 `skills/evm-sandwich-detector` 默认禁止隐式调用；XXYY Chain Capability factory 只接受 `internal/(service|admin)` 或 `cli/admin`。
-- `pnpm onchain:mcp:dev` 可用启动配置或非生产免费公共 RPC 运行 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain 基础交易查询；免费默认值不启用 Sandwich。
+- `pnpm onchain:mcp:dev` 自动读取根目录 `.env` 中必填的 `ONCHAIN_RPC_CONFIG_JSON`，可运行 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain 基础交易查询；`.env.example` 的免费公共 RPC 便利配置不启用 Sandwich。
 - `pnpm chain:mcp:serve` 是 XXYY 的 production composition，只有在固定 data-plane manifest 和 canonical readiness lineage 当前有效时才启动，且每次调用继续检查 attestation 时间窗。
 - 交易哈希、Explorer、池子、链上取证、MEV、账户、订单、钱包余额和投资建议仍不开放。
 
@@ -86,7 +86,7 @@ pnpm onchain:mcp:dev
 pnpm chain:mcp:serve
 ```
 
-`onchain:mcp:dev` 读取当前进程环境中的 `ONCHAIN_RPC_CONFIG_JSON`；未配置且不是 production 时使用固定公共开发默认值。`chain:mcp:serve` 不读取项目 `.env`，并要求 deployment environment 显式提供独立 control DB、manifest/secret mount、instance identity，以及：
+`onchain:mcp:dev` 自动读取根目录 `.env` 中的 `ONCHAIN_RPC_CONFIG_JSON`，同名进程环境变量优先；该变量在所有 `NODE_ENV` 下都必填，运行时代码不包含 RPC endpoint 或开发/生产 Provider 分支。`.env.example` 提供六链公共 RPC 便利值，生产部署沿用同一 JSON 结构替换为托管 Provider。`chain:mcp:serve` 仍不读取项目 `.env`，并要求 deployment environment 显式提供独立 control DB、manifest/secret mount、instance identity，以及：
 
 - `CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT`；
 - `CHAIN_ANALYSIS_READINESS_FINGERPRINT`。

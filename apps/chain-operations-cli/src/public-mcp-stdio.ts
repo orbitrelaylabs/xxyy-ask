@@ -6,10 +6,11 @@ import {
 } from '@xxyy/chain-analysis-mcp';
 
 import { loadPublicOnchainMcpConfig } from './public-mcp-config.js';
+import { loadPublicOnchainMcpEnv } from './public-mcp-env.js';
 import { createPublicOnchainMcpHandler } from './public-mcp-runtime.js';
 
 async function startPublicOnchainMcp(): Promise<void> {
-  const config = loadPublicOnchainMcpConfig(process.env);
+  const config = loadPublicOnchainMcpConfig(loadPublicOnchainMcpEnv());
   const server = createChainAnalysisMcpServer({
     handler: createPublicOnchainMcpHandler(config),
   });
