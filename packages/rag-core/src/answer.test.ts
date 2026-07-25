@@ -538,6 +538,61 @@ describe('createGroundedAnswer', () => {
     expect(response.confidence).toBeLessThan(0.5);
   });
 
+  it('does not combine partial support evidence from unrelated sources for a multi-entity query', () => {
+    const retrieved = [
+      createRetrievedChunk({
+        id: 'robinhood-launchpads',
+        sourceType: 'x_updates',
+        sourceUrl: 'https://x.com/useXXYYio/status/2075891974192947704',
+        text: 'Robinhood 链更新，扫链支持筛选发射台 Noxa、Virtuals 和 Bankr。',
+        title: 'Robinhood 发射台更新',
+      }),
+      createRetrievedChunk({
+        id: 'base-long-launchpad',
+        rank: 2,
+        sourceType: 'x_updates',
+        sourceUrl: 'https://x.com/useXXYYio/status/another-post',
+        text: 'Base 链当前支持 LONG 发射平台筛选。',
+        title: 'Base LONG 发射平台',
+      }),
+    ];
+
+    const response = createGroundedAnswer(
+      '支持robinhood链的long么？',
+      productClassification,
+      retrieved,
+    );
+
+    expect(response.answer).toBe(
+      '当前知识库没有明确说明 XXYY 支持 robinhood 与 long 的组合，不能确认已支持。',
+    );
+    expect(response.answer).not.toMatch(/^支持。/u);
+    expect(response.citations).toEqual([]);
+    expect(response.confidence).toBeLessThan(0.5);
+  });
+
+  it('answers a multi-entity support query only when one evidence scope covers every entity', () => {
+    const retrieved = [
+      createRetrievedChunk({
+        id: 'robinhood-long-launchpad',
+        sourceType: 'x_updates',
+        sourceUrl: 'https://x.com/useXXYYio/status/robinhood-long',
+        text: 'XXYY 当前支持 Robinhood Chain 的 LONG 发射平台筛选。',
+        title: 'Robinhood LONG 发射平台',
+      }),
+    ];
+
+    const response = createGroundedAnswer(
+      '支持robinhood链的long么？',
+      productClassification,
+      retrieved,
+    );
+
+    expect(response.answer).toBe('支持。XXYY 当前支持 Robinhood Chain 的 LONG 发射平台筛选。');
+    expect(response.citations).toHaveLength(1);
+    expect(response.citations[0]?.title).toBe('Robinhood LONG 发射平台');
+  });
+
   it('uses complete subject coverage for multi-dimensional support questions', () => {
     const retrieved = [
       createRetrievedChunk({

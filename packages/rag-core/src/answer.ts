@@ -71,7 +71,10 @@ export function createGroundedAnswer(
   const standardSupportAnswer = isSupportQuestionText(question)
     ? groundingChunks
         .map((chunk) => extractStandardCustomerAnswer(chunk.text))
-        .find((answer) => answer !== undefined)
+        .find(
+          (answer) =>
+            answer !== undefined && evidenceMatchesAllRequiredSupportEntities(question, answer),
+        )
     : undefined;
   const supportConclusion =
     standardSupportAnswer ?? createSupportConclusion(question, groundingChunks);
@@ -118,7 +121,11 @@ export function selectGroundingChunks(
   const supportEntityTokens = extractSupportEntityTokens(question);
   if (supportEntityTokens.length > 0) {
     // Scan the full retrieved candidate list so rare entities are not lost to
-    // generic "支持" hits that crowd the top citation window.
+    // generic "支持" hits that crowd the top citation window. A current
+    // evidence chunk may use context from another chunk of the exact same
+    // source, but unrelated sources cannot jointly satisfy a multi-entity
+    // support question.
+    const evidenceByScope = createSupportEvidenceByScope(deduplicatedChunks);
     const candidates = deduplicatedChunks
       .map((chunk) => ({
         chunk,
@@ -126,8 +133,12 @@ export function selectGroundingChunks(
           textMatchesSupportEntity(toEvidenceText(chunk), entity),
         ).length,
         hasCurrentEvidence: splitEvidenceSentences(chunk.text).some(isCurrentSupportSentence),
+        scopeMatchesAllEntities: textMatchesAllSupportEntities(
+          evidenceByScope.get(supportEvidenceScopeKey(chunk)) ?? toEvidenceText(chunk),
+          supportEntityTokens,
+        ),
       }))
-      .filter((candidate) => candidate.entityMatches > 0)
+      .filter((candidate) => candidate.entityMatches > 0 && candidate.scopeMatchesAllEntities)
       .filter((candidate) => candidate.hasCurrentEvidence)
       .sort(
         (left, right) =>
@@ -587,6 +598,14 @@ export function createSupportConclusionFromEvidence(
   if (!isSupportQuestionText(normalizedQuestion)) {
     return undefined;
   }
+  if (
+    !evidenceMatchesAllRequiredSupportEntities(
+      question,
+      evidenceTexts.map(normalizeForEvidenceMatch).join(' '),
+    )
+  ) {
+    return undefined;
+  }
 
   const sentence = selectSupportEvidenceSentence(question, evidenceTexts);
   if (sentence === undefined) {
@@ -747,6 +766,37 @@ function toEvidenceText(chunk: RetrievedChunk): string {
     [chunk.metadata.title, chunk.metadata.module, ...chunk.metadata.headingPath, chunk.text].join(
       ' ',
     ),
+  );
+}
+
+function createSupportEvidenceByScope(chunks: RetrievedChunk[]): Map<string, string> {
+  const evidencePartsByScope = new Map<string, string[]>();
+  for (const chunk of chunks) {
+    const scope = supportEvidenceScopeKey(chunk);
+    const parts = evidencePartsByScope.get(scope) ?? [];
+    parts.push(toEvidenceText(chunk));
+    evidencePartsByScope.set(scope, parts);
+  }
+
+  return new Map(
+    Array.from(evidencePartsByScope, ([scope, evidenceParts]) => [scope, evidenceParts.join(' ')]),
+  );
+}
+
+function supportEvidenceScopeKey(chunk: RetrievedChunk): string {
+  const sourceUrl = chunk.metadata.sourceUrl?.trim();
+  if (sourceUrl !== undefined && sourceUrl.length > 0) {
+    return `source:${sourceUrl}`;
+  }
+
+  return `document:${chunk.documentId}`;
+}
+
+function evidenceMatchesAllRequiredSupportEntities(question: string, evidence: string): boolean {
+  const requiredEntities = extractSupportEntityTokens(question);
+  return (
+    requiredEntities.length === 0 ||
+    textMatchesAllSupportEntities(normalizeForEvidenceMatch(evidence), requiredEntities)
   );
 }
 
@@ -1104,6 +1154,11 @@ function insufficientKnowledgeText(question: string): string {
 }
 
 function supportEntityDisplayName(question: string): string | undefined {
+  const supportEntities = extractSupportEntityTokens(question);
+  if (supportEntities.length > 1) {
+    return `${supportEntities.join(' 与 ')} 的组合`;
+  }
+
   const normalizedQuestion = question.normalize('NFKC');
   const supportMatch =
     /(?:是否支持|当前支持|现在支持|支持)\s*(?<entity>[#$]?[a-z0-9][a-z0-9._-]*)/iu.exec(
