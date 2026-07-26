@@ -1,9 +1,10 @@
-FROM node:24-bookworm-slim
+ARG NODE_VERSION=24.18.0
+FROM node:${NODE_VERSION}-bookworm-slim
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 
-RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+RUN corepack enable && corepack prepare pnpm@11.17.0 --activate
 
 WORKDIR /app
 

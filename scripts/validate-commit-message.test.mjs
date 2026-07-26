@@ -21,6 +21,7 @@ describe('commit message validation', () => {
   it.each([
     ['plain title', 'Improve project configuration', '标题必须符合'],
     ['unsupported type', 'feature(api): add health checks', 'type 只能是'],
+    ['unsupported style type', 'style(web): reformat styles', 'type 只能是'],
     ['invalid scope', 'fix(API): handle timeout', '标题必须符合'],
     ['capitalized subject', 'fix(api): Handle timeout', '小写开头'],
     ['trailing punctuation', 'fix(api): handle timeout.', '末尾不能使用'],

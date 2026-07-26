@@ -1,17 +1,23 @@
 # 开发质量门禁
 
-项目使用仓库内置 Git hooks 和 GitHub Actions，使本地提交、推送与远程 CI 使用同一套规则。
+`pnpm check` 和 GitHub Actions 是项目的权威质量门禁。仓库内置的 Git hooks 是可选的本地快速反馈层，复用同一套提交消息与检查规则。
 
 ## 初始化
 
-`pnpm install` 会通过 `prepare` 自动执行 `scripts/setup-git-hooks.mjs`，为当前 checkout 配置：
+安装依赖不会修改当前 checkout 的 Git 配置。需要启用本地 hooks 时显式运行：
+
+```bash
+pnpm hooks:install
+```
+
+该命令执行 `scripts/setup-git-hooks.mjs`，为当前 checkout 配置：
 
 ```bash
 git config --local core.hooksPath .githooks
 git config --local commit.template "$(pwd)/.gitmessage"
 ```
 
-如果 checkout 在安装依赖后移动了路径，重新运行 `pnpm run prepare`。
+如果 checkout 移动了路径或需要重新启用 hooks，再次运行 `pnpm hooks:install`。
 
 ## 本地 hooks
 
@@ -41,7 +47,8 @@ pnpm commit:check -- "feat(rag): return retrieved media attachments"
 
 `pre-push` 从 Git 提供的引用更新中计算真正待推送的 commits，逐个复用 `commit-msg` 校验器，然后运行完整 `pnpm check`。仅删除远程引用时不会重复运行代码检查。可在不实际推送时用 `pnpm hook:pre-push` 运行完整门禁；没有 Git stdin 时会直接执行完整检查。
 
-禁止使用 `--no-verify` 绕过这些门禁。紧急故障应修复门禁问题，或由仓库管理员通过有审计记录的远程流程处理。
+启用 hooks 后禁止使用 `--no-verify` 绕过它们。无论是否启用 hooks，交付前都必须运行
+`pnpm check`，远程合并以 GitHub Actions 结果为准。
 
 ## 远程 CI
 

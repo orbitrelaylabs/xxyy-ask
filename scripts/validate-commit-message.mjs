@@ -11,7 +11,6 @@ export const commitTypes = [
   'build',
   'ci',
   'chore',
-  'style',
   'revert',
 ];
 

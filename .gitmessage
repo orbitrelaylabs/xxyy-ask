@@ -1,6 +1,6 @@
 # <type>(<scope>): <concise imperative subject>
 #
-# Types: feat, fix, docs, refactor, perf, test, build, ci, chore, style, revert
+# Types: feat, fix, docs, refactor, perf, test, build, ci, chore, revert
 # Common scopes: shared, knowledge, rag, agent, cli, api, web, telegram,
 #                docs, infra, deps
 #

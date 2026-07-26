@@ -1,5 +1,7 @@
 packages:
   - apps/*
   - packages/*
+overrides:
+  '@types/node': ^24.0.0
 allowBuilds:
   esbuild: true

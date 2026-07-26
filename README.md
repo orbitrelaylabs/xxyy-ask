@@ -49,8 +49,13 @@ skills/
 
 ## 环境准备
 
+开发和 CI 统一使用 Node.js `24.18.0` 与 pnpm `11.17.0`。精确版本分别由
+`.nvmrc` 和 `package.json#packageManager` 固定。
+
 ```bash
-pnpm install
+corepack enable
+corepack install
+pnpm install --frozen-lockfile
 cp .env.example .env
 ```
 
@@ -199,7 +204,9 @@ pnpm chain:mcp:serve             # readiness 通过后启动内部链上分析 s
 pnpm check                       # lint + format check + typecheck + tests + deterministic golden QA
 ```
 
-`pnpm install` 会自动启用仓库内的 `pre-commit`、`commit-msg` 和 `pre-push`。本地门禁与 GitHub Actions 共用提交消息和质量检查规则，详见[开发质量门禁](docs/development-workflow.md)。
+`pnpm check` 和 GitHub Actions 是权威质量门禁。需要额外的本地快速反馈时，可显式运行
+`pnpm hooks:install` 启用仓库内的 `pre-commit`、`commit-msg` 和 `pre-push`；安装依赖不会自动修改
+checkout 的 Git 配置。详见[开发质量门禁](docs/development-workflow.md)。
 
 `pnpm product:mcp:dev` 暴露一个 read-only MCP tool `search_product_docs`，以及 `xxyy://skills/product-support` Skill Resource 和 `xxyy_product_support` Prompt。API、CLI 和 Telegram 不需要额外进程：它们在同一进程内通过 MCP SDK 的 linked in-memory transport 调用完全相同的 server，再由 Capability Registry 对 `product.skill.search_docs → product.mcp.search_docs` 两层执行精确授权、超时、输出大小和脱敏审计。MCP discovery 不会自动扩展 Planner 工具列表。
 

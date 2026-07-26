@@ -1,8 +1,15 @@
 # AGENTS.md
 
-给 Codex 和其他代码代理使用的项目指令。
+给 Codex 和其他代码代理使用的项目指令。本文件适用于整个仓库；子目录若有更具体说明，以最近者为准，但不得削弱本文的安全、密钥与验证底线。
 
-## 项目目标
+## 开始工作前
+
+1. 完整阅读用户请求与相关包/应用代码。
+2. 检查 `git status --short`，保留无关改动。
+3. 触及 RAG/链上/密钥边界时先读本文件「开发约束」与相关 docs。
+4. 除非用户明确要求，不要 commit、push、tag、改历史或部署。
+
+## 项目定位
 
 这是 XXYY 客服 Agentic RAG 系统。当前阶段使用 LangGraph JS 作为 Agent Runtime，但运行面暂时收敛为知识库产品问答：产品问题调用 Product RAG，系统会自动根据官方 X / Twitter 和产品文档更新知识库。
 
@@ -215,15 +222,15 @@ Codex Desktop、Codex CLI 和人工创建 Git 提交时统一使用 Conventional
 <type>(<scope>): <subject>
 ```
 
-- `type` 必须是 `feat`、`fix`、`docs`、`refactor`、`perf`、`test`、`build`、`ci`、`chore`、`style` 或 `revert`。
+- `type` 必须是 `feat`、`fix`、`docs`、`refactor`、`perf`、`test`、`build`、`ci`、`chore` 或 `revert`。
 - `scope` 可省略；优先使用 `shared`、`knowledge`、`rag`、`agent`、`cli`、`api`、`web`、`telegram`、`docs`、`infra`、`deps`。涉及多个模块且没有单一主模块时省略 scope。
 - `subject` 使用简洁、具体的英文祈使句；普通单词小写开头，产品名或缩写保持原样；不要使用 `update files`、`changes`、`misc`、`WIP` 等模糊描述。
 - 标题最长 100 个字符，末尾不加句号、问号或感叹号。
 - 有破坏性变更时使用 `<type>(<scope>)!: <subject>`，并在 footer 中添加 `BREAKING CHANGE: ...`。
 - 需要正文时，标题与正文之间空一行；正文说明原因和影响，不复述文件列表。
-- 不得使用 `--no-verify` 绕过项目的 `commit-msg` 校验。
+- 显式启用仓库 hooks 后，不得使用 `--no-verify` 绕过 `commit-msg` 校验。
 
-仓库 hooks 分工：`pre-commit` 检查暂存快照的格式、lint、危险路径和文件大小；`commit-msg` 校验本节规范；`pre-push` 校验待推送提交并运行完整 `pnpm check`。GitHub Actions 还会验证事件 commit range，规则实现必须保持共享，不要在 hook 和 CI 中复制不同正则。
+可选仓库 hooks 分工：`pre-commit` 检查暂存快照的格式、lint、危险路径和文件大小；`commit-msg` 校验本节规范；`pre-push` 校验待推送提交并运行完整 `pnpm check`。GitHub Actions 还会验证事件 commit range，规则实现必须保持共享，不要在 hook 和 CI 中复制不同正则。
 
 常用 scope 映射：
 
@@ -251,3 +258,19 @@ chore(infra): enforce conventional commit messages
 ```bash
 git status --short --branch
 ```
+
+## 完成定义
+
+- [ ] 行为完成且不破坏产品/链上/密钥边界
+- [ ] `pnpm check` 通过或披露跳过原因
+- [ ] 边界变更已同步文档
+- [ ] 交接列出文件、验证与风险
+
+## 仓库工程基线
+
+- 本地和 CI 使用根目录 `.nvmrc` 固定的 Node `24.18.0`。
+- 包管理器由根目录 `package.json` 的 `packageManager` 字段固定为 pnpm `11.17.0`。
+- 依赖安装使用 pnpm frozen lockfile；不要混用 npm、Yarn 或 Bun lockfile。
+- `pnpm check` 与 CI 是权威门禁；安装依赖不得自动修改 Git 配置。
+- 本地 hooks 位于 `.githooks`，仅在需要时通过 `pnpm hooks:install` 显式启用。
+- 交付前运行 `pnpm check`，CI 必须复用同一命令。
