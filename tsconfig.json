@@ -19,7 +19,52 @@
       "path": "./packages/agent-core"
     },
     {
+      "path": "./packages/chain-analysis-mcp"
+    },
+    {
+      "path": "./packages/transaction-analysis-core"
+    },
+    {
+      "path": "./packages/evm-data-adapter"
+    },
+    {
+      "path": "./packages/solana-data-adapter"
+    },
+    {
+      "path": "./packages/evm-execution-enrichment-core"
+    },
+    {
+      "path": "./packages/evm-execution-data-adapter"
+    },
+    {
+      "path": "./packages/evm-price-impact-sandwich-core"
+    },
+    {
+      "path": "./packages/evm-mev-observation-data-adapter"
+    },
+    {
+      "path": "./packages/evm-chain-analysis-harness"
+    },
+    {
+      "path": "./packages/evm-chain-analysis-readiness"
+    },
+    {
+      "path": "./packages/evm-chain-analysis-control-store"
+    },
+    {
+      "path": "./packages/evm-chain-analysis-data-plane"
+    },
+    {
+      "path": "./packages/product-qa-mcp"
+    },
+    {
       "path": "./apps/cli"
+    },
+    {
+      "path": "./apps/chain-control-cli"
+    },
+    {
+      "path": "./apps/chain-operations-cli"
     },
     {
       "path": "./apps/api"

@@ -30,9 +30,7 @@ export function Markdown({ text }: MarkdownProps): ReactNode {
     const children = listItems.map((item, index) => (
       <li key={`${key}-${index}`}>{renderInlineMarkdown(item, `${key}-${index}`)}</li>
     ));
-    blocks.push(
-      listType === 'ol' ? <ol key={key}>{children}</ol> : <ul key={key}>{children}</ul>,
-    );
+    blocks.push(listType === 'ol' ? <ol key={key}>{children}</ol> : <ul key={key}>{children}</ul>);
     listItems = [];
     listType = undefined;
   };
@@ -109,8 +107,7 @@ export function Markdown({ text }: MarkdownProps): ReactNode {
 }
 
 function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
-  const tokenPattern =
-    /(\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))/gu;
+  const tokenPattern = /(\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))/gu;
   const nodes: ReactNode[] = [];
   let cursor = 0;
   let index = 0;

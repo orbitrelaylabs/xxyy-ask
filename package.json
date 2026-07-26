@@ -36,13 +36,13 @@
     "docs:audit": "node scripts/audit-xxyy-docs.mjs",
     "docs:enrich:media": "node scripts/enrich-xxyy-media.mjs",
     "docs:sync:external": "node scripts/sync-xxyy-external-docs.mjs",
-    "format": "prettier --write \"**/*.{ts,js,mjs,cjs,json,md,yml,yaml}\" \".vscode/*.json\"",
-    "format:check": "prettier --check \"**/*.{ts,js,mjs,cjs,json,md,yml,yaml}\" \".vscode/*.json\"",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}\" \".vscode/*.json\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}\" \".vscode/*.json\"",
     "hook:pre-commit": "node scripts/validate-staged-files.mjs",
     "hook:pre-push": "node scripts/run-pre-push.mjs",
+    "hooks:install": "node scripts/setup-git-hooks.mjs",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
-    "prepare": "node scripts/setup-git-hooks.mjs",
     "product:mcp:dev": "pnpm --filter @xxyy/product-qa-mcp start",
     "rag:ask": "pnpm --filter @xxyy/cli rag:ask",
     "rag:evaluate": "pnpm --filter @xxyy/cli rag:evaluate",
@@ -70,10 +70,14 @@
     "x:scrape": "node scripts/fetch-usexxyy-posts.mjs"
   },
   "license": "MIT",
-  "packageManager": "pnpm@10.33.0",
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=24.18.0 <25",
+    "pnpm": ">=11.17.0 <12"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^25.9.1",
+    "@types/node": "^24.0.0",
     "eslint": "^10.4.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.6.0",
