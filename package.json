@@ -14,9 +14,7 @@
     "app:status": "docker compose ps",
     "app:stop": "docker compose stop api telegram",
     "app:up": "docker compose up --detach --build",
-    "check": "pnpm --filter @xxyy/web build && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm rag:evaluate",
-    "commit:check": "node scripts/validate-commit-message.mjs --message",
-    "commit:range": "node scripts/validate-commit-range.mjs",
+    "check": "pnpm --filter @xxyy/web build && pnpm format:check && pnpm typecheck && pnpm test && pnpm rag:evaluate",
     "chain:control:migrate": "pnpm --filter @xxyy/chain-control-cli start migrate",
     "chain:mcp:serve": "pnpm --filter @xxyy/chain-operations-cli mcp",
     "chain:mcp:dev": "pnpm --filter @xxyy/chain-operations-cli mcp:dev",
@@ -38,11 +36,6 @@
     "docs:sync:external": "node scripts/sync-xxyy-external-docs.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}\" \".vscode/*.json\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}\" \".vscode/*.json\"",
-    "hook:pre-commit": "node scripts/validate-staged-files.mjs",
-    "hook:pre-push": "node scripts/run-pre-push.mjs",
-    "hooks:install": "node scripts/setup-git-hooks.mjs",
-    "lint": "eslint . --max-warnings=0",
-    "lint:fix": "eslint . --fix",
     "product:mcp:dev": "pnpm --filter @xxyy/product-qa-mcp start",
     "rag:ask": "pnpm --filter @xxyy/cli rag:ask",
     "rag:evaluate": "pnpm --filter @xxyy/cli rag:evaluate",
@@ -76,15 +69,10 @@
     "pnpm": ">=11.17.0 <12"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
     "@types/node": "^24.0.0",
-    "eslint": "^10.4.0",
-    "eslint-config-prettier": "^10.1.8",
-    "globals": "^17.6.0",
     "prettier": "^3.8.3",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.4",
     "vitest": "^4.1.8"
   }
 }

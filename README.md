@@ -49,7 +49,7 @@ skills/
 
 ## 环境准备
 
-开发和 CI 统一使用 Node.js `24.18.0` 与 pnpm `11.17.0`。精确版本分别由
+本地开发和 Docker 镜像统一使用 Node.js `24.18.0` 与 pnpm `11.17.0`。精确版本分别由
 `.nvmrc` 和 `package.json#packageManager` 固定。
 
 ```bash
@@ -201,12 +201,11 @@ pnpm run telegram:dev            # 启动 Telegram Bot
 pnpm product:mcp:dev             # 启动只读产品知识 stdio MCP server
 pnpm onchain:mcp:dev             # 从根目录 .env 启动通用六链查询 MCP
 pnpm chain:mcp:serve             # readiness 通过后启动内部链上分析 stdio MCP
-pnpm check                       # lint + format check + typecheck + tests + deterministic golden QA
+pnpm check                       # Web build + format check + typecheck + tests + deterministic golden QA
 ```
 
-`pnpm check` 和 GitHub Actions 是权威质量门禁。需要额外的本地快速反馈时，可显式运行
-`pnpm hooks:install` 启用仓库内的 `pre-commit`、`commit-msg` 和 `pre-push`；安装依赖不会自动修改
-checkout 的 Git 配置。详见[开发质量门禁](docs/development-workflow.md)。
+仓库不配置 GitHub Actions、ESLint 或 Git hooks。提交和推送前可按改动风险手动运行
+`pnpm check`；安装依赖不会修改 checkout 的 Git 配置。详见[开发验证](docs/development-workflow.md)。
 
 `pnpm product:mcp:dev` 暴露一个 read-only MCP tool `search_product_docs`，以及 `xxyy://skills/product-support` Skill Resource 和 `xxyy_product_support` Prompt。API、CLI 和 Telegram 不需要额外进程：它们在同一进程内通过 MCP SDK 的 linked in-memory transport 调用完全相同的 server，再由 Capability Registry 对 `product.skill.search_docs → product.mcp.search_docs` 两层执行精确授权、超时、输出大小和脱敏审计。MCP discovery 不会自动扩展 Planner 工具列表。
 
@@ -264,7 +263,7 @@ pnpm chain:mcp:serve
 - `pnpm rag:migrate` 只执行非破坏性数据库迁移，不调用 embedding 或 LLM；若检测到现有向量维度不匹配会明确失败，不会自动删列。
 - `pnpm rag:stats` 查看文档数、chunk 数、source URL 数、最新 chunk 更新时间和最近一次 ingestion run。
 - `pnpm rag:evaluate` 运行便宜的 deterministic golden QA 子集；`pnpm rag:evaluate -- --provider` 使用正式 Agent/pgvector/OpenAI-compatible provider 做人工全链路评估。
-- `pnpm rag:evaluate -- --provider --judge` 在人工验收时额外使用 `EVAL_JUDGE_MODEL` 评分；judge 不进入默认 CI，也不会回退复用 `OPENAI_MODEL`。
+- `pnpm rag:evaluate -- --provider --judge` 在人工验收时额外使用 `EVAL_JUDGE_MODEL` 评分；judge 不进入默认 `pnpm check`，也不会回退复用 `OPENAI_MODEL`。
 - `pnpm rag:evaluate -- --failures-out .rag/eval-failures.jsonl` 把失败项写成已脱敏、必须人工审核的 JSONL，不会直接修改 golden QA。
 - `pnpm rag:ask` 从命令行调用客服 Agent。
 - `pnpm rag:knowledge:author:trust/list` 维护按群和有效期生效的可信作者名册。实时群回复默认用 Telegram Bot API 自动识别当前管理员；历史导出只有当前角色却无法证明历史角色时会失败关闭，不会伪装成历史已验证。

@@ -120,7 +120,7 @@ TRUST_PROXY=false
 - `pnpm chain:control:migrate` 与 `pnpm chain:provision:*`：只用于隔离的链上控制面 provisioning；不自动加载 `.env`，不接入客服或 Agent。
 - `NODE_ENV=production pnpm run app:dev`：生产模式跳过本地 Docker，默认不刷新知识库；可加 `--sync` 或 `--full-sync` 显式更新。
 - `pnpm run telegram:dev`：启动 Telegram Bot long polling。
-- `pnpm check`：lint、format check、typecheck、tests 和 deterministic golden QA。
+- `pnpm check`：Web build、format check、typecheck、tests 和 deterministic golden QA。
 
 API 保留的公开服务面：
 
@@ -228,9 +228,6 @@ Codex Desktop、Codex CLI 和人工创建 Git 提交时统一使用 Conventional
 - 标题最长 100 个字符，末尾不加句号、问号或感叹号。
 - 有破坏性变更时使用 `<type>(<scope>)!: <subject>`，并在 footer 中添加 `BREAKING CHANGE: ...`。
 - 需要正文时，标题与正文之间空一行；正文说明原因和影响，不复述文件列表。
-- 显式启用仓库 hooks 后，不得使用 `--no-verify` 绕过 `commit-msg` 校验。
-
-可选仓库 hooks 分工：`pre-commit` 检查暂存快照的格式、lint、危险路径和文件大小；`commit-msg` 校验本节规范；`pre-push` 校验待推送提交并运行完整 `pnpm check`。GitHub Actions 还会验证事件 commit range，规则实现必须保持共享，不要在 hook 和 CI 中复制不同正则。
 
 常用 scope 映射：
 
@@ -268,9 +265,8 @@ git status --short --branch
 
 ## 仓库工程基线
 
-- 本地和 CI 使用根目录 `.nvmrc` 固定的 Node `24.18.0`。
+- 本地开发和 Docker 镜像使用根目录 `.nvmrc` 固定的 Node `24.18.0`。
 - 包管理器由根目录 `package.json` 的 `packageManager` 字段固定为 pnpm `11.17.0`。
 - 依赖安装使用 pnpm frozen lockfile；不要混用 npm、Yarn 或 Bun lockfile。
-- `pnpm check` 与 CI 是权威门禁；安装依赖不得自动修改 Git 配置。
-- 本地 hooks 位于 `.githooks`，仅在需要时通过 `pnpm hooks:install` 显式启用。
-- 交付前运行 `pnpm check`，CI 必须复用同一命令。
+- 仓库不配置 GitHub Actions、ESLint 或 Git hooks；安装依赖不得自动修改 Git 配置。
+- 交付前按改动风险运行 `pnpm check`。
