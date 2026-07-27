@@ -5,9 +5,11 @@ import type { ChatResponse, ChatStreamEvent } from '@xxyy/shared';
 import {
   TelegramBotConfigurationError,
   createTelegramBot,
+  formatTelegramKnowledgeLearningStatus,
   loadTelegramBotConfig,
   resolveTelegramAttachmentUrl,
   splitTelegramMessage,
+  type TelegramKnowledgeLearningStatus,
   type TelegramSendMessageInput,
 } from './bot.js';
 
@@ -27,6 +29,26 @@ function createSendMessageMock(): ReturnType<
   return vi.fn(() => Promise.resolve());
 }
 
+function createLearningStatus(
+  overrides: Partial<TelegramKnowledgeLearningStatus> = {},
+): TelegramKnowledgeLearningStatus {
+  return {
+    contextMessageLimit: 12,
+    enabled: true,
+    progress: {
+      approvedCount: 1,
+      candidateCount: 4,
+      pendingCount: 0,
+      publishedCount: 2,
+      rejectedCount: 1,
+      lastAnalyzedAt: '2026-07-27T09:10:00.000Z',
+    },
+    settingSource: 'chat_override',
+    updatedAt: '2026-07-27T09:00:00.000Z',
+    ...overrides,
+  };
+}
+
 describe('loadTelegramBotConfig', () => {
   it('requires a bot token', () => {
     expect(() => loadTelegramBotConfig({})).toThrow(TelegramBotConfigurationError);
@@ -34,6 +56,8 @@ describe('loadTelegramBotConfig', () => {
 
   it('parses polling and public URL settings', () => {
     const config = loadTelegramBotConfig({
+      TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES: '18',
+      TELEGRAM_AUTO_LEARNING_ENABLED: 'true',
       TELEGRAM_BOT_TOKEN: 'bot-token',
       TELEGRAM_POLL_TIMEOUT_SECONDS: '12',
       TELEGRAM_PUBLIC_BASE_URL: 'https://ask.example.com/base/',
@@ -41,9 +65,35 @@ describe('loadTelegramBotConfig', () => {
     });
 
     expect(config.botToken).toBe('bot-token');
+    expect(config.autoLearningContextMessages).toBe(18);
+    expect(config.autoLearningDefaultEnabled).toBe(true);
     expect(config.pollTimeoutSeconds).toBe(12);
     expect(config.publicBaseUrl).toBe('https://ask.example.com/base/');
     expect(config.updatesLimit).toBe(25);
+  });
+
+  it('fails closed for an invalid automatic learning flag', () => {
+    expect(() =>
+      loadTelegramBotConfig({
+        TELEGRAM_AUTO_LEARNING_ENABLED: 'sometimes',
+        TELEGRAM_BOT_TOKEN: 'bot-token',
+      }),
+    ).toThrow('TELEGRAM_AUTO_LEARNING_ENABLED must be true or false');
+  });
+
+  it('bounds automatic learning context between two and fifty messages', () => {
+    expect(
+      loadTelegramBotConfig({
+        TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES: '1',
+        TELEGRAM_BOT_TOKEN: 'bot-token',
+      }).autoLearningContextMessages,
+    ).toBe(2);
+    expect(
+      loadTelegramBotConfig({
+        TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES: '500',
+        TELEGRAM_BOT_TOKEN: 'bot-token',
+      }).autoLearningContextMessages,
+    ).toBe(50);
   });
 });
 
@@ -158,7 +208,11 @@ describe('createTelegramBot', () => {
       },
       chatService: { ask },
       config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
-      knowledgeAutomation: { captureReply },
+      knowledgeAutomation: {
+        captureReply,
+        getLearningStatus: vi.fn(() => Promise.resolve(createLearningStatus())),
+        setLearningEnabled: vi.fn(),
+      },
     });
     const message = {
       chat: { id: -100123, type: 'supergroup' as const },
@@ -180,6 +234,131 @@ describe('createTelegramBot', () => {
     expect(captureReply).toHaveBeenCalledWith(message);
     expect(ask).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('shows group automatic learning status without calling the chat model', async () => {
+    const ask = vi.fn(() => Promise.resolve(createResponse()));
+    const sendMessage = createSendMessageMock();
+    const getLearningStatus = vi.fn(() => Promise.resolve(createLearningStatus()));
+    const bot = createTelegramBot({
+      api: {
+        getUpdates: vi.fn(),
+        sendMessage,
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      knowledgeAutomation: {
+        captureReply: vi.fn(),
+        getLearningStatus,
+        setLearningEnabled: vi.fn(),
+      },
+    });
+
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'supergroup' },
+        from: { id: 456 },
+        message_id: 20,
+        text: '/learning@xxyy_ask_bot',
+      },
+      update_id: 20,
+    });
+
+    expect(getLearningStatus).toHaveBeenCalledWith(-100123);
+    expect(ask).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith({
+      chatId: -100123,
+      replyToMessageId: 20,
+      text: expect.stringContaining('对话自动学习：✅ 已开启'),
+    });
+    expect(sendMessage.mock.calls[0]?.[0].text).toContain('候选 4，已发布 2');
+  });
+
+  it('lets a verified group administrator enable automatic learning', async () => {
+    const ask = vi.fn(() => Promise.resolve(createResponse()));
+    const sendMessage = createSendMessageMock();
+    const setLearningEnabled = vi.fn(() =>
+      Promise.resolve({
+        authorized: true as const,
+        changed: true,
+        status: createLearningStatus(),
+      }),
+    );
+    const bot = createTelegramBot({
+      api: {
+        getUpdates: vi.fn(),
+        sendMessage,
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      knowledgeAutomation: {
+        captureReply: vi.fn(),
+        getLearningStatus: vi.fn(),
+        setLearningEnabled,
+      },
+    });
+
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'supergroup' },
+        from: { id: 456 },
+        message_id: 21,
+        text: '/learning_on',
+      },
+      update_id: 21,
+    });
+
+    expect(setLearningEnabled).toHaveBeenCalledWith({
+      chatId: -100123,
+      enabled: true,
+      requestedByUserId: 456,
+    });
+    expect(ask).not.toHaveBeenCalled();
+    expect(sendMessage.mock.calls[0]?.[0].text).toContain('设置已更新');
+  });
+
+  it('refuses an automatic learning change when the sender is not an administrator', async () => {
+    const ask = vi.fn(() => Promise.resolve(createResponse()));
+    const sendMessage = createSendMessageMock();
+    const setLearningEnabled = vi.fn(() =>
+      Promise.resolve({
+        authorized: false as const,
+        reason: 'not_administrator' as const,
+      }),
+    );
+    const bot = createTelegramBot({
+      api: {
+        getUpdates: vi.fn(),
+        sendMessage,
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      knowledgeAutomation: {
+        captureReply: vi.fn(),
+        getLearningStatus: vi.fn(),
+        setLearningEnabled,
+      },
+    });
+
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'supergroup' },
+        from: { id: 789 },
+        message_id: 22,
+        text: '/learning_off',
+      },
+      update_id: 22,
+    });
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith({
+      chatId: -100123,
+      replyToMessageId: 22,
+      text: '只有当前群管理员可以开启或关闭自动学习。',
+    });
   });
 
   it('streams answer deltas through Telegram message drafts before sending the final reply', async () => {
@@ -613,6 +792,15 @@ describe('createTelegramBot', () => {
 });
 
 describe('message formatting helpers', () => {
+  it('formats automatic learning status without exposing raw conversation content', () => {
+    const formatted = formatTelegramKnowledgeLearningStatus(createLearningStatus());
+
+    expect(formatted).toContain('同一对话链（最多 12 条消息）');
+    expect(formatted).toContain('严格自动治理');
+    expect(formatted).toContain('候选 4，已发布 2，待发布 1，处理中 0，已拒绝 1');
+    expect(formatted).not.toContain('source_question_text');
+  });
+
   it('resolves relative attachment URLs against the configured public base URL', () => {
     expect(resolveTelegramAttachmentUrl('/assets/a.png', 'https://ask.example.com/base/')).toBe(
       'https://ask.example.com/assets/a.png',

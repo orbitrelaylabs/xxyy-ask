@@ -173,6 +173,15 @@ export type { Retriever } from './retriever.js';
 export { fetchTelegramCurrentAdministratorIds } from './telegram-admin-api.js';
 export type { FetchTelegramAdministratorsOptions } from './telegram-admin-api.js';
 export {
+  createPgTelegramKnowledgeLearningSettingsStore,
+  migrateTelegramKnowledgeLearningSettings,
+} from './telegram-learning-settings.js';
+export type {
+  PgTelegramKnowledgeLearningSettingsStore,
+  TelegramKnowledgeLearningProgress,
+  TelegramKnowledgeLearningSetting,
+} from './telegram-learning-settings.js';
+export {
   extractTelegramKnowledgeCandidates,
   readTelegramKnowledgeExport,
   reconstructTelegramConversationThreads,

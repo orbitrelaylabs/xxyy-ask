@@ -8,6 +8,8 @@ import {
 import type { ChatService } from '@xxyy/rag-core';
 
 export interface TelegramBotConfig {
+  autoLearningContextMessages: number;
+  autoLearningDefaultEnabled: boolean;
   botToken: string;
   pollErrorRetryMs: number;
   pollTimeoutSeconds: number;
@@ -109,7 +111,39 @@ export interface CreateTelegramBotOptions {
 
 export interface TelegramKnowledgeAutomation {
   captureReply(message: TelegramMessage): Promise<boolean>;
+  getLearningStatus(chatId: number): Promise<TelegramKnowledgeLearningStatus>;
+  setLearningEnabled(input: {
+    chatId: number;
+    enabled: boolean;
+    requestedByUserId?: number;
+  }): Promise<TelegramKnowledgeLearningChangeResult>;
 }
+
+export interface TelegramKnowledgeLearningStatus {
+  contextMessageLimit: number;
+  enabled: boolean;
+  progress: {
+    approvedCount: number;
+    candidateCount: number;
+    pendingCount: number;
+    publishedCount: number;
+    rejectedCount: number;
+    lastAnalyzedAt?: string;
+  };
+  settingSource: 'chat_override' | 'environment_default';
+  updatedAt?: string;
+}
+
+export type TelegramKnowledgeLearningChangeResult =
+  | {
+      authorized: true;
+      changed: boolean;
+      status: TelegramKnowledgeLearningStatus;
+    }
+  | {
+      authorized: false;
+      reason: 'administrator_verification_unavailable' | 'invalid_actor' | 'not_administrator';
+    };
 
 type TelegramChatService = Pick<ChatService, 'ask'> & Partial<Pick<ChatService, 'stream'>>;
 
@@ -122,6 +156,8 @@ export type TelegramBotEnv = Record<string, string | undefined> &
   Partial<
     Record<
       | 'TELEGRAM_BOT_TOKEN'
+      | 'TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES'
+      | 'TELEGRAM_AUTO_LEARNING_ENABLED'
       | 'TELEGRAM_POLL_ERROR_RETRY_MS'
       | 'TELEGRAM_POLL_TIMEOUT_SECONDS'
       | 'TELEGRAM_PUBLIC_BASE_URL'
@@ -140,6 +176,8 @@ export class TelegramBotConfigurationError extends Error {
 const DEFAULT_UPDATES_LIMIT = 100;
 const DEFAULT_POLL_TIMEOUT_SECONDS = 30;
 const DEFAULT_POLL_ERROR_RETRY_MS = 3000;
+const DEFAULT_AUTO_LEARNING_CONTEXT_MESSAGES = 12;
+const MAX_AUTO_LEARNING_CONTEXT_MESSAGES = 50;
 const TELEGRAM_DRAFT_UPDATE_MIN_CHARS = 80;
 const TELEGRAM_MESSAGE_LIMIT = 4096;
 const TELEGRAM_TYPING_REFRESH_MS = 4000;
@@ -148,12 +186,16 @@ const HELP_TEXT = [
   '',
   '直接发送具体的 XXYY 产品问题即可。',
   '发送 /status 可查看知识库自动更新状态。',
+  '群聊发送 /learning 可查看自动学习状态；管理员可用 /learning_on 和 /learning_off 开关。',
 ].join('\n');
 const UNSUPPORTED_MESSAGE_TEXT = '目前只支持文本消息，请直接发送具体的 XXYY 产品问题。';
 export const TELEGRAM_BOT_COMMANDS = [
   { command: 'start', description: '开始使用 XXYY 客服' },
   { command: 'help', description: '查看客服能力说明' },
   { command: 'status', description: '查看知识库自动更新状态' },
+  { command: 'learning', description: '查看群聊自动学习状态' },
+  { command: 'learning_on', description: '管理员开启群聊自动学习' },
+  { command: 'learning_off', description: '管理员关闭群聊自动学习' },
 ] as const;
 
 export function loadTelegramBotConfig(env: TelegramBotEnv): TelegramBotConfig {
@@ -165,6 +207,17 @@ export function loadTelegramBotConfig(env: TelegramBotEnv): TelegramBotConfig {
   const publicBaseUrl = normalizeOptionalString(env.TELEGRAM_PUBLIC_BASE_URL);
 
   return {
+    autoLearningContextMessages: parseBoundedPositiveInteger(
+      env.TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES,
+      DEFAULT_AUTO_LEARNING_CONTEXT_MESSAGES,
+      2,
+      MAX_AUTO_LEARNING_CONTEXT_MESSAGES,
+    ),
+    autoLearningDefaultEnabled: parseBoolean(
+      env.TELEGRAM_AUTO_LEARNING_ENABLED,
+      false,
+      'TELEGRAM_AUTO_LEARNING_ENABLED',
+    ),
     botToken,
     pollErrorRetryMs: parsePositiveInteger(
       env.TELEGRAM_POLL_ERROR_RETRY_MS,
@@ -214,6 +267,12 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
         replyToMessageId: message.message_id,
         text: await readTelegramKnowledgeRefreshStatus(options),
       });
+      return;
+    }
+
+    const learningCommand = readKnowledgeLearningCommand(text);
+    if (learningCommand !== undefined) {
+      await handleTelegramKnowledgeLearningCommand(options, message, learningCommand);
       return;
     }
 
@@ -648,8 +707,129 @@ function isKnowledgeRefreshStatusCommand(text: string): boolean {
   return readTelegramCommand(text) === '/status';
 }
 
+type KnowledgeLearningCommand = 'disable' | 'enable' | 'status';
+
+function readKnowledgeLearningCommand(text: string): KnowledgeLearningCommand | undefined {
+  switch (readTelegramCommand(text)) {
+    case '/learning':
+      return 'status';
+    case '/learning_on':
+      return 'enable';
+    case '/learning_off':
+      return 'disable';
+    default:
+      return undefined;
+  }
+}
+
 function readTelegramCommand(text: string): string | undefined {
   return text.split(/\s+/u)[0]?.toLowerCase().split('@')[0];
+}
+
+async function handleTelegramKnowledgeLearningCommand(
+  options: CreateTelegramBotOptions,
+  message: TelegramMessage,
+  command: KnowledgeLearningCommand,
+): Promise<void> {
+  const chatId = message.chat.id;
+  if (!isGroupChat(message)) {
+    await options.api.sendMessage({
+      chatId,
+      replyToMessageId: message.message_id,
+      text: '自动学习仅支持 Telegram 客服群，请在目标群聊中使用该命令。',
+    });
+    return;
+  }
+  if (options.knowledgeAutomation === undefined) {
+    await options.api.sendMessage({
+      chatId,
+      replyToMessageId: message.message_id,
+      text: '对话自动学习：⚠️ 当前服务未配置。',
+    });
+    return;
+  }
+
+  if (command === 'status') {
+    try {
+      const status = await options.knowledgeAutomation.getLearningStatus(chatId);
+      await options.api.sendMessage({
+        chatId,
+        replyToMessageId: message.message_id,
+        text: formatTelegramKnowledgeLearningStatus(status),
+      });
+    } catch {
+      options.logger?.error(`Telegram knowledge learning status read failed for ${chatId}.`);
+      await options.api.sendMessage({
+        chatId,
+        replyToMessageId: message.message_id,
+        text: '对话自动学习状态：暂时无法读取，请稍后再试。',
+      });
+    }
+    return;
+  }
+
+  let result: TelegramKnowledgeLearningChangeResult;
+  try {
+    result = await options.knowledgeAutomation.setLearningEnabled({
+      chatId,
+      enabled: command === 'enable',
+      ...(message.from?.id === undefined || message.from.is_bot === true || message.sender_chat
+        ? {}
+        : { requestedByUserId: message.from.id }),
+    });
+  } catch {
+    options.logger?.error(`Telegram knowledge learning setting update failed for ${chatId}.`);
+    await options.api.sendMessage({
+      chatId,
+      replyToMessageId: message.message_id,
+      text: '对话自动学习设置失败，请稍后再试。',
+    });
+    return;
+  }
+
+  if (!result.authorized) {
+    const text =
+      result.reason === 'administrator_verification_unavailable'
+        ? '暂时无法验证群管理员身份，自动学习设置未更改。'
+        : '只有当前群管理员可以开启或关闭自动学习。';
+    await options.api.sendMessage({
+      chatId,
+      replyToMessageId: message.message_id,
+      text,
+    });
+    return;
+  }
+
+  await options.api.sendMessage({
+    chatId,
+    replyToMessageId: message.message_id,
+    text: `${result.changed ? '设置已更新。\n' : ''}${formatTelegramKnowledgeLearningStatus(
+      result.status,
+    )}`,
+  });
+}
+
+export function formatTelegramKnowledgeLearningStatus(
+  status: TelegramKnowledgeLearningStatus,
+): string {
+  const lines = [
+    `对话自动学习：${status.enabled ? '✅ 已开启' : '⏸ 已关闭'}`,
+    `设置来源：${status.settingSource === 'chat_override' ? '本群管理员设置' : '服务默认配置'}`,
+  ];
+  if (status.enabled) {
+    lines.push(
+      `分析范围：管理员回复用户的同一对话链（最多 ${status.contextMessageLimit} 条消息）`,
+      '进化方式：生成知识候选 → 严格自动治理 → 独立刷新任务发布',
+    );
+  }
+  lines.push(
+    `知识进度：候选 ${status.progress.candidateCount}，已发布 ${status.progress.publishedCount}，待发布 ${status.progress.approvedCount}，处理中 ${status.progress.pendingCount}，已拒绝 ${status.progress.rejectedCount}`,
+  );
+  if (status.progress.lastAnalyzedAt !== undefined) {
+    lines.push(`最近分析：${formatTelegramLearningTime(status.progress.lastAnalyzedAt)}`);
+  }
+  lines.push('管理员命令：/learning_on 开启，/learning_off 关闭');
+  return lines.join('\n');
 }
 
 async function readTelegramKnowledgeRefreshStatus(
@@ -748,6 +928,45 @@ function isTelegramPhotoMediaType(mediaType: string): boolean {
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseBoundedPositiveInteger(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  return Math.max(minimum, Math.min(parsePositiveInteger(value, fallback), maximum));
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean, field: string): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === undefined || normalized.length === 0) {
+    return fallback;
+  }
+  if (normalized === 'true' || normalized === '1') {
+    return true;
+  }
+  if (normalized === 'false' || normalized === '0') {
+    return false;
+  }
+  throw new TelegramBotConfigurationError(`${field} must be true or false.`);
+}
+
+function formatTelegramLearningTime(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false,
+    minute: '2-digit',
+    month: '2-digit',
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+  }).format(date);
 }
 
 function normalizeOptionalString(value: string | undefined): string | undefined {

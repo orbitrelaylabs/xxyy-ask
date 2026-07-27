@@ -44,6 +44,8 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
   const knowledgeRuntime = createTelegramKnowledgeAutomationRuntime({
     botToken: botConfig.botToken,
     config,
+    contextMessageLimit: botConfig.autoLearningContextMessages,
+    defaultEnabled: botConfig.autoLearningDefaultEnabled,
     ...(workspaceEnv.TELEGRAM_API_BASE_URL === undefined
       ? {}
       : { telegramApiBaseUrl: workspaceEnv.TELEGRAM_API_BASE_URL }),

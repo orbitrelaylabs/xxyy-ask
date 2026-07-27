@@ -112,6 +112,8 @@ KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS=60000
 
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_API_BASE_URL=
+TELEGRAM_AUTO_LEARNING_ENABLED=false
+TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES=12
 ```
 
 数据库默认从 `POSTGRES_*` 组装连接串；使用托管数据库时可以配置 `DATABASE_URL` 覆盖。`OPENAI_*` 配置 Chat/Planner；`EMBEDDING_API_KEY` 和 `EMBEDDING_BASE_URL` 可把向量请求发送到独立的 OpenAI-compatible 服务，未配置时回退使用 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。当 `OPENAI_BASE_URL` 指向宿主机上的本地服务时，设置 `COMPOSE_OPENAI_BASE_URL=http://host.docker.internal:<端口>/v1`，让 `pnpm run app:up` 中的容器访问宿主机，同时保留 `app:dev` 使用的 `localhost` 地址。OpenAI-compatible 请求默认 30 秒超时、重试 1 次。默认 embedding 维度是 `1536`，匹配 `text-embedding-3-small`；更换 embedding 模型和维度时需要同步调整 `EMBEDDING_DIMENSION`，备份数据库后显式运行 `pnpm rag:ingest -- --rebuild-embedding-schema`。`.env.example` 会列出当前代码支持的环境变量。
@@ -329,7 +331,9 @@ pnpm agent:smoke
 pnpm run telegram:dev
 ```
 
-配置 `TELEGRAM_BOT_TOKEN` 后，Bot 会通过 long polling 接收文本消息，并以 `channel: "telegram"` 调用同一套 LangGraph 客服 Agent。在 group/supergroup 中，Bot 还会识别当前管理员对用户文本问题的直接回复，自动生成、决定并排队群聊知识；匿名管理员、Bot、`sender_chat` 和无法验证身份的回复不会入库。要采集普通群消息，需要按部署需求关闭 BotFather Privacy Mode，并授予查询管理员列表所需权限。图片附件公网 URL、轮询超时和重试间隔都有默认处理。
+配置 `TELEGRAM_BOT_TOKEN` 后，Bot 会通过 long polling 接收文本消息，并以 `channel: "telegram"` 调用同一套 LangGraph 客服 Agent。设置 `TELEGRAM_AUTO_LEARNING_ENABLED=true` 后，group/supergroup 会在内存中保留最多 `TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES` 条同一 reply 对话链；当前管理员回复用户时，Bot 会让 Knowledge Curator 分析多轮上下文，自动生成、决定并排队群聊知识。原始群聊不会整批持久化，关闭开关会立即清除该群的内存上下文；匿名管理员、Bot、`sender_chat` 和无法验证身份的回复不会入库。要采集普通群消息，需要按部署需求关闭 BotFather Privacy Mode，并授予查询管理员列表所需权限。图片附件公网 URL、轮询超时和重试间隔都有默认处理。
+
+Bot 菜单中的 `/learning` 显示本群自动学习状态、上下文上限、候选/发布进度和最近分析时间。当前群管理员可用 `/learning_on`、`/learning_off` 持久化开关；身份由 Telegram `getChatAdministrators` 或有效期内的 `owner` / `administrator` 可信作者记录验证，变更写入独立设置表和追加式审计事件。该入口只存在于 Telegram，Web 聊天页不采集对话用于知识演进。
 
 Bot 菜单中的 `/status` 会显示知识库自动更新是否启用、增量/全量计划、最近刷新时间和结果。Web 聊天页头部显示同一状态；两端只读取调度器的脱敏回执，不获得知识写入权限。安装外部 scheduler 后设置 `KNOWLEDGE_AUTO_REFRESH_ENABLED=true`，并确保 `.rag/knowledge-refresh` 对客服容器只读可见。成功回执超过 `KNOWLEDGE_AUTO_REFRESH_STALE_AFTER_MINUTES` 后，状态会显示为刷新延迟。
 

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { createLiveTelegramKnowledgeExport } from './knowledge-automation.js';
+import type { TelegramMessage } from './bot.js';
+import {
+  createLiveTelegramKnowledgeExport,
+  createTelegramConversationBuffer,
+} from './knowledge-automation.js';
 
 describe('live Telegram knowledge capture', () => {
   it('converts a direct group reply into the bounded import shape', () => {
@@ -62,5 +66,100 @@ describe('live Telegram knowledge capture', () => {
         sender_chat: { id: -100123 },
       }),
     ).toBeUndefined();
+    expect(
+      createLiveTelegramKnowledgeExport({
+        ...base,
+        reply_to_message: {
+          chat: base.chat,
+          from: { id: 999, is_bot: true },
+          message_id: 10,
+          text: 'Bot 生成的回答',
+        },
+      }),
+    ).toBeUndefined();
+  });
+
+  it('reconstructs a bounded multi-turn administrator and user reply chain', () => {
+    const chat = { id: -100123, type: 'supergroup' as const };
+    const root: TelegramMessage = {
+      chat,
+      date: 1_774_490_400,
+      from: { id: 456 },
+      message_id: 10,
+      text: 'XXYY 如何设置价格提醒？',
+    };
+    const firstAnswer: TelegramMessage = {
+      chat,
+      date: 1_774_490_460,
+      from: { id: 123 },
+      message_id: 11,
+      reply_to_message: root,
+      text: '先进入提醒设置。',
+    };
+    const firstAnswerReference: TelegramMessage = {
+      chat,
+      date: 1_774_490_460,
+      from: { id: 123 },
+      message_id: 11,
+      text: '先进入提醒设置。',
+    };
+    const followUp: TelegramMessage = {
+      chat,
+      date: 1_774_490_500,
+      from: { id: 456 },
+      message_id: 12,
+      reply_to_message: firstAnswerReference,
+      text: '进入之后还需要做什么？',
+    };
+    const finalAnswer: TelegramMessage = {
+      chat,
+      date: 1_774_490_520,
+      from: { id: 123 },
+      message_id: 13,
+      reply_to_message: followUp,
+      text: '开启价格提醒并保存，保存后立即生效。',
+    };
+    const buffer = createTelegramConversationBuffer(4);
+    const seenAt = new Date('2026-03-26T02:03:00.000Z');
+    for (const message of [root, firstAnswer, followUp, finalAnswer]) {
+      buffer.remember(message, seenAt);
+    }
+
+    const rawExport = createLiveTelegramKnowledgeExport(
+      finalAnswer,
+      buffer.getReplyChain(finalAnswer),
+    );
+
+    expect(rawExport).toMatchObject({
+      id: -100123,
+      messages: [
+        { id: 10, text: root.text },
+        { id: 11, reply_to_message_id: 10, text: firstAnswer.text },
+        { id: 12, reply_to_message_id: 11, text: followUp.text },
+        { id: 13, reply_to_message_id: 12, text: finalAnswer.text },
+      ],
+    });
+  });
+
+  it('limits retained reply context and tolerates cyclic external input', () => {
+    const chat = { id: -100123, type: 'supergroup' as const };
+    const root: TelegramMessage = {
+      chat,
+      from: { id: 456 },
+      message_id: 1,
+      text: '问题',
+    };
+    const answer: TelegramMessage = {
+      chat,
+      from: { id: 123 },
+      message_id: 2,
+      reply_to_message: root,
+      text: '回答',
+    };
+    root.reply_to_message = answer;
+    const buffer = createTelegramConversationBuffer(2);
+
+    expect(() => buffer.remember(answer, new Date())).not.toThrow();
+    expect(buffer.getReplyChain(answer)).toHaveLength(2);
   });
 });

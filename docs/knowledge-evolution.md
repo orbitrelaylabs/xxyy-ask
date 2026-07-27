@@ -96,14 +96,16 @@ pnpm rag:knowledge:author:list -- \
 
 ### 群内实时采集
 
-Bot 收到 `group` 或 `supergroup` 中的文本时，会优先检查它是否为某位管理员对用户文本问题的直接回复。满足条件时：
+自动学习由 `TELEGRAM_AUTO_LEARNING_ENABLED` 提供部署默认值，默认关闭。Bot 菜单提供 `/learning` 查看状态，当前群管理员可用 `/learning_on` 与 `/learning_off` 写入持久化的本群覆盖设置；设置变更保留追加式审计。该能力只在 Telegram 群启用，Web 聊天不会成为知识来源。
+
+Bot 收到已启用自动学习的 `group` 或 `supergroup` 文本时，会在进程内保存有界、最长一小时的 reply 链上下文；默认最多 12 条，可用 `TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES` 调整，硬上限 50 条。它随后优先检查当前消息是否为某位管理员对用户文本问题的回复。满足条件时：
 
 1. 调用或复用缓存的 `getChatAdministrators` 证据。
-2. 把父消息和管理员回复转换成最小两消息线程。
-3. 执行同一 Curator、严格自动决策和发布入队。
+2. 从有界缓存重建同一 reply 链；简单问答走确定性提取，多轮线程同时交给可用的 Curator Agent 分析。
+3. 执行脱敏、同一 Curator、严格自动决策和发布入队。
 4. 静默结束该条 update，不把管理员答案当作新的客服提问回复。
 
-Bot 必须能看到普通群消息；Telegram BotFather 的 Privacy Mode 需要按部署需求关闭，并确保 Bot 有读取消息及查询管理员列表所需权限。匿名管理员、Bot 自己、`sender_chat` 和非直接回复不会被采集。管理员查询暂时失败时会回退到时间有效的可信作者名册；仍无法验证则不创建候选，客服回复路径继续正常运行。
+原始 reply 链只存在于有上限、有 TTL 的进程内缓存；关闭本群自动学习时立即清除。只有脱敏并通过边界的候选进入治理数据库。Bot 必须能看到普通群消息；Telegram BotFather 的 Privacy Mode 需要按部署需求关闭，并确保 Bot 有读取消息及查询管理员列表所需权限。匿名管理员、Bot 自己、`sender_chat`、Bot 消息和非回复不会被作为知识答案采集。管理员查询暂时失败时会回退到时间有效的可信作者名册；仍无法验证则不创建候选，客服回复路径继续正常运行。
 
 ### Telegram Desktop JSON
 

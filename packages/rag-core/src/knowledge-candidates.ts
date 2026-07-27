@@ -9,6 +9,7 @@ import {
   type TrustedAuthorRole,
   type TrustedAuthorVerificationSource,
 } from './trusted-authors.js';
+import { migrateTelegramKnowledgeLearningSettings } from './telegram-learning-settings.js';
 
 export type KnowledgeCandidateStatus = 'approved' | 'pending' | 'published' | 'rejected';
 export type KnowledgeCandidateSourceChannel = 'telegram' | 'telegram_export' | 'web';
@@ -934,6 +935,7 @@ export async function migrateKnowledgeCandidates(client: PgClientLike): Promise<
     `,
   );
   await migrateTrustedAuthors(client);
+  await migrateTelegramKnowledgeLearningSettings(client);
   await queryDatabase(
     client,
     `
