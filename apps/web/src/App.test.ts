@@ -77,3 +77,46 @@ describe('AttachmentList', () => {
     expect(markup).toContain('打开原始视频');
   });
 });
+
+describe('KnowledgeRefreshBadge', () => {
+  it('renders enabled scheduling and freshness state', () => {
+    const markup = renderToStaticMarkup(
+      createElement(appModule.KnowledgeRefreshBadge, {
+        result: {
+          kind: 'loaded',
+          status: {
+            enabled: true,
+            lastRun: {
+              finishedAt: '2026-07-27T06:48:33.456Z',
+              mode: 'incremental',
+              status: 'succeeded',
+            },
+            schedule: {
+              fullDailyAt: '03:30',
+              incrementalEveryMinutes: 30,
+              timeZone: 'Asia/Shanghai',
+            },
+            state: 'healthy',
+          },
+        },
+      }),
+    );
+
+    expect(markup).toContain('知识库自动更新已开启');
+    expect(markup).toContain('最近刷新');
+    expect(markup).toContain('每 30 分钟增量更新');
+    expect(markup).toContain('is-healthy');
+  });
+
+  it('renders unavailable state without claiming that refresh is enabled', () => {
+    const markup = renderToStaticMarkup(
+      createElement(appModule.KnowledgeRefreshBadge, {
+        result: { kind: 'error' },
+      }),
+    );
+
+    expect(markup).toContain('状态暂不可用');
+    expect(markup).not.toContain('自动更新已开启');
+    expect(markup).toContain('is-error');
+  });
+});

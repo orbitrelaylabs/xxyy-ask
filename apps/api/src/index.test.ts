@@ -277,6 +277,49 @@ describe('createRequestHandler', () => {
     expect(JSON.parse(response.body)).toEqual({ status: 'ok' });
   });
 
+  it('returns the public automatic knowledge refresh status without scheduler internals', async () => {
+    const getKnowledgeRefreshStatus = vi.fn(() =>
+      Promise.resolve({
+        enabled: true,
+        lastRun: {
+          finishedAt: '2026-07-27T06:48:33.456Z',
+          mode: 'incremental' as const,
+          status: 'succeeded' as const,
+        },
+        schedule: {
+          fullDailyAt: '03:30',
+          incrementalEveryMinutes: 30,
+          timeZone: 'Asia/Shanghai',
+        },
+        state: 'healthy' as const,
+      }),
+    );
+    const handler = createRequestHandler({ env: {}, getKnowledgeRefreshStatus });
+
+    const response = await callHandler(handler, {
+      method: 'GET',
+      url: '/api/knowledge-refresh-status',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['Cache-Control']).toBe('no-store');
+    expect(JSON.parse(response.body)).toEqual({
+      enabled: true,
+      lastRun: {
+        finishedAt: '2026-07-27T06:48:33.456Z',
+        mode: 'incremental',
+        status: 'succeeded',
+      },
+      schedule: {
+        fullDailyAt: '03:30',
+        incrementalEveryMinutes: 30,
+        timeZone: 'Asia/Shanghai',
+      },
+      state: 'healthy',
+    });
+    expect(getKnowledgeRefreshStatus).toHaveBeenCalledOnce();
+  });
+
   it('returns 404 for the removed ops dashboard route', async () => {
     const handler = createRequestHandler();
 

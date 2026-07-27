@@ -25,6 +25,32 @@ export const supportedChannels = ['cli', 'web', 'telegram'] as const;
 
 export type ChatChannel = (typeof supportedChannels)[number];
 
+export const knowledgeRefreshStates = [
+  'disabled',
+  'healthy',
+  'pending',
+  'stale',
+  'failed',
+  'unavailable',
+] as const;
+
+export type KnowledgeRefreshState = (typeof knowledgeRefreshStates)[number];
+
+export interface KnowledgeRefreshStatus {
+  enabled: boolean;
+  state: KnowledgeRefreshState;
+  schedule: {
+    fullDailyAt: string;
+    incrementalEveryMinutes: number;
+    timeZone: string;
+  };
+  lastRun?: {
+    finishedAt: string;
+    mode: 'full' | 'incremental';
+    status: 'failed' | 'succeeded';
+  };
+}
+
 export const supportedIntents = [
   'agent_capabilities',
   'product_qa',

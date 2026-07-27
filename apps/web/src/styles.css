@@ -205,8 +205,74 @@ h1 {
 
 .header-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.knowledge-refresh-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 6px 10px;
+}
+
+.knowledge-refresh-badge > span:last-child {
+  display: grid;
+  gap: 1px;
+}
+
+.knowledge-refresh-badge strong {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.knowledge-refresh-badge small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.knowledge-refresh-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #8a96a6;
+}
+
+.knowledge-refresh-badge.is-healthy {
+  border-color: #a9d1c7;
+  background: var(--accent-soft);
+}
+
+.knowledge-refresh-badge.is-healthy .knowledge-refresh-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(23, 107, 91, 0.12);
+}
+
+.knowledge-refresh-badge.is-warn {
+  border-color: #e2c68d;
+  background: #fff9ec;
+}
+
+.knowledge-refresh-badge.is-warn .knowledge-refresh-dot {
+  background: #c48a27;
+}
+
+.knowledge-refresh-badge.is-error {
+  border-color: #e0b1b1;
+  background: #fff8f8;
+}
+
+.knowledge-refresh-badge.is-error .knowledge-refresh-dot {
+  background: var(--danger);
 }
 
 .messages {
@@ -798,6 +864,12 @@ textarea:focus {
   .chat-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
 
   .message,

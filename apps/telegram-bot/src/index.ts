@@ -2,12 +2,14 @@ import {
   createQualityTracerFromEnv,
   loadRagConfig,
   loadWorkspaceEnv,
+  readKnowledgeRefreshStatus,
   resolveWorkspaceCwd,
   type RagEnv,
 } from '@xxyy/rag-core';
 
 import {
   TelegramBotConfigurationError,
+  TELEGRAM_BOT_COMMANDS,
   createTelegramBot,
   loadTelegramBotConfig,
   runTelegramBot,
@@ -56,6 +58,8 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
     api,
     chatService: runtime.service,
     config: botConfig,
+    getKnowledgeRefreshStatus: () =>
+      readKnowledgeRefreshStatus({ cwd: workspaceCwd, env: workspaceEnv }),
     knowledgeAutomation: knowledgeRuntime.automation,
     logger,
   });
@@ -68,6 +72,12 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
   process.once('SIGTERM', stop);
 
   try {
+    try {
+      await api.setMyCommands?.({ commands: [...TELEGRAM_BOT_COMMANDS] });
+      logger.info('Telegram bot commands configured.');
+    } catch (error) {
+      logger.error('Telegram bot command configuration failed.', error);
+    }
     logger.info('Telegram bot polling started.');
     await runTelegramBot(bot, {
       abortSignal: abortController.signal,

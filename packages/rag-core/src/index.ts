@@ -77,6 +77,11 @@ export {
   createKnowledgeGovernanceService,
   UnverifiedTelegramKnowledgeAuthorError,
 } from './knowledge-governance-service.js';
+export { readKnowledgeRefreshStatus } from './knowledge-refresh-status.js';
+export type {
+  KnowledgeRefreshStatusEnv,
+  ReadKnowledgeRefreshStatusOptions,
+} from './knowledge-refresh-status.js';
 export {
   hasUsableKnowledgeText,
   KNOWLEDGE_INJECTION_QUARANTINE_MARKER,

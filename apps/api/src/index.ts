@@ -17,11 +17,18 @@ import {
   LlmConfigurationError,
   loadRagConfig,
   loadWorkspaceEnv,
+  readKnowledgeRefreshStatus,
   resolveWorkspaceCwd,
   VectorStoreConfigurationError,
   VectorStoreUnavailableError,
 } from '@xxyy/rag-core';
-import type { ChatRequest, ChatChannel, ChatResponse, ChatStreamEvent } from '@xxyy/shared';
+import type {
+  ChatRequest,
+  ChatChannel,
+  ChatResponse,
+  ChatStreamEvent,
+  KnowledgeRefreshStatus,
+} from '@xxyy/shared';
 import { supportedChannels, supportedIntents } from '@xxyy/shared';
 import type {
   AnswerProvider,
@@ -65,6 +72,12 @@ type ApiEnv = RagEnv &
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_MAX'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS'
       | 'KNOWLEDGE_ADMIN_TOKENS_JSON'
+      | 'KNOWLEDGE_AUTO_REFRESH_ENABLED'
+      | 'KNOWLEDGE_AUTO_REFRESH_FULL_DAILY_AT'
+      | 'KNOWLEDGE_AUTO_REFRESH_INCREMENTAL_MINUTES'
+      | 'KNOWLEDGE_AUTO_REFRESH_RECEIPT_FILE'
+      | 'KNOWLEDGE_AUTO_REFRESH_STALE_AFTER_MINUTES'
+      | 'KNOWLEDGE_AUTO_REFRESH_TIME_ZONE'
       | 'PORT'
       | 'QUALITY_TRACE_SAMPLE_RATE'
       | 'TRUST_PROXY'
@@ -104,6 +117,7 @@ export interface CreateRequestHandlerOptions {
   env?: ApiEnv;
   getChatService?: () => Promise<ChatService>;
   getHealthStatus?: () => Promise<DeepHealthStatus>;
+  getKnowledgeRefreshStatus?: () => Promise<KnowledgeRefreshStatus>;
   getKnowledgeAdminServices?: () => Promise<KnowledgeAdminServices>;
   knowledgeAdminAuthenticator?: KnowledgeAdminAuthenticator;
   logger?: ApiLogger;
@@ -205,6 +219,14 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
     (isTestRuntime(env) ? noopFeedbackRecorder : createCachedFeedbackRecorder(config));
   const logger = options.logger ?? noopLogger;
   const now = options.now ?? Date.now;
+  const getKnowledgeRefreshStatus =
+    options.getKnowledgeRefreshStatus ??
+    (() =>
+      readKnowledgeRefreshStatus({
+        cwd: resolveWorkspaceCwd(options.cwd ?? process.cwd(), env),
+        env,
+        now: () => new Date(now()),
+      }));
   const createRequestId = options.createRequestId ?? randomUUID;
   const staticAssetsDir = options.staticAssetsDir ?? createDefaultStaticAssetsDir(options, env);
   const webAssetsDir = options.webAssetsDir ?? createDefaultWebAssetsDir(options, env);
@@ -265,6 +287,12 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
 
         const healthStatus = await getHealthStatus();
         sendJson(response, healthStatus.status === 'ok' ? 200 : 503, healthStatus);
+        return;
+      }
+
+      if (request.method === 'GET' && requestUrl.pathname === '/api/knowledge-refresh-status') {
+        response.setHeader('Cache-Control', 'no-store');
+        sendJson(response, 200, await getKnowledgeRefreshStatus());
         return;
       }
 

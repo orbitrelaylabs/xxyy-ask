@@ -1,7 +1,12 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent, ReactElement, RefObject } from 'react';
 
 import { readChatStream } from './chat-stream.js';
+import {
+  checkKnowledgeRefreshStatus,
+  type KnowledgeRefreshStatus,
+  type KnowledgeRefreshStatusResult,
+} from './knowledge-refresh-status.js';
 import { Markdown } from './Markdown.js';
 import { checkModelHealth, type ModelHealthCheck, type ModelHealthResult } from './model-health.js';
 import type { Attachment, ChatMessage, Citation } from './types.js';
@@ -31,8 +36,29 @@ export function App(): ReactElement {
   const [modelTestBusy, setModelTestBusy] = useState(false);
   const [modelTestOpen, setModelTestOpen] = useState(false);
   const [modelTestResult, setModelTestResult] = useState<ModelHealthResult | undefined>();
+  const [knowledgeRefreshResult, setKnowledgeRefreshResult] = useState<
+    KnowledgeRefreshStatusResult | undefined
+  >();
   const [sessionId, setSessionId] = useState(() => getSessionId());
   const messagesRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = async (): Promise<void> => {
+      const result = await checkKnowledgeRefreshStatus(fetch);
+      if (active) {
+        setKnowledgeRefreshResult(result);
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const scrollMessagesToBottom = (): void => {
     window.requestAnimationFrame(() => {
@@ -219,7 +245,11 @@ export function App(): ReactElement {
     <main className="app-shell">
       <Sidebar busy={busy} onPrompt={submitPrompt} />
       <section aria-label="chat" className="chat-workbench">
-        <ChatHeader onClear={clearChat} onModelTest={openModelTest} />
+        <ChatHeader
+          knowledgeRefreshResult={knowledgeRefreshResult}
+          onClear={clearChat}
+          onModelTest={openModelTest}
+        />
         <MessageList messages={messages} messagesRef={messagesRef} onFeedback={submitFeedback} />
         <form className="composer-wrap" id="chat-form" onSubmit={onSubmit}>
           <div className="composer">
@@ -316,9 +346,11 @@ function Sidebar({
 }
 
 function ChatHeader({
+  knowledgeRefreshResult,
   onClear,
   onModelTest,
 }: {
+  knowledgeRefreshResult: KnowledgeRefreshStatusResult | undefined;
   onClear: () => void;
   onModelTest: () => void;
 }): ReactElement {
@@ -329,6 +361,7 @@ function ChatHeader({
         <div className="header-subtitle">XXYY 产品问答客服</div>
       </div>
       <div className="header-actions">
+        <KnowledgeRefreshBadge result={knowledgeRefreshResult} />
         <button className="model-test-button" onClick={onModelTest} type="button">
           模型测试
         </button>
@@ -338,6 +371,117 @@ function ChatHeader({
       </div>
     </header>
   );
+}
+
+export function KnowledgeRefreshBadge({
+  result,
+}: {
+  result: KnowledgeRefreshStatusResult | undefined;
+}): ReactElement {
+  const presentation = knowledgeRefreshPresentation(result);
+  return (
+    <div
+      aria-live="polite"
+      className={`knowledge-refresh-badge is-${presentation.tone}`}
+      role="status"
+      title={presentation.title}
+    >
+      <span aria-hidden="true" className="knowledge-refresh-dot" />
+      <span>
+        <strong>{presentation.label}</strong>
+        <small>{presentation.detail}</small>
+      </span>
+    </div>
+  );
+}
+
+function knowledgeRefreshPresentation(result: KnowledgeRefreshStatusResult | undefined): {
+  detail: string;
+  label: string;
+  title: string;
+  tone: 'error' | 'healthy' | 'muted' | 'warn';
+} {
+  if (result === undefined) {
+    return {
+      detail: '正在检测状态',
+      label: '知识库自动更新',
+      title: '正在读取自动更新状态',
+      tone: 'muted',
+    };
+  }
+  if (result.kind === 'error') {
+    return {
+      detail: '状态暂不可用',
+      label: '知识库自动更新',
+      title: '无法读取自动更新状态',
+      tone: 'error',
+    };
+  }
+
+  const { status } = result;
+  const schedule = `每 ${status.schedule.incrementalEveryMinutes} 分钟增量更新，${status.schedule.fullDailyAt} 全量更新`;
+  const lastRun = formatLastKnowledgeRefresh(status);
+  if (!status.enabled || status.state === 'disabled') {
+    return {
+      detail: '未开启',
+      label: '知识库自动更新',
+      title: schedule,
+      tone: 'muted',
+    };
+  }
+  if (status.state === 'healthy') {
+    return {
+      detail: lastRun ?? `已开启 · 每 ${status.schedule.incrementalEveryMinutes} 分钟`,
+      label: '知识库自动更新已开启',
+      title: `${schedule}${lastRun === undefined ? '' : `；${lastRun}`}`,
+      tone: 'healthy',
+    };
+  }
+  if (status.state === 'pending') {
+    return {
+      detail: '已开启 · 等待首次刷新',
+      label: '知识库自动更新',
+      title: schedule,
+      tone: 'warn',
+    };
+  }
+  if (status.state === 'stale') {
+    return {
+      detail: lastRun ?? '已开启 · 刷新延迟',
+      label: '知识库自动更新延迟',
+      title: `${schedule}；最近回执已超过预期时间`,
+      tone: 'warn',
+    };
+  }
+  return {
+    detail: status.state === 'failed' ? (lastRun ?? '最近刷新失败') : '状态文件不可用',
+    label: status.state === 'failed' ? '知识库自动更新异常' : '知识库自动更新',
+    title: schedule,
+    tone: 'error',
+  };
+}
+
+function formatLastKnowledgeRefresh(status: KnowledgeRefreshStatus): string | undefined {
+  if (status.lastRun === undefined) {
+    return undefined;
+  }
+  const finishedAt = new Date(status.lastRun.finishedAt);
+  if (!Number.isFinite(finishedAt.getTime())) {
+    return undefined;
+  }
+  try {
+    const formatted = new Intl.DateTimeFormat('zh-CN', {
+      day: '2-digit',
+      hour: '2-digit',
+      hour12: false,
+      minute: '2-digit',
+      month: '2-digit',
+      timeZone: status.schedule.timeZone,
+    }).format(finishedAt);
+    return `最近刷新 ${formatted}`;
+  } catch {
+    return `最近刷新 ${status.lastRun.finishedAt}`;
+  }
 }
 
 function ModelTestPanel({

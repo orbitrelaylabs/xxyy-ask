@@ -7,9 +7,9 @@
 - [x] LangGraph 客服 Runtime：`packages/agent-core` 使用 LangGraph JS 组织策略保护、planner、检索工具、证据观察和回答合成。当前只注册 `search_product_docs` 业务工具；账户、订单、钱包余额、私有交易记录、交易分析和投资建议请求会先进入边界或澄清回复。
 - [x] Product RAG：产品问题会检索 Postgres + pgvector 中的知识库 chunks，并通过 OpenAI-compatible chat completion 生成带引用回答。正式来源限定为 `docs.xxyy.io` 官方文档、`x.com/useXXYYio` 官方更新，以及通过严格自动治理发布的客服群知识。
 - [x] Scheduler-safe 知识刷新：`pnpm rag:refresh` 提供外部 scheduler 可调用的 X 增量 Job，`--full` 执行官网/媒体/X 全量重建，最后统一对账知识候选、补建/重试发布任务并执行队列；`--dry-run` 验证固定计划。实际运行有同工作区锁、stale recovery、步骤级脱敏回执和失败退出。
-- [x] HTTP 服务面：保留 `GET /`、`GET /health`、`GET /health/deep`、`POST /api/chat`、`POST /api/chat/stream` 和 `GET /assets/*`。
-- [x] Web UI：`GET /` 提供静态聊天界面，支持普通回答、流式回答、引用展示和产品知识库附件。
-- [x] Telegram Bot：`pnpm run telegram:dev` 通过 Telegram Bot API long polling 接收文本消息，并以 `channel: "telegram"` 复用同一套 LangGraph 客服 Agent；在 group/supergroup 中还会窄化采集当前管理员对用户问题的直接回复，自动验证身份并进入知识治理。
+- [x] HTTP 服务面：保留 `GET /`、`GET /health`、`GET /health/deep`、`GET /api/knowledge-refresh-status`、`POST /api/chat`、`POST /api/chat/stream` 和 `GET /assets/*`。
+- [x] Web UI：`GET /` 提供静态聊天界面，支持普通回答、流式回答、引用展示、产品知识库附件，以及基于调度器脱敏回执的自动更新状态徽标。
+- [x] Telegram Bot：`pnpm run telegram:dev` 通过 Telegram Bot API long polling 接收文本消息，并以 `channel: "telegram"` 复用同一套 LangGraph 客服 Agent；Bot 菜单提供 `/status` 查看自动更新状态，在 group/supergroup 中还会窄化采集当前管理员对用户问题的直接回复，自动验证身份并进入知识治理。
 - [x] Knowledge Curator Auto Mode：Telegram 实时回复和 Desktop JSON 可按角色有效期验证作者、重建 reply 线程、脱敏、分类、标准化、去重、检查正式 chunk 冲突并生成质量/风险信息；默认 `auto` 只把确定性路径未覆盖的复杂线程交给已配置模型，模型缺失或单线程失败时安全降级并返回脱敏统计，同时保留 deterministic/required 模式和调用预算。
 - [x] 严格自动知识治理：`knowledge-automation-v1` 以确定性规则验证来源、提取方式、作者时效、最低质量、重复/冲突、风险、Agent lineage 和 prompt injection；合格候选自动批准并入队，其余自动拒绝。模型不能决定发布，正常流程没有逐条人工审核。
 - [x] 知识治理管理面：`GET /admin` 提供独立 Bearer Token 认证和 `viewer/reviewer/publisher/admin` RBAC，支持候选上下文、自动原因、重复/冲突对比、revision/history、可信作者、Telegram 导入和发布状态；人工操作只保留为有审计的紧急恢复面，公开客服 API 仍不暴露知识写入能力。

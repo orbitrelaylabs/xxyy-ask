@@ -93,6 +93,12 @@ OPENAI_MAX_RETRIES=1
 
 RAG_TOP_K=6
 
+KNOWLEDGE_AUTO_REFRESH_ENABLED=false
+KNOWLEDGE_AUTO_REFRESH_INCREMENTAL_MINUTES=30
+KNOWLEDGE_AUTO_REFRESH_FULL_DAILY_AT=03:30
+KNOWLEDGE_AUTO_REFRESH_TIME_ZONE=Asia/Shanghai
+KNOWLEDGE_AUTO_REFRESH_STALE_AFTER_MINUTES=90
+
 API_CORS_ORIGIN=
 API_ENABLE_DEEP_HEALTH=
 API_MAX_BODY_BYTES=65536
@@ -325,6 +331,13 @@ pnpm run telegram:dev
 
 配置 `TELEGRAM_BOT_TOKEN` 后，Bot 会通过 long polling 接收文本消息，并以 `channel: "telegram"` 调用同一套 LangGraph 客服 Agent。在 group/supergroup 中，Bot 还会识别当前管理员对用户文本问题的直接回复，自动生成、决定并排队群聊知识；匿名管理员、Bot、`sender_chat` 和无法验证身份的回复不会入库。要采集普通群消息，需要按部署需求关闭 BotFather Privacy Mode，并授予查询管理员列表所需权限。图片附件公网 URL、轮询超时和重试间隔都有默认处理。
 
+Bot 菜单中的 `/status` 会显示知识库自动更新是否启用、增量/全量计划、最近刷新时间和结果。Web 聊天页头部显示同一状态；两端只读取调度器的脱敏回执，不获得知识写入权限。安装外部 scheduler 后设置 `KNOWLEDGE_AUTO_REFRESH_ENABLED=true`，并确保 `.rag/knowledge-refresh` 对客服容器只读可见。成功回执超过 `KNOWLEDGE_AUTO_REFRESH_STALE_AFTER_MINUTES` 后，状态会显示为刷新延迟。
+
+如果 Telegram 容器所在网络需要 HTTP 代理，设置
+`TELEGRAM_NODE_USE_ENV_PROXY=1` 和 `TELEGRAM_HTTPS_PROXY=http://<proxy-host>:<port>`。
+Docker Compose 只把这些值映射给 Telegram 服务，不会改变 API/Web 的模型请求；按需使用
+`TELEGRAM_NO_PROXY` 保留数据库和本地地址直连。
+
 ## HTTP API
 
 Web UI：
@@ -338,6 +351,7 @@ GET /
 ```http
 GET /health
 GET /health/deep
+GET /api/knowledge-refresh-status
 ```
 
 `/health` 是轻量存活检查，不会调用外部模型。`/health/deep` 会检查必填配置、pgvector 知识库、embedding 模型和 chat LLM，供 Web 的“模型测试”直接调用，不要求鉴权。部署平台的 liveness probe 应使用 `/health`，不要使用 `/health/deep`。

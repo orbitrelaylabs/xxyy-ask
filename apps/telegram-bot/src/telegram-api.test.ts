@@ -113,6 +113,12 @@ describe('createTelegramApiClient', () => {
       replyToMessageId: 11,
       video: 'https://ask.example.com/demo.mp4',
     });
+    if (api.setMyCommands === undefined) {
+      throw new Error('Expected setMyCommands to be implemented.');
+    }
+    await api.setMyCommands({
+      commands: [{ command: 'status', description: '查看知识库自动更新状态' }],
+    });
 
     expect(fetch).toHaveBeenNthCalledWith(1, 'https://telegram.test/bot123:abc/sendMessage', {
       body: JSON.stringify({
@@ -150,6 +156,13 @@ describe('createTelegramApiClient', () => {
         chat_id: -100,
         video: 'https://ask.example.com/demo.mp4',
         reply_parameters: { message_id: 11 },
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    expect(fetch).toHaveBeenNthCalledWith(6, 'https://telegram.test/bot123:abc/setMyCommands', {
+      body: JSON.stringify({
+        commands: [{ command: 'status', description: '查看知识库自动更新状态' }],
       }),
       headers: { 'content-type': 'application/json' },
       method: 'POST',

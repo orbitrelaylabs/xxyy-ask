@@ -83,6 +83,17 @@ pnpm rag:refresh -- --full
 
 回执不会保存 stdout/stderr、异常原文、环境变量、数据库地址、模型 endpoint、token 或 credential。`.rag/` 已被 Git 忽略；这些本地回执用于调度告警和排障，不替代数据库中的 ingestion run。
 
+## 客服端状态展示
+
+Web 页头和 Telegram `/status` 可以只读展示外部 scheduler 的运行状态。设置
+`KNOWLEDGE_AUTO_REFRESH_ENABLED=true` 后，两端读取
+`.rag/knowledge-refresh/latest.json`，显示增量/全量计划、最近刷新时间和结果；Docker
+Compose 将该回执目录以只读方式挂载到 API 和 Telegram 容器。
+
+状态展示不会启动、停止或修改 scheduler，也不会给公开客服增加知识写入权限。成功回执超过
+`KNOWLEDGE_AUTO_REFRESH_STALE_AFTER_MINUTES` 后显示为延迟；最近回执失败、缺失或无法解析时分别显示失败、等待首次刷新或状态不可用。只有外部调度确实安装后才能把 enabled
+标志设为 true，不能用静态标志替代 scheduler 和回执监控。
+
 ## 单人阶段推荐调度
 
 对于当前单人维护阶段：

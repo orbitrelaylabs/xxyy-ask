@@ -240,7 +240,7 @@ XXYY 从 2024 年 11 月前后的 Solana meme 快速交易内测工具，逐步�
 
 ## 可溯源原始消息索引
 
-抓取时间：2026-07-25T07:26:41.396Z
+抓取时间：2026-07-27T07:18:36.280Z
 
 原始可溯源数据：[`usexxyyio-x-posts.jsonl`](sources/usexxyyio-x-posts.jsonl)；抓取元数据：[`usexxyyio-x-posts.meta.json`](sources/usexxyyio-x-posts.meta.json)。
 

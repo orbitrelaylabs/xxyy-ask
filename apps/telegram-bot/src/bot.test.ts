@@ -48,6 +48,54 @@ describe('loadTelegramBotConfig', () => {
 });
 
 describe('createTelegramBot', () => {
+  it('shows automatic knowledge refresh status without calling the chat model', async () => {
+    const ask = vi.fn(() => Promise.resolve(createResponse()));
+    const sendMessage = createSendMessageMock();
+    const bot = createTelegramBot({
+      api: {
+        getUpdates: vi.fn(),
+        sendMessage,
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      getKnowledgeRefreshStatus: () =>
+        Promise.resolve({
+          enabled: true,
+          lastRun: {
+            finishedAt: '2026-07-27T06:48:33.456Z',
+            mode: 'incremental',
+            status: 'succeeded',
+          },
+          schedule: {
+            fullDailyAt: '03:30',
+            incrementalEveryMinutes: 30,
+            timeZone: 'Asia/Shanghai',
+          },
+          state: 'healthy',
+        }),
+    });
+
+    await bot.handleUpdate({
+      message: {
+        chat: { id: 123 },
+        message_id: 1,
+        text: '/status@xxyy_ask_bot',
+      },
+      update_id: 10,
+    });
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith({
+      chatId: 123,
+      replyToMessageId: 1,
+      text: expect.stringContaining('知识库自动更新：✅ 已开启，运行正常'),
+    });
+    expect(sendMessage.mock.calls[0]?.[0].text).toContain('增量更新：每 30 分钟');
+    expect(sendMessage.mock.calls[0]?.[0].text).toContain('全量更新：每日 03:30');
+    expect(sendMessage.mock.calls[0]?.[0].text).toContain('最近结果：成功（增量）');
+  });
+
   it('passes text messages to chat with telegram channel and replies in the same chat', async () => {
     const ask = vi.fn(() =>
       Promise.resolve(

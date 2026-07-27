@@ -3,6 +3,7 @@ import {
   type ChatRequest,
   type ChatResponse,
   type ChatStreamEvent,
+  type KnowledgeRefreshStatus,
 } from '@xxyy/shared';
 import type { ChatService } from '@xxyy/rag-core';
 
@@ -44,6 +45,7 @@ export interface TelegramApi {
   sendMessageDraft?(input: TelegramSendMessageDraftInput): Promise<void>;
   sendPhoto(input: TelegramSendPhotoInput): Promise<void>;
   sendVideo?(input: TelegramSendVideoInput): Promise<void>;
+  setMyCommands?(input: TelegramSetMyCommandsInput): Promise<void>;
 }
 
 export interface TelegramGetUpdatesInput {
@@ -84,6 +86,13 @@ export interface TelegramSendVideoInput {
   video: string;
 }
 
+export interface TelegramSetMyCommandsInput {
+  commands: Array<{
+    command: string;
+    description: string;
+  }>;
+}
+
 export interface TelegramBot {
   handleUpdate(update: TelegramUpdate): Promise<void>;
   pollOnce(): Promise<void>;
@@ -93,6 +102,7 @@ export interface CreateTelegramBotOptions {
   api: TelegramApi;
   chatService: TelegramChatService;
   config: TelegramBotConfig;
+  getKnowledgeRefreshStatus?: () => Promise<KnowledgeRefreshStatus>;
   knowledgeAutomation?: TelegramKnowledgeAutomation;
   logger?: TelegramBotLogger;
 }
@@ -137,8 +147,14 @@ const HELP_TEXT = [
   '我是 XXYY 客服 Bot，可以回答产品功能、配置步骤、权益说明和官方更新相关问题。',
   '',
   '直接发送具体的 XXYY 产品问题即可。',
+  '发送 /status 可查看知识库自动更新状态。',
 ].join('\n');
 const UNSUPPORTED_MESSAGE_TEXT = '目前只支持文本消息，请直接发送具体的 XXYY 产品问题。';
+export const TELEGRAM_BOT_COMMANDS = [
+  { command: 'start', description: '开始使用 XXYY 客服' },
+  { command: 'help', description: '查看客服能力说明' },
+  { command: 'status', description: '查看知识库自动更新状态' },
+] as const;
 
 export function loadTelegramBotConfig(env: TelegramBotEnv): TelegramBotConfig {
   const botToken = env.TELEGRAM_BOT_TOKEN?.trim();
@@ -174,25 +190,6 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
 
     const chatId = message.chat.id;
     const text = message.text?.trim();
-    if (
-      text !== undefined &&
-      text.length > 0 &&
-      options.knowledgeAutomation !== undefined &&
-      isGroupChat(message)
-    ) {
-      try {
-        if (await options.knowledgeAutomation.captureReply(message)) {
-          options.logger?.info(
-            `Telegram knowledge reply ${message.chat.id}:${message.message_id} was processed.`,
-          );
-          return;
-        }
-      } catch {
-        options.logger?.error(
-          `Telegram knowledge automation failed for ${message.chat.id}:${message.message_id}.`,
-        );
-      }
-    }
     if (text === undefined || text.length === 0) {
       await options.api.sendMessage({
         chatId,
@@ -209,6 +206,30 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
         text: HELP_TEXT,
       });
       return;
+    }
+
+    if (isKnowledgeRefreshStatusCommand(text)) {
+      await options.api.sendMessage({
+        chatId,
+        replyToMessageId: message.message_id,
+        text: await readTelegramKnowledgeRefreshStatus(options),
+      });
+      return;
+    }
+
+    if (options.knowledgeAutomation !== undefined && isGroupChat(message)) {
+      try {
+        if (await options.knowledgeAutomation.captureReply(message)) {
+          options.logger?.info(
+            `Telegram knowledge reply ${message.chat.id}:${message.message_id} was processed.`,
+          );
+          return;
+        }
+      } catch {
+        options.logger?.error(
+          `Telegram knowledge automation failed for ${message.chat.id}:${message.message_id}.`,
+        );
+      }
     }
 
     const request = createTelegramChatRequest(message, text);
@@ -619,8 +640,86 @@ export function splitTelegramMessage(text: string, limit = TELEGRAM_MESSAGE_LIMI
 }
 
 function isHelpCommand(text: string): boolean {
-  const command = text.split(/\s+/u)[0]?.toLowerCase();
+  const command = readTelegramCommand(text);
   return command === '/start' || command === '/help';
+}
+
+function isKnowledgeRefreshStatusCommand(text: string): boolean {
+  return readTelegramCommand(text) === '/status';
+}
+
+function readTelegramCommand(text: string): string | undefined {
+  return text.split(/\s+/u)[0]?.toLowerCase().split('@')[0];
+}
+
+async function readTelegramKnowledgeRefreshStatus(
+  options: CreateTelegramBotOptions,
+): Promise<string> {
+  if (options.getKnowledgeRefreshStatus === undefined) {
+    return '知识库自动更新状态：暂时无法读取，请稍后再试。';
+  }
+  try {
+    return formatTelegramKnowledgeRefreshStatus(await options.getKnowledgeRefreshStatus());
+  } catch {
+    options.logger?.error('Telegram knowledge refresh status read failed.');
+    return '知识库自动更新状态：暂时无法读取，请稍后再试。';
+  }
+}
+
+export function formatTelegramKnowledgeRefreshStatus(status: KnowledgeRefreshStatus): string {
+  const lines = [`知识库自动更新：${telegramRefreshStateLabel(status)}`];
+  if (status.enabled) {
+    lines.push(
+      `增量更新：每 ${status.schedule.incrementalEveryMinutes} 分钟`,
+      `全量更新：每日 ${status.schedule.fullDailyAt}`,
+    );
+  }
+  if (status.lastRun !== undefined) {
+    lines.push(
+      `最近刷新：${formatTelegramRefreshTime(status.lastRun.finishedAt, status.schedule.timeZone)}`,
+      `最近结果：${status.lastRun.status === 'succeeded' ? '成功' : '失败'}（${
+        status.lastRun.mode === 'full' ? '全量' : '增量'
+      }）`,
+    );
+  }
+  return lines.join('\n');
+}
+
+function telegramRefreshStateLabel(status: KnowledgeRefreshStatus): string {
+  switch (status.state) {
+    case 'healthy':
+      return '✅ 已开启，运行正常';
+    case 'pending':
+      return '🕓 已开启，等待首次刷新';
+    case 'stale':
+      return '⚠️ 已开启，刷新延迟';
+    case 'failed':
+      return '❌ 已开启，最近刷新失败';
+    case 'unavailable':
+      return '⚠️ 已开启，状态暂不可用';
+    case 'disabled':
+      return '⏸ 未开启';
+  }
+}
+
+function formatTelegramRefreshTime(value: string, timeZone: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return value;
+  }
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      day: '2-digit',
+      hour: '2-digit',
+      hour12: false,
+      minute: '2-digit',
+      month: '2-digit',
+      timeZone,
+      year: 'numeric',
+    }).format(date);
+  } catch {
+    return value;
+  }
 }
 
 function attachmentFallbackLines(

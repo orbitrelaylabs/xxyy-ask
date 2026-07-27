@@ -5,6 +5,7 @@ import type {
   TelegramSendMessageInput,
   TelegramSendMessageDraftInput,
   TelegramSendPhotoInput,
+  TelegramSetMyCommandsInput,
   TelegramSendVideoInput,
   TelegramUpdate,
 } from './bot.js';
@@ -105,6 +106,12 @@ export function createTelegramApiClient(options: CreateTelegramApiClientOptions)
           : { reply_parameters: { message_id: input.replyToMessageId } }),
       }).then(() => undefined);
     },
+
+    setMyCommands(input) {
+      return callTelegramMethod(fetchImpl, apiBaseUrl, options.botToken, 'setMyCommands', {
+        commands: input.commands,
+      }).then(() => undefined);
+    },
   } satisfies TelegramApi;
 }
 
@@ -118,7 +125,8 @@ async function callTelegramMethod(
     | 'sendMessage'
     | 'sendMessageDraft'
     | 'sendPhoto'
-    | 'sendVideo',
+    | 'sendVideo'
+    | 'setMyCommands',
   payload:
     | Record<string, unknown>
     | Record<keyof TelegramSendChatActionInput, unknown>
@@ -126,7 +134,8 @@ async function callTelegramMethod(
     | Record<keyof TelegramSendMessageInput, unknown>
     | Record<keyof TelegramSendMessageDraftInput, unknown>
     | Record<keyof TelegramSendPhotoInput, unknown>
-    | Record<keyof TelegramSendVideoInput, unknown>,
+    | Record<keyof TelegramSendVideoInput, unknown>
+    | Record<keyof TelegramSetMyCommandsInput, unknown>,
 ): Promise<unknown> {
   let response: Awaited<ReturnType<TelegramFetch>>;
   try {
