@@ -331,7 +331,9 @@ pnpm agent:smoke
 pnpm run telegram:dev
 ```
 
-配置 `TELEGRAM_BOT_TOKEN` 后，Bot 会通过 long polling 接收文本消息，并以 `channel: "telegram"` 调用同一套 LangGraph 客服 Agent。设置 `TELEGRAM_AUTO_LEARNING_ENABLED=true` 后，group/supergroup 会在内存中保留最多 `TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES` 条同一 reply 对话链；当前管理员回复用户时，Bot 会让 Knowledge Curator 分析多轮上下文，自动生成、决定并排队群聊知识。原始群聊不会整批持久化，关闭开关会立即清除该群的内存上下文；匿名管理员、Bot、`sender_chat` 和无法验证身份的回复不会入库。要采集普通群消息，需要按部署需求关闭 BotFather Privacy Mode，并授予查询管理员列表所需权限。图片附件公网 URL、轮询超时和重试间隔都有默认处理。
+配置 `TELEGRAM_BOT_TOKEN` 后，Bot 会通过 long polling 接收消息，并以 `channel: "telegram"` 调用同一套 LangGraph 客服 Agent。私聊文本直接触发回答；group/supergroup 中的普通消息只用于静默学习观察，只有 Bot 命令、精确 `@BotUsername` 或直接回复当前 Bot 的消息才触发客服回答。Bot 通过 `getMe` 获取并缓存自身 ID/username；身份暂不可用时群聊回答失败关闭并在后续消息重试，不会退化为回复所有群消息。
+
+设置 `TELEGRAM_AUTO_LEARNING_ENABLED=true` 后，group/supergroup 会在内存中保留最多 `TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES` 条同一 reply 对话链；当前管理员回复用户时，Bot 会让 Knowledge Curator 分析多轮上下文，自动生成、决定并排队群聊知识。原始群聊不会整批持久化，关闭开关会立即清除该群的内存上下文；匿名管理员、Bot、`sender_chat` 和无法验证身份的回复不会入库。要采集普通群消息，需要关闭 BotFather Privacy Mode，或把 Bot 设为群管理员，并授予查询管理员列表所需权限；即使 Bot 能看到全群消息，客服回答门禁仍只接受命令、@ 提及和对 Bot 的回复。图片附件公网 URL、轮询超时和重试间隔都有默认处理。
 
 Bot 菜单中的 `/learning` 显示本群自动学习状态、上下文上限、候选/发布进度和最近分析时间。当前群管理员可用 `/learning_on`、`/learning_off` 持久化开关；身份由 Telegram `getChatAdministrators` 或有效期内的 `owner` / `administrator` 可信作者记录验证，变更写入独立设置表和追加式审计事件。该入口只存在于 Telegram，Web 聊天页不采集对话用于知识演进。
 

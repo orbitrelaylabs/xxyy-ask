@@ -41,6 +41,7 @@ export interface TelegramMessage {
 }
 
 export interface TelegramApi {
+  getMe?(): Promise<TelegramBotIdentity>;
   getUpdates(input: TelegramGetUpdatesInput): Promise<TelegramUpdate[]>;
   sendChatAction?(input: TelegramSendChatActionInput): Promise<void>;
   sendMessage(input: TelegramSendMessageInput): Promise<void>;
@@ -48,6 +49,11 @@ export interface TelegramApi {
   sendPhoto(input: TelegramSendPhotoInput): Promise<void>;
   sendVideo?(input: TelegramSendVideoInput): Promise<void>;
   setMyCommands?(input: TelegramSetMyCommandsInput): Promise<void>;
+}
+
+export interface TelegramBotIdentity {
+  id: number;
+  username: string;
 }
 
 export interface TelegramGetUpdatesInput {
@@ -184,7 +190,7 @@ const TELEGRAM_TYPING_REFRESH_MS = 4000;
 const HELP_TEXT = [
   '我是 XXYY 客服 Bot，可以回答产品功能、配置步骤、权益说明和官方更新相关问题。',
   '',
-  '直接发送具体的 XXYY 产品问题即可。',
+  '私聊直接发送问题；群聊请 @本 Bot 或直接回复 Bot 的消息。',
   '发送 /status 可查看知识库自动更新状态。',
   '群聊发送 /learning 可查看自动学习状态；管理员可用 /learning_on 和 /learning_off 开关。',
 ].join('\n');
@@ -234,6 +240,8 @@ export function loadTelegramBotConfig(env: TelegramBotEnv): TelegramBotConfig {
 
 export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBot {
   let offset: number | undefined;
+  let botIdentity: TelegramBotIdentity | undefined;
+  let botIdentityRequest: Promise<TelegramBotIdentity | undefined> | undefined;
 
   async function handleUpdate(update: TelegramUpdate): Promise<void> {
     const message = update.message;
@@ -243,16 +251,22 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
 
     const chatId = message.chat.id;
     const text = message.text?.trim();
-    if (text === undefined || text.length === 0) {
-      await options.api.sendMessage({
-        chatId,
-        replyToMessageId: message.message_id,
-        text: UNSUPPORTED_MESSAGE_TEXT,
-      });
-      return;
+
+    if (text !== undefined && text.length > 0 && isGroupChat(message)) {
+      const commandTarget = readTelegramCommandTarget(text);
+      if (commandTarget !== undefined) {
+        const identity = await readBotIdentity();
+        if (
+          identity === undefined ||
+          commandTarget.toLowerCase() !==
+            normalizeTelegramBotUsername(identity.username).toLowerCase()
+        ) {
+          return;
+        }
+      }
     }
 
-    if (isHelpCommand(text)) {
+    if (text !== undefined && text.length > 0 && isHelpCommand(text)) {
       await options.api.sendMessage({
         chatId,
         replyToMessageId: message.message_id,
@@ -261,7 +275,7 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
       return;
     }
 
-    if (isKnowledgeRefreshStatusCommand(text)) {
+    if (text !== undefined && text.length > 0 && isKnowledgeRefreshStatusCommand(text)) {
       await options.api.sendMessage({
         chatId,
         replyToMessageId: message.message_id,
@@ -270,7 +284,8 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
       return;
     }
 
-    const learningCommand = readKnowledgeLearningCommand(text);
+    const learningCommand =
+      text === undefined || text.length === 0 ? undefined : readKnowledgeLearningCommand(text);
     if (learningCommand !== undefined) {
       await handleTelegramKnowledgeLearningCommand(options, message, learningCommand);
       return;
@@ -291,7 +306,27 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
       }
     }
 
-    const request = createTelegramChatRequest(message, text);
+    let customerQuestion = text;
+    if (isGroupChat(message)) {
+      const identity = await readBotIdentity();
+      if (identity === undefined || !isGroupCustomerRequest(message, text, identity)) {
+        return;
+      }
+      if (customerQuestion !== undefined && customerQuestion.length > 0) {
+        customerQuestion = stripTelegramBotMention(customerQuestion, identity.username);
+      }
+    }
+
+    if (customerQuestion === undefined || customerQuestion.length === 0) {
+      await options.api.sendMessage({
+        chatId,
+        replyToMessageId: message.message_id,
+        text: UNSUPPORTED_MESSAGE_TEXT,
+      });
+      return;
+    }
+
+    const request = createTelegramChatRequest(message, customerQuestion);
     await withTelegramTyping(options.api, chatId, async () => {
       if (canStreamToDraft(message, options)) {
         const streamed = await trySendStreamingChatResponse({
@@ -312,6 +347,32 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
 
       await sendChatResponse(options.api, chatId, response, options.config, message.message_id);
     });
+  }
+
+  async function readBotIdentity(): Promise<TelegramBotIdentity | undefined> {
+    if (botIdentity !== undefined) {
+      return botIdentity;
+    }
+    if (options.api.getMe === undefined) {
+      return undefined;
+    }
+    botIdentityRequest ??= options.api
+      .getMe()
+      .then((identity) => {
+        botIdentity = identity;
+        options.logger?.info(`Telegram bot identity loaded for @${identity.username}.`);
+        return identity;
+      })
+      .catch(() => {
+        options.logger?.error(
+          'Telegram bot identity lookup failed; group replies remain disabled.',
+        );
+        return undefined;
+      })
+      .finally(() => {
+        botIdentityRequest = undefined;
+      });
+    return botIdentityRequest;
   }
 
   return {
@@ -339,6 +400,45 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
 
 function isGroupChat(message: TelegramMessage): boolean {
   return message.chat.type === 'group' || message.chat.type === 'supergroup';
+}
+
+export function isGroupCustomerRequest(
+  message: TelegramMessage,
+  text: string | undefined,
+  identity: TelegramBotIdentity,
+): boolean {
+  if (message.reply_to_message?.from?.id === identity.id) {
+    return true;
+  }
+  return text !== undefined && hasTelegramBotMention(text, identity.username);
+}
+
+export function stripTelegramBotMention(text: string, username: string): string {
+  const normalizedUsername = normalizeTelegramBotUsername(username);
+  if (normalizedUsername.length === 0) {
+    return text.trim();
+  }
+  const escapedUsername = escapeRegularExpression(normalizedUsername);
+  return text
+    .replace(new RegExp(`(^|[^A-Za-z0-9_])@${escapedUsername}(?=$|[^A-Za-z0-9_])`, 'giu'), '$1')
+    .trim();
+}
+
+function hasTelegramBotMention(text: string, username: string): boolean {
+  const normalizedUsername = normalizeTelegramBotUsername(username);
+  if (normalizedUsername.length === 0) {
+    return false;
+  }
+  const escapedUsername = escapeRegularExpression(normalizedUsername);
+  return new RegExp(`(^|[^A-Za-z0-9_])@${escapedUsername}(?=$|[^A-Za-z0-9_])`, 'iu').test(text);
+}
+
+function normalizeTelegramBotUsername(username: string): string {
+  return username.trim().replace(/^@/u, '');
+}
+
+function escapeRegularExpression(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 function createTelegramChatRequest(message: TelegramMessage, text: string): ChatRequest {
@@ -724,6 +824,12 @@ function readKnowledgeLearningCommand(text: string): KnowledgeLearningCommand | 
 
 function readTelegramCommand(text: string): string | undefined {
   return text.split(/\s+/u)[0]?.toLowerCase().split('@')[0];
+}
+
+function readTelegramCommandTarget(text: string): string | undefined {
+  const token = text.split(/\s+/u)[0];
+  const match = token?.match(/^\/[A-Za-z0-9_]+@([A-Za-z0-9_]+)$/u);
+  return match?.[1];
 }
 
 async function handleTelegramKnowledgeLearningCommand(

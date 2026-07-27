@@ -1,5 +1,6 @@
 import type {
   TelegramApi,
+  TelegramBotIdentity,
   TelegramSendChatActionInput,
   TelegramGetUpdatesInput,
   TelegramSendMessageInput,
@@ -50,6 +51,12 @@ export function createTelegramApiClient(options: CreateTelegramApiClientOptions)
   const fetchImpl = options.fetch ?? fetch;
 
   return {
+    getMe() {
+      return callTelegramMethod(fetchImpl, apiBaseUrl, options.botToken, 'getMe', {}).then(
+        readTelegramBotIdentity,
+      );
+    },
+
     getUpdates(input) {
       return callTelegramMethod(fetchImpl, apiBaseUrl, options.botToken, 'getUpdates', {
         allowed_updates: ['message'],
@@ -120,6 +127,7 @@ async function callTelegramMethod(
   apiBaseUrl: string,
   botToken: string,
   method:
+    | 'getMe'
     | 'getUpdates'
     | 'sendChatAction'
     | 'sendMessage'
@@ -158,6 +166,24 @@ async function callTelegramMethod(
     throw new TelegramApiError(method, body.description ?? 'Unknown Telegram API error.');
   }
   return body.result;
+}
+
+function readTelegramBotIdentity(value: unknown): TelegramBotIdentity {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TelegramApiError('getMe', 'Invalid bot identity.');
+  }
+  const record = value as Record<string, unknown>;
+  const id = record.id;
+  const username = typeof record.username === 'string' ? record.username.trim() : '';
+  if (
+    typeof id !== 'number' ||
+    !Number.isSafeInteger(id) ||
+    record.is_bot !== true ||
+    username.length === 0
+  ) {
+    throw new TelegramApiError('getMe', 'Invalid bot identity.');
+  }
+  return { id, username };
 }
 
 function normalizeApiBaseUrl(value: string | undefined): string {

@@ -6,9 +6,11 @@ import {
   TelegramBotConfigurationError,
   createTelegramBot,
   formatTelegramKnowledgeLearningStatus,
+  isGroupCustomerRequest,
   loadTelegramBotConfig,
   resolveTelegramAttachmentUrl,
   splitTelegramMessage,
+  stripTelegramBotMention,
   type TelegramKnowledgeLearningStatus,
   type TelegramSendMessageInput,
 } from './bot.js';
@@ -236,12 +238,277 @@ describe('createTelegramBot', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it('observes ordinary group messages for learning without answering them', async () => {
+    const ask = vi.fn(() => Promise.resolve(createResponse()));
+    const sendMessage = createSendMessageMock();
+    const captureReply = vi.fn(() => Promise.resolve(false));
+    const getMe = vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' }));
+    const bot = createTelegramBot({
+      api: {
+        getMe,
+        getUpdates: vi.fn(),
+        sendMessage,
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      knowledgeAutomation: {
+        captureReply,
+        getLearningStatus: vi.fn(),
+        setLearningEnabled: vi.fn(),
+      },
+    });
+    const message = {
+      chat: { id: -100123, type: 'supergroup' as const },
+      from: { id: 456 },
+      message_id: 30,
+      text: '大家今天使用 XXYY 感觉怎么样？',
+    };
+
+    await bot.handleUpdate({ message, update_id: 30 });
+
+    expect(captureReply).toHaveBeenCalledWith(message);
+    expect(getMe).toHaveBeenCalledOnce();
+    expect(ask).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('answers an explicit group mention and removes its own username from the question', async () => {
+    const ask = vi.fn(() => Promise.resolve(createResponse()));
+    const sendMessage = createSendMessageMock();
+    const bot = createTelegramBot({
+      api: {
+        getMe: vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' })),
+        getUpdates: vi.fn(),
+        sendMessage,
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      knowledgeAutomation: {
+        captureReply: vi.fn(() => Promise.resolve(false)),
+        getLearningStatus: vi.fn(),
+        setLearningEnabled: vi.fn(),
+      },
+    });
+
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'supergroup' },
+        from: { id: 456 },
+        message_id: 31,
+        text: '@XXYY_Ask_Bot XXYY Pro 有哪些权益？',
+      },
+      update_id: 31,
+    });
+
+    expect(ask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'XXYY Pro 有哪些权益？',
+        requestId: 'telegram:-100123:31',
+      }),
+    );
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: -100123,
+        replyToMessageId: 31,
+      }),
+    );
+  });
+
+  it('answers a direct reply to this bot but ignores a reply to another bot', async () => {
+    const ask = vi.fn(() => Promise.resolve(createResponse()));
+    const sendMessage = createSendMessageMock();
+    const bot = createTelegramBot({
+      api: {
+        getMe: vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' })),
+        getUpdates: vi.fn(),
+        sendMessage,
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      knowledgeAutomation: {
+        captureReply: vi.fn(() => Promise.resolve(false)),
+        getLearningStatus: vi.fn(),
+        setLearningEnabled: vi.fn(),
+      },
+    });
+
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'group' },
+        from: { id: 456 },
+        message_id: 32,
+        reply_to_message: {
+          chat: { id: -100123, type: 'group' },
+          from: { id: 999, is_bot: true },
+          message_id: 20,
+          text: '上一次回答',
+        },
+        text: '还支持哪些功能？',
+      },
+      update_id: 32,
+    });
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'group' },
+        from: { id: 456 },
+        message_id: 33,
+        reply_to_message: {
+          chat: { id: -100123, type: 'group' },
+          from: { id: 888, is_bot: true },
+          message_id: 21,
+          text: '其他 Bot 的回答',
+        },
+        text: '继续说说',
+      },
+      update_id: 33,
+    });
+
+    expect(ask).toHaveBeenCalledOnce();
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ message: '还支持哪些功能？' }));
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it('ignores commands addressed to another bot in a group', async () => {
+    const ask = vi.fn(() => Promise.resolve(createResponse()));
+    const sendMessage = createSendMessageMock();
+    const bot = createTelegramBot({
+      api: {
+        getMe: vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' })),
+        getUpdates: vi.fn(),
+        sendMessage,
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+    });
+
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'supergroup' },
+        from: { id: 456 },
+        message_id: 34,
+        text: '/help@another_bot',
+      },
+      update_id: 34,
+    });
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'supergroup' },
+        from: { id: 456 },
+        message_id: 35,
+        text: '/help@XXYY_ASK_BOT',
+      },
+      update_id: 35,
+    });
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: -100123, replyToMessageId: 35 }),
+    );
+  });
+
+  it('keeps ordinary group media silent but explains unsupported media replied to the bot', async () => {
+    const sendMessage = createSendMessageMock();
+    const captureReply = vi.fn(() => Promise.resolve(false));
+    const bot = createTelegramBot({
+      api: {
+        getMe: vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' })),
+        getUpdates: vi.fn(),
+        sendMessage,
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask: vi.fn(() => Promise.resolve(createResponse())) },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      knowledgeAutomation: {
+        captureReply,
+        getLearningStatus: vi.fn(),
+        setLearningEnabled: vi.fn(),
+      },
+    });
+
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'group' },
+        from: { id: 456 },
+        message_id: 36,
+      },
+      update_id: 36,
+    });
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'group' },
+        from: { id: 456 },
+        message_id: 37,
+        reply_to_message: {
+          chat: { id: -100123, type: 'group' },
+          from: { id: 999, is_bot: true },
+          message_id: 25,
+          text: '请继续提问',
+        },
+      },
+      update_id: 37,
+    });
+
+    expect(captureReply).toHaveBeenCalledTimes(2);
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith({
+      chatId: -100123,
+      replyToMessageId: 37,
+      text: '目前只支持文本消息，请直接发送具体的 XXYY 产品问题。',
+    });
+  });
+
+  it('fails closed on a bot identity error and retries on the next group request', async () => {
+    const ask = vi.fn(() => Promise.resolve(createResponse()));
+    const sendMessage = createSendMessageMock();
+    const getMe = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce({ id: 999, username: 'xxyy_ask_bot' });
+    const logger = { error: vi.fn(), info: vi.fn() };
+    const bot = createTelegramBot({
+      api: {
+        getMe,
+        getUpdates: vi.fn(),
+        sendMessage,
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      logger,
+    });
+
+    for (const messageId of [38, 39]) {
+      await bot.handleUpdate({
+        message: {
+          chat: { id: -100123, type: 'supergroup' },
+          from: { id: 456 },
+          message_id: messageId,
+          text: '@xxyy_ask_bot XXYY Pro 有哪些权益？',
+        },
+        update_id: messageId,
+      });
+    }
+
+    expect(getMe).toHaveBeenCalledTimes(2);
+    expect(logger.error).toHaveBeenCalledWith(
+      'Telegram bot identity lookup failed; group replies remain disabled.',
+    );
+    expect(ask).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
   it('shows group automatic learning status without calling the chat model', async () => {
     const ask = vi.fn(() => Promise.resolve(createResponse()));
     const sendMessage = createSendMessageMock();
     const getLearningStatus = vi.fn(() => Promise.resolve(createLearningStatus()));
     const bot = createTelegramBot({
       api: {
+        getMe: vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' })),
         getUpdates: vi.fn(),
         sendMessage,
         sendPhoto: vi.fn(),
@@ -792,6 +1059,20 @@ describe('createTelegramBot', () => {
 });
 
 describe('message formatting helpers', () => {
+  it('recognizes only exact bot mentions and strips them safely', () => {
+    const identity = { id: 999, username: 'xxyy_ask_bot' };
+    const message = {
+      chat: { id: -100123, type: 'supergroup' as const },
+      message_id: 1,
+    };
+
+    expect(isGroupCustomerRequest(message, '你好 @xxyy_ask_bot，请介绍 Pro', identity)).toBe(true);
+    expect(isGroupCustomerRequest(message, '@xxyy_ask_bot_extra 你好', identity)).toBe(false);
+    expect(stripTelegramBotMention('你好 @XXYY_ASK_BOT，请介绍 Pro', identity.username)).toBe(
+      '你好 ，请介绍 Pro',
+    );
+  });
+
   it('formats automatic learning status without exposing raw conversation content', () => {
     const formatted = formatTelegramKnowledgeLearningStatus(createLearningStatus());
 

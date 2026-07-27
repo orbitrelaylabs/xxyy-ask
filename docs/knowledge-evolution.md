@@ -98,6 +98,8 @@ pnpm rag:knowledge:author:list -- \
 
 自动学习由 `TELEGRAM_AUTO_LEARNING_ENABLED` 提供部署默认值，默认关闭。Bot 菜单提供 `/learning` 查看状态，当前群管理员可用 `/learning_on` 与 `/learning_off` 写入持久化的本群覆盖设置；设置变更保留追加式审计。该能力只在 Telegram 群启用，Web 聊天不会成为知识来源。
 
+学习观察与客服回复是两条独立路径。Bot 可观察 Telegram 交付的普通群文本以重建 reply 链，但普通群消息不会调用客服 Agent；只有 Bot 命令、精确 @ 当前 Bot username 或直接回复当前 Bot ID 的消息才回答。Bot 身份来自 `getMe` 并在进程内缓存；查询失败时群聊回答失败关闭，后续消息自动重试。私聊仍直接回答。这样可以在关闭 Privacy Mode 或把 Bot 设为管理员以获得学习上下文时，避免 Bot 插话所有群聊。
+
 Bot 收到已启用自动学习的 `group` 或 `supergroup` 文本时，会在进程内保存有界、最长一小时的 reply 链上下文；默认最多 12 条，可用 `TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES` 调整，硬上限 50 条。它随后优先检查当前消息是否为某位管理员对用户文本问题的回复。满足条件时：
 
 1. 调用或复用缓存的 `getChatAdministrators` 证据。

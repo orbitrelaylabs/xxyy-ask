@@ -11,6 +11,49 @@ function createJsonResponse(body: unknown, init: { ok?: boolean; status?: number
 }
 
 describe('createTelegramApiClient', () => {
+  it('loads and validates the current bot identity', async () => {
+    const fetch = vi.fn(() =>
+      Promise.resolve(
+        createJsonResponse({
+          ok: true,
+          result: { id: 999, is_bot: true, username: 'xxyy_ask_bot' },
+        }),
+      ),
+    );
+    const api = createTelegramApiClient({
+      apiBaseUrl: 'https://telegram.test',
+      botToken: '123:abc',
+      fetch,
+    });
+    if (api.getMe === undefined) {
+      throw new Error('Expected getMe to be implemented.');
+    }
+
+    await expect(api.getMe()).resolves.toEqual({ id: 999, username: 'xxyy_ask_bot' });
+    expect(fetch).toHaveBeenCalledWith('https://telegram.test/bot123:abc/getMe', {
+      body: '{}',
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    });
+  });
+
+  it('rejects an invalid bot identity response', async () => {
+    const api = createTelegramApiClient({
+      botToken: '123:abc',
+      fetch: vi.fn(() =>
+        Promise.resolve(createJsonResponse({ ok: true, result: { is_bot: true } })),
+      ),
+    });
+    if (api.getMe === undefined) {
+      throw new Error('Expected getMe to be implemented.');
+    }
+
+    await expect(api.getMe()).rejects.toMatchObject({
+      method: 'getMe',
+      name: 'TelegramApiError',
+    });
+  });
+
   it('uses the official API base when the configured value is blank', async () => {
     const fetch = vi.fn(() => Promise.resolve(createJsonResponse({ ok: true, result: [] })));
     const api = createTelegramApiClient({
