@@ -396,9 +396,6 @@ importers:
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
-      langsmith:
-        specifier: ^0.7.10
-        version: 0.7.10
       pg:
         specifier: ^8.21.0
         version: 8.21.0

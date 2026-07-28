@@ -10,13 +10,13 @@ import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxy
 import {
   createOpenAiAnswerProvider,
   createPgFeedbackStore,
-  createQualityTracerFromEnv,
   createLazyRetriever,
   createPgPool,
   createPgVectorStore,
   LlmConfigurationError,
   loadRagConfig,
   loadWorkspaceEnv,
+  noopQualityTracer,
   readKnowledgeRefreshStatus,
   resolveWorkspaceCwd,
   VectorStoreConfigurationError,
@@ -63,11 +63,6 @@ type ApiEnv = RagEnv &
       | 'API_RATE_LIMIT_MAX'
       | 'API_RATE_LIMIT_WINDOW_MS'
       | 'NODE_ENV'
-      | 'APP_REVISION'
-      | 'LANGSMITH_API_KEY'
-      | 'LANGSMITH_ENDPOINT'
-      | 'LANGSMITH_PROJECT'
-      | 'LANGSMITH_TRACING'
       | 'KNOWLEDGE_ADMIN_MAX_BODY_BYTES'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_MAX'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS'
@@ -78,7 +73,6 @@ type ApiEnv = RagEnv &
       | 'KNOWLEDGE_AUTO_REFRESH_STALE_AFTER_MINUTES'
       | 'KNOWLEDGE_AUTO_REFRESH_TIME_ZONE'
       | 'PORT'
-      | 'QUALITY_TRACE_SAMPLE_RATE'
       | 'TRUST_PROXY'
       | 'TELEGRAM_API_BASE_URL'
       | 'TELEGRAM_BOT_TOKEN',
@@ -203,7 +197,7 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
   const env = options.env ?? createDefaultApiEnv(options);
   const config = loadRagConfig(env);
   const apiConfig = loadApiRuntimeConfig(env);
-  const tracer = createQualityTracerFromEnv({ ...env });
+  const tracer = noopQualityTracer;
   const renderHtml = options.renderHtml ?? renderChatPage;
   const renderKnowledgeAdminHtml = options.renderKnowledgeAdminHtml ?? renderAdminPage;
   const getChatService = options.getChatService ?? createCachedChatServiceLoader(config, tracer);

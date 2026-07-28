@@ -1,5 +1,4 @@
 import {
-  createQualityTracerFromEnv,
   loadRagConfig,
   loadWorkspaceEnv,
   readKnowledgeRefreshStatus,
@@ -37,10 +36,7 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
   const workspaceEnv = loadWorkspaceEnv({ cwd: workspaceCwd, env });
   const config = loadRagConfig(workspaceEnv);
   const botConfig = loadTelegramBotConfig(workspaceEnv);
-  const runtime = createTelegramChatRuntime(
-    config,
-    createQualityTracerFromEnv({ ...workspaceEnv }),
-  );
+  const runtime = createTelegramChatRuntime(config);
   const knowledgeRuntime = createTelegramKnowledgeAutomationRuntime({
     botToken: botConfig.botToken,
     config,

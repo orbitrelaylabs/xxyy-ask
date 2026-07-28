@@ -16,20 +16,9 @@ API 为 `/api/chat` 和 `/api/chat/stream` 输出 JSON line 日志。核心字�
 
 日志不打印 API key、私钥、助记词、密码、交易哈希、地址、邮箱和手机号等敏感片段。模型 prompt 侧也会对用户问题和检索片段执行同一类敏感文本脱敏；知识正文及标题/章节元数据还会执行 prompt injection 检测与隔离，避免只在日志层防护。
 
-可选的 LangSmith nested tracing 默认关闭，由 API、CLI 和 Telegram composition root 各自创建一个 tracer 并注入完整链路。启用配置：
+客服链路保留 vendor-neutral 的 `QualityTracer` 接口，API、普通 CLI 和 Telegram composition root 默认使用 no-op tracer，不连接或上传到外部追踪平台。`pnpm rag:evaluate -- --provider` 会临时启用进程内 tracer，收集 `chat.request`、planner、tool、retrieval、rerank、grounding 和 answer 的结构化摘要来生成评测观察；这些记录不跨进程持久化。
 
-```bash
-LANGSMITH_TRACING=true
-LANGSMITH_API_KEY=...
-LANGSMITH_ENDPOINT=https://api.smith.langchain.com
-LANGSMITH_PROJECT=xxyy-ask
-QUALITY_TRACE_SAMPLE_RATE=0.1
-APP_REVISION=release-sha
-```
-
-开启后可观察 `chat.request`、`agent.classify`、`agent.guard`、`llm.planner`、`agent.tool`、`agent.observe`、`agent.answer_composer`、`rag.query_embedding`、`rag.pgvector_candidates`、`rag.metadata_rerank`、`rag.grounding_selection` 和 `llm.answer`。独立 Capability Plane 被未来内部调用方使用时还会产生 `agent.capability`；当前客服运行面尚未调用它。`agent.observe` 只记录证据数、缺失维度数量、是否充分、是否继续和停止原因，不记录 chunk 正文；`agent.answer_composer` 只记录聚合数量与输出摘要；`agent.capability` 只记录 manifest/policy 元数据、值类型、字段/元素数量和输出大小，不记录字段名、payload 或 idempotency key。未配置采样率时显式开启默认值为 `1`；设置 `0` 会保留功能但停止发送样本。上线先从低采样率开始，按 project、`APP_REVISION`、span name、status 和 requestId 排查失败。
-
-隐私约束是代码契约，不依赖平台 UI 设置：client input/output/anonymizer 三层都会再次脱敏；span 只包含长度、存在性、route/tool、chunk ID/分数、模型/prompt 版本、token usage、context packing 计数、grounding coverage/claim 计数和 bounded event type。禁止上传完整 system/user prompt、完整 chunk、完整答案、unsupported claim 文本或流式 delta、session/user ID、Authorization/API key 和错误堆栈。首次接入和每次修改摘要字段后，应在测试 project 只读抽查一条合成 trace。生产 retention、数据区域、成员权限和删除流程必须由组织管理员确认。
+进程内 trace 只包含长度、存在性、route/tool、chunk ID/分数、模型/prompt 版本、token usage、context packing 计数、grounding coverage/claim 计数和 bounded event type。禁止保存完整 system/user prompt、完整 chunk、完整答案、unsupported claim 文本或流式 delta、session/user ID、Authorization/API key 和错误堆栈。
 
 ## Abuse Control
 
@@ -71,7 +60,7 @@ API 内置基础保护：
 - Web 的显式 👍/👎 和 Web/Telegram 的无引用产品回答会进入 `rag_feedback`；`automatic_low_evidence` 只作为离线评测和质量告警信号，不会进入知识自动发布路径。
 - LLM prompt 会脱敏用户问题和检索片段中的凭证类文本。
 - `requestId` 可以用于排查单次请求，但不要把它设计成长期用户标识。
-- LangSmith trace 不存 session/user ID 明文；requestId 只用于短期关联。trace retention 应不长于 API 日志，除非经过单独的数据治理审批。
+- 进程内评测 trace 不存 session/user ID 明文，不跨进程持久化；requestId 只用于单次评测关联。
 
 建议保留策略：
 

@@ -87,32 +87,6 @@ export function createInMemoryQualityTracer(options: { now?: () => number } = {}
   return { records, tracer };
 }
 
-export function composeQualityTracers(tracers: readonly QualityTracer[]): QualityTracer {
-  if (tracers.length === 0) {
-    return noopQualityTracer;
-  }
-  if (tracers.length === 1) {
-    return tracers[0] ?? noopQualityTracer;
-  }
-
-  return {
-    run<T>(span: QualitySpanInput<T>, task: () => Promise<T>): Promise<T> {
-      const wrapped = tracers.reduceRight<() => Promise<T>>(
-        (next, tracer) => () => tracer.run(span, next),
-        task,
-      );
-      return wrapped();
-    },
-    stream<T>(span: QualityStreamSpanInput<T>, task: () => AsyncIterable<T>): AsyncIterable<T> {
-      const wrapped = tracers.reduceRight<() => AsyncIterable<T>>(
-        (next, tracer) => () => tracer.stream(span, next),
-        task,
-      );
-      return wrapped();
-    },
-  };
-}
-
 async function* streamWithRecord<T>(
   span: QualityStreamSpanInput<T>,
   task: () => AsyncIterable<T>,

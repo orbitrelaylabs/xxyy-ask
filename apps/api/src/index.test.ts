@@ -12,7 +12,6 @@ import { EmbeddingConfigurationError } from '@xxyy/knowledge';
 import type { ChatRequest, ChatResponse, ChatStreamEvent } from '@xxyy/shared';
 import {
   LlmConfigurationError,
-  QualityTracingConfigurationError,
   VectorStoreConfigurationError,
   VectorStoreUnavailableError,
 } from '@xxyy/rag-core';
@@ -1417,12 +1416,6 @@ describe('createRequestHandler', () => {
       error: 'llm_configuration_missing',
       message: 'OPENAI_API_KEY is required for agent planning.',
     });
-  });
-
-  it('fails fast when explicitly enabled tracing is missing its API key', () => {
-    expect(() => createRequestHandler({ env: { LANGSMITH_TRACING: 'true' } })).toThrow(
-      QualityTracingConfigurationError,
-    );
   });
 
   it('returns a useful 503 when vector store runtime is unavailable', async () => {

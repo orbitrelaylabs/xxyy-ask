@@ -19,7 +19,6 @@ import {
   AnswerJudgeConfigurationError,
   aggregateRetrievalResults,
   classifyQuestion,
-  composeQualityTracers,
   createInMemoryQualityTracer,
   createKnowledgeAutomationController,
   createKnowledgeGovernanceService,
@@ -35,7 +34,6 @@ import {
   createPgKnowledgePublicationJobStore,
   createPgTrustedAuthorStore,
   createPgVectorStore,
-  createQualityTracerFromEnv,
   createChatService,
   createGroundedAnswer,
   createMetadataReranker,
@@ -46,9 +44,9 @@ import {
   formatEvaluationFailureJsonl,
   formatRetrievedChunksDebug,
   LlmConfigurationError,
-  QualityTracingConfigurationError,
   loadRagConfig,
   loadWorkspaceEnv,
+  noopQualityTracer,
   readTelegramKnowledgeExport,
   resolveWorkspaceCwd,
 } from '@xxyy/rag-core';
@@ -90,19 +88,7 @@ export { resolveWorkspaceCwd } from '@xxyy/rag-core';
 
 type CliEnv = RagEnv &
   Partial<
-    Record<
-      | 'APP_REVISION'
-      | 'EVAL_JUDGE_MODEL'
-      | 'INIT_CWD'
-      | 'LANGSMITH_API_KEY'
-      | 'LANGSMITH_ENDPOINT'
-      | 'LANGSMITH_PROJECT'
-      | 'LANGSMITH_TRACING'
-      | 'QUALITY_TRACE_SAMPLE_RATE'
-      | 'TELEGRAM_API_BASE_URL'
-      | 'TELEGRAM_BOT_TOKEN',
-      string
-    >
+    Record<'EVAL_JUDGE_MODEL' | 'INIT_CWD' | 'TELEGRAM_API_BASE_URL' | 'TELEGRAM_BOT_TOKEN', string>
   >;
 
 type CliCommand =
@@ -1422,7 +1408,7 @@ export async function runCli(
   }
 
   try {
-    const tracer = createQualityTracerFromEnv({ ...io.env });
+    const tracer = noopQualityTracer;
     const runtime = createCliChatRuntime(config, tracer);
     try {
       if (parsed.debugRetrieve) {
@@ -1480,7 +1466,7 @@ async function evaluateProviderRetrieval(
   const cases = (await loadEvaluationCases(io.cwd)).filter(
     (testCase) => (testCase.relevantChunkIds?.length ?? 0) > 0,
   );
-  const tracer = createQualityTracerFromEnv({ ...io.env });
+  const tracer = noopQualityTracer;
   const runtime = createCliChatRuntime(config, tracer);
 
   try {
@@ -1660,12 +1646,8 @@ async function evaluate(
 ): Promise<EvaluationReport> {
   const config = loadRagConfig(io.env);
   const cases = await loadEvaluationCases(io.cwd);
-  const configuredTracer = createQualityTracerFromEnv({ ...io.env });
   const inMemoryTrace = options.providerBacked ? createInMemoryQualityTracer() : undefined;
-  const tracer =
-    inMemoryTrace === undefined
-      ? configuredTracer
-      : composeQualityTracers([configuredTracer, inMemoryTrace.tracer]);
+  const tracer = inMemoryTrace?.tracer ?? noopQualityTracer;
   let report: EvaluationReport;
 
   if (options.providerBacked) {
@@ -2620,10 +2602,6 @@ function writeConfigurationError(io: CliIo, error: unknown): boolean {
     return true;
   }
 
-  if (error instanceof QualityTracingConfigurationError) {
-    writeLine(io.stderr, error.message);
-    return true;
-  }
   if (error instanceof LlmConfigurationError) {
     writeLine(io.stderr, error.message);
     return true;

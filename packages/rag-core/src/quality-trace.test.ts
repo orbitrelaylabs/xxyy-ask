@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  composeQualityTracers,
-  createInMemoryQualityTracer,
-  noopQualityTracer,
-} from './quality-trace.js';
+import { createInMemoryQualityTracer, noopQualityTracer } from './quality-trace.js';
 
 describe('noopQualityTracer', () => {
   it('preserves values, events, and errors without evaluating summaries', async () => {
@@ -156,28 +152,5 @@ describe('createInMemoryQualityTracer', () => {
     expect(records).toContainEqual(
       expect.objectContaining({ errorName: 'SyntaxError', status: 'error' }),
     );
-  });
-});
-
-describe('composeQualityTracers', () => {
-  it('records the same nested spans without executing work twice', async () => {
-    const first = createInMemoryQualityTracer();
-    const second = createInMemoryQualityTracer();
-    const tracer = composeQualityTracers([first.tracer, second.tracer]);
-    let executions = 0;
-
-    const result = await tracer.run({ name: 'outer', runType: 'chain' }, () =>
-      tracer.run({ name: 'inner', runType: 'tool' }, () => {
-        executions += 1;
-        return Promise.resolve('ok');
-      }),
-    );
-
-    expect(result).toBe('ok');
-    expect(executions).toBe(1);
-    expect(first.records.map((record) => record.name)).toEqual(['outer', 'inner']);
-    expect(second.records.map((record) => record.name)).toEqual(['outer', 'inner']);
-    expect(first.records[1]?.parentId).toBe(first.records[0]?.id);
-    expect(second.records[1]?.parentId).toBe(second.records[0]?.id);
   });
 });

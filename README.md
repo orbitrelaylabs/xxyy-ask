@@ -304,17 +304,7 @@ pnpm rag:evaluate -- --provider --failures-out .rag/provider-failures.jsonl
 
 LLM judge 只是辅助信号，不能替代 deterministic gate 和人工核验。失败 JSONL 与 `pnpm rag:feedback:backlog` 一样属于 review queue；审核者应核对官方来源、补齐精确 facts/chunk IDs/引用要求，再把去隐私后的稳定案例加入 `docs/eval/golden-qa.jsonl`。完整规则见 [docs/eval/README.md](docs/eval/README.md)。
 
-可选 LangSmith tracing 默认关闭。启用时需要：
-
-```bash
-LANGSMITH_TRACING=true
-LANGSMITH_API_KEY=...
-LANGSMITH_PROJECT=xxyy-ask
-QUALITY_TRACE_SAMPLE_RATE=0.1
-APP_REVISION=$(git rev-parse --short HEAD)
-```
-
-未设置采样率时，显式启用 tracing 默认采样 100%；显式设置 `0` 可作为停发开关。trace 只包含脱敏后的问题摘要、route/tool、chunk ID/分数、模型与 prompt 版本、耗时和 token usage，不上传完整 prompt、chunk、答案 delta、session ID、user ID 或密钥。
+Provider-backed 评测只使用进程内质量追踪记录，不向外部追踪平台上传请求、知识片段或回答内容；进程结束后记录即释放。
 
 服务验收：
 

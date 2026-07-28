@@ -134,10 +134,6 @@ export type {
   PgKnowledgeMatchInspectorOptions,
   RunKnowledgeCuratorInput,
 } from './knowledge-curator.js';
-export {
-  createQualityTracerFromEnv,
-  QualityTracingConfigurationError,
-} from './langsmith-quality-trace.js';
 export { createOpenAiAnswerProvider, LlmConfigurationError } from './openai-answer-provider.js';
 export {
   createPgFeedbackStore,
@@ -155,11 +151,7 @@ export type {
   RecordFeedbackInput,
   ReplaceChunksOptions,
 } from './pgvector-store.js';
-export {
-  composeQualityTracers,
-  createInMemoryQualityTracer,
-  noopQualityTracer,
-} from './quality-trace.js';
+export { createInMemoryQualityTracer, noopQualityTracer } from './quality-trace.js';
 export type { QualityTraceRecord, QualityTracer } from './quality-trace.js';
 export { redactSensitiveSupportText } from './redaction.js';
 export { aggregateRetrievalResults, evaluateRetrievalRanking } from './retrieval-evaluate.js';
