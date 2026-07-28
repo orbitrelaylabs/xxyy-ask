@@ -78,6 +78,59 @@ describe('createOpenAiAnswerProvider', () => {
     expect(JSON.stringify(requests[0])).toContain('XXYY 支持一键买卖代币');
   });
 
+  it('omits citations and attachments when the model says the knowledge is insufficient', async () => {
+    const provider = createOpenAiAnswerProvider({
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example/v1',
+      fetchImpl: () =>
+        Promise.resolve(
+          jsonResponse({
+            choices: [
+              {
+                message: {
+                  content: '当前知识库没有明确说明 XXYY 返佣的到账时间。',
+                },
+              },
+            ],
+            usage: {
+              completion_tokens: 18,
+              prompt_tokens: 96,
+              total_tokens: 114,
+            },
+          }),
+        ),
+      model: 'gpt-test',
+    });
+
+    const response = await provider.answer({
+      classification: {
+        confidence: 0.78,
+        intent: 'product_qa',
+        reason: 'product question',
+      },
+      question: 'XXYY 返佣到账时间是什么时候？',
+      retrievedChunks: [
+        createRetrievedChunk({
+          id: 'rebate-update',
+          text: 'XXYY 最高享受 50% 返佣和 30% 返现。',
+          title: '返佣活动更新',
+        }),
+      ],
+    });
+
+    expect(response).toEqual({
+      answer: '当前知识库没有明确说明 XXYY 返佣的到账时间。',
+      citations: [],
+      confidence: 0.25,
+      intent: 'product_qa',
+      tokenUsage: {
+        completionTokens: 18,
+        promptTokens: 96,
+        totalTokens: 114,
+      },
+    });
+  });
+
   it('asks the LLM to preserve relevant option lists deterministically', async () => {
     interface CapturedRequest {
       max_tokens?: number;
@@ -1278,6 +1331,60 @@ describe('createOpenAiAnswerProvider', () => {
     expect(metadata.citations).toHaveLength(1);
     expect(metadata.confidence).toBe(0.84);
     expect(metadata.intent).toBe('how_to');
+  });
+
+  it('streams insufficient answers without citations or attachments', async () => {
+    const provider = createOpenAiAnswerProvider({
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example/v1',
+      fetchImpl: () =>
+        Promise.resolve(
+          streamResponse([
+            'data: {"choices":[{"delta":{"content":"当前知识库没有明确说明"}}]}\n\n',
+            'data: {"choices":[{"delta":{"content":" XXYY 返佣的到账时间。"}}]}\n\n',
+            'data: [DONE]\n\n',
+          ]),
+        ),
+      model: 'gpt-test',
+    });
+    if (provider.stream === undefined) {
+      throw new Error('Expected provider to support streaming');
+    }
+
+    const events: ChatStreamEvent[] = [];
+    for await (const event of provider.stream({
+      classification: {
+        confidence: 0.78,
+        intent: 'product_qa',
+        reason: 'product question',
+      },
+      question: 'XXYY 返佣到账时间是什么时候？',
+      retrievedChunks: [
+        createRetrievedChunk({
+          id: 'rebate-update',
+          text: 'XXYY 最高享受 50% 返佣和 30% 返现。',
+          title: '返佣活动更新',
+        }),
+      ],
+    })) {
+      events.push(event);
+    }
+
+    expect(
+      events
+        .filter(
+          (event): event is Extract<ChatStreamEvent, { type: 'answer_delta' }> =>
+            event.type === 'answer_delta',
+        )
+        .map((event) => event.delta)
+        .join(''),
+    ).toBe('当前知识库没有明确说明 XXYY 返佣的到账时间。');
+    expect(events.at(-1)).toEqual({
+      type: 'metadata',
+      citations: [],
+      confidence: 0.25,
+      intent: 'product_qa',
+    });
   });
 
   it('buffers streaming deltas until the complete answer passes grounding validation', async () => {

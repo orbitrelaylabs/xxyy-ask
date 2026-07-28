@@ -62,6 +62,7 @@ const GROUNDED_INTENTS = new Set(['product_qa', 'how_to']);
 const DEFAULT_MAX_RETRIES = 1;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const MAX_ANSWER_TOKENS = 360;
+const INSUFFICIENT_KNOWLEDGE_CONFIDENCE = 0.25;
 const OPENAI_ANSWER_PROMPT_VERSION = 'answer-v4';
 
 export class LlmConfigurationError extends Error {}
@@ -241,6 +242,20 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
               response: createGroundedAnswer(input.question, input.classification, groundingChunks),
             };
           }
+          if (isInsufficientKnowledgeAnswer(answer)) {
+            return {
+              outcome: 'model',
+              response: withOptionalTokenUsage(
+                {
+                  answer,
+                  citations: [],
+                  confidence: INSUFFICIENT_KNOWLEDGE_CONFIDENCE,
+                  intent: input.classification.intent,
+                },
+                parseChatTokenUsage(payload.usage),
+              ),
+            };
+          }
 
           const groundingValidation = await validateGrounding(
             answer,
@@ -392,6 +407,18 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
             );
             return;
           }
+          if (isInsufficientKnowledgeAnswer(streamedAnswer)) {
+            for (const delta of deltas) {
+              yield { type: 'answer_delta', delta };
+            }
+            yield {
+              type: 'metadata',
+              citations: [],
+              confidence: INSUFFICIENT_KNOWLEDGE_CONFIDENCE,
+              intent: input.classification.intent,
+            };
+            return;
+          }
 
           const groundingValidation = await validateGrounding(
             streamedAnswer,
@@ -541,6 +568,18 @@ function createChatCompletionBody(
 function isUnusableModelAnswer(answer: string): boolean {
   const normalized = answer.replace(/\s+/gu, ' ').trim();
   return normalized.length === 0 || /^user safety:\s*[a-z_-]+$/iu.test(normalized);
+}
+
+function isInsufficientKnowledgeAnswer(answer: string): boolean {
+  const normalized = answer.replace(/\s+/gu, ' ').trim();
+  return (
+    /(?:当前|目前|现有)\s*知识库(?:中)?(?:没有|未)(?:明确)?(?:说明|提及|记录|包含|覆盖|找到|提供)/u.test(
+      normalized,
+    ) ||
+    /暂(?:时)?未找到|暂时没有找到(?:可引用的)?知识库内容/u.test(normalized) ||
+    /知识库(?:资料|信息|证据)?(?:不足|不充分)|(?:资料|信息|证据)不足/u.test(normalized) ||
+    /当前知识库没有找到与「[^」]+」直接相关的资料/u.test(normalized)
+  );
 }
 
 function withOptionalAttachments(
