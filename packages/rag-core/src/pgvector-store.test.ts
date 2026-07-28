@@ -608,7 +608,7 @@ describe('createPgVectorStore', () => {
 
     const results = await store.retrieve('XXYY Pro 支持什么？', { topK: 1 });
 
-    expect(embeddedTexts).toEqual([['XXYY Pro 支持什么？']]);
+    expect(embeddedTexts).toEqual([['XXYY Pro 支持什么？\nXXYY Pro 权益 会员权益']]);
     expect(client.queries.at(-1)?.sql).toContain('embedding <=> $1::vector');
     expect(client.queries.at(-1)?.sql).toContain('active_supersedes');
     expect(client.queries.at(-1)?.values[5]).toBe(false);

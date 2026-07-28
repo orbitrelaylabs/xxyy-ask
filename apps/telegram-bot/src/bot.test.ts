@@ -120,8 +120,8 @@ describe('createTelegramBot', () => {
             status: 'succeeded',
           },
           schedule: {
-            fullDailyAt: '03:30',
-            incrementalEveryMinutes: 30,
+            fullMode: 'manual',
+            incrementalDailyAt: '08:00',
             timeZone: 'Asia/Shanghai',
           },
           state: 'healthy',
@@ -143,8 +143,9 @@ describe('createTelegramBot', () => {
       replyToMessageId: 1,
       text: expect.stringContaining('知识库自动更新：✅ 已开启，运行正常'),
     });
-    expect(sendMessage.mock.calls[0]?.[0].text).toContain('增量更新：每 30 分钟');
-    expect(sendMessage.mock.calls[0]?.[0].text).toContain('全量更新：每日 03:30');
+    expect(sendMessage.mock.calls[0]?.[0].text).toContain('增量更新：每日 08:00');
+    expect(sendMessage.mock.calls[0]?.[0].text).toContain('计划时区：Asia/Shanghai');
+    expect(sendMessage.mock.calls[0]?.[0].text).toContain('全量更新：仅手动执行');
     expect(sendMessage.mock.calls[0]?.[0].text).toContain('最近结果：成功（增量）');
   });
 

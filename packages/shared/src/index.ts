@@ -40,8 +40,8 @@ export interface KnowledgeRefreshStatus {
   enabled: boolean;
   state: KnowledgeRefreshState;
   schedule: {
-    fullDailyAt: string;
-    incrementalEveryMinutes: number;
+    fullMode: 'manual';
+    incrementalDailyAt: string;
     timeZone: string;
   };
   lastRun?: {

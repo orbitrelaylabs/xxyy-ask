@@ -13,6 +13,7 @@ import type {
 
 import {
   createLexicalRetrieveQueryTokens,
+  createSemanticRetrieveQuery,
   isApiReferenceDocument,
   isChangelogDocumentationQuestion,
   isDocumentationScopeEligible,
@@ -626,7 +627,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
           output: (embeddings) => ({ embeddingDimension: embeddings[0]?.length ?? 0 }),
           runType: 'embedding',
         },
-        () => options.embeddingProvider.embedTexts([question]),
+        () => options.embeddingProvider.embedTexts([createSemanticRetrieveQuery(question)]),
       );
       if (queryEmbedding === undefined) {
         return [];

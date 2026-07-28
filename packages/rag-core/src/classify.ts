@@ -45,6 +45,10 @@ const productOperationPatterns = [
   /怎么.*(买入|卖出|交易|挂单|swap|设置|操作|登录|导出|导入|生成|升级)/u,
   /(swap|挂单|交易).*怎么操作/u,
   /操作.*(买入|卖出|交易|挂单|swap)/u,
+  /(?:手机|手机版|手机上|移动端|app).{0,16}(?:怎么用|如何用|怎么打开|如何打开|怎么添加|如何添加|怎么登录|如何登录)/u,
+  /(?:小币种|小币|小额资产).{0,20}怎么(?:隐藏|显示|不显示)/u,
+  /怎么(?:隐藏|显示|不显示).{0,20}(?:小币种|小币|小额资产)/u,
+  /(?:哪里|在哪(?:里)?)(?:能|可以)?(?:看|查看).{0,20}(?:收益|盈亏|赚.{0,6}倍|亏损)/u,
 ];
 
 const unsupportedTransactionAnalysisPatterns = [
@@ -54,7 +58,7 @@ const unsupportedTransactionAnalysisPatterns = [
 ];
 
 const productSupportDomainPattern =
-  /跟单|扫链|挂单|监控|交易|钱包|移动端|app|telegram|swap|base|b20|p1\/p2\/p3|k\s*线|pump|tag\s*holder|holder|订单|批量导入|止盈|止损|wallet\s+(?:monitoring|management)|limit\s+orders?|automated\s+trading|quick\s+trading|trading\s+(?:settings?|modes?)|chart\s+area|avg\.?\s+price\s+line|average\s+(?:purchase|buy|cost)\s+line|cost\s+basis|token\s+information|watchlist|new\s+pairs|meme\s+scanner/u;
+  /跟单|扫链|挂单|监控|交易|钱包|移动端|手机版|手机上|app|telegram|swap|base|b20|p1\/p2\/p3|k\s*线|pump|tag\s*holder|holder|订单|批量导入|止盈|止损|会员版|小币种|小额代币|持仓|盈亏|收益倍数|wallet\s+(?:monitoring|management)|limit\s+orders?|automated\s+trading|quick\s+trading|trading\s+(?:settings?|modes?)|chart\s+area|avg\.?\s+price\s+line|average\s+(?:purchase|buy|cost)\s+line|cost\s+basis|token\s+information|watchlist|new\s+pairs|meme\s+scanner/u;
 
 const supportQuestionPattern =
   /是否支持|当前支持|现在支持|支持.*(?:吗|么|不)|(?:does|do|can|is|are).*\bsupport\b|\bsupport(?:s|ed)?\b/u;
@@ -120,9 +124,9 @@ const rules: IntentRule[] = [
       /\bxxyy\b|\bpro\b|\bproduct\b|\bfeature(s)?\b|\bupdate(s)?\b/u,
       /产品|功能|更新|权益|版本|提醒|监控|telegram/u,
       /钱包备注|监控上限|监控数量|历史更新|更新记录|推特|推文|tweet|x\.com/u,
-      /扫链|打满|趋势|收藏|持仓管理|收益统计|快捷交易|自动交易|钱包管理|关注钱包|移动端/u,
+      /扫链|打满|趋势|收藏|持仓管理|收益统计|快捷交易|自动交易|钱包管理|关注钱包|移动端|手机版|手机上/u,
       /swap|degen|交易设置|交易模式|极速模式|防夹模式|k\s*线|平均买入成本线|代币信息区/u,
-      /pump\s*早鸟|最新成交|tag\s*holder|holder|订单管理|批量导入|持仓盈亏|自动止盈止损/u,
+      /pump\s*早鸟|最新成交|tag\s*holder|holder|订单管理|批量导入|持仓盈亏|自动止盈止损|会员版|小币种|小额代币|收益倍数|赚.{0,8}(?:多少|几).{0,4}倍/u,
       /交易\s*api|agent\s*skill|p1\/p2\/p3/u,
       /wallet\s+(?:monitoring|management)|limit\s+orders?|automated\s+trading|quick\s+trading|trading\s+(?:settings?|modes?)|anti[- ]?mev|chart\s+area|avg\.?\s+price\s+line|average\s+(?:purchase|buy|cost)\s+line|cost\s+basis|token\s+information|watchlist|new\s+pairs|meme\s+scanner|referral\s+program|mobile\s+(?:device\s+)?login/u,
     ],

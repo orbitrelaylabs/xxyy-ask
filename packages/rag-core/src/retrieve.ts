@@ -57,7 +57,7 @@ export function retrieve(
 
   const documentFrequency = createDocumentFrequency(eligibleEntries);
   const averageDocumentLength = averageTokenLength(eligibleEntries);
-  const queryEmbedding = createLocalHashEmbedding(question);
+  const queryEmbedding = createLocalHashEmbedding(createSemanticRetrieveQuery(question));
 
   const scored = eligibleEntries
     .map((entry) => {
@@ -261,7 +261,7 @@ function isEnglishDocument(metadata: { sourceUrl?: string }): boolean {
 }
 
 export function createRetrieveQueryTokens(question: string): string[] {
-  return expandQueryTokens(uniqueTokens(tokenize(question)), question);
+  return uniqueTokens(tokenize(createSemanticRetrieveQuery(question)));
 }
 
 const LEXICAL_QUERY_STOP_TOKENS = new Set([
@@ -283,29 +283,76 @@ export function createLexicalRetrieveQueryTokens(question: string): string[] {
   );
 }
 
-function expandQueryTokens(tokens: string[], question: string): string[] {
-  const expanded = [...tokens];
+export function createSemanticRetrieveQuery(question: string): string {
+  const expansions = createQueryExpansionPhrases(question);
+  return expansions.length === 0 ? question : [question, ...expansions].join('\n');
+}
+
+function createQueryExpansionPhrases(question: string): string[] {
+  const expansions: string[] = [];
   const normalizedQuestion = question.normalize('NFKC').toLowerCase();
+  const isProUpgradeQuestion = /升级.*\bpro\b|\bpro\b.*升级/u.test(normalizedQuestion);
+  const isPermanentProQuestion = /永久\s*pro|\bpro\b.{0,12}永久/u.test(normalizedQuestion);
 
   if (
-    /付费套餐|付费会员|高级会员|会员套餐|会员权益|高级版|专业版|\bpro\b/u.test(normalizedQuestion)
+    /付费套餐|付费会员|高级会员|会员套餐|会员权益|会员版|会员有(?:什么|啥)|高级版|专业版|\bpro\b/u.test(
+      normalizedQuestion,
+    ) &&
+    !isProUpgradeQuestion &&
+    !isPermanentProQuestion
   ) {
-    expanded.push(...tokenize('Pro 权益'));
+    expansions.push('XXYY Pro 权益 会员权益');
   }
 
-  if (/升级.*\bpro\b|\bpro\b.*升级/u.test(normalizedQuestion)) {
-    expanded.push(...tokenize('会员积分 交易积分'));
+  if (isProUpgradeQuestion) {
+    expansions.push('如何升级为 Pro 会员积分 交易积分');
+  }
+
+  if (isPermanentProQuestion) {
+    expansions.push('永久PRO 额外权益 定制化功能开发 长期有效 专属客服');
   }
 
   if (/基础套餐|基础版|免费版|\bbasic\b/u.test(normalizedQuestion)) {
-    expanded.push(...tokenize('Basic 基础'));
+    expansions.push('XXYY Basic 基础权益');
   }
 
   if (/地址|追踪|跟踪/u.test(normalizedQuestion)) {
-    expanded.push(...tokenize('钱包 监控'));
+    expansions.push('钱包监控');
   }
 
-  return uniqueTokens(expanded);
+  if (/扫链.{0,16}(?:过滤|筛选|条件)|(?:过滤|筛选).{0,16}扫链/u.test(normalizedQuestion)) {
+    expansions.push('扫链筛选 筛选条件');
+  }
+
+  if (/手机|手机版|手机上|主屏幕|手机桌面/u.test(normalizedQuestion)) {
+    expansions.push('XXYY 移动端桌面入口 手机浏览器 添加到主屏幕 添加到桌面');
+  }
+
+  if (
+    /小币种|小币|小额(?:代币|资产)|隐藏.{0,8}(?:代币|资产)|(?:代币|资产).{0,8}不显示/u.test(
+      normalizedQuestion,
+    )
+  ) {
+    expansions.push('持仓管理 隐藏小额代币 展示所有代币');
+  }
+
+  if (
+    /盯.{0,12}(?:地址|钱包)|(?:地址|钱包).{0,12}(?:提醒|推送|通知)|提醒.{0,12}(?:地址|钱包)/u.test(
+      normalizedQuestion,
+    )
+  ) {
+    expansions.push('关注钱包设置 推送规则 最小买入金额 最小卖出金额');
+  }
+
+  if (
+    /赚.{0,8}(?:多少|几).{0,4}倍|亏.{0,8}(?:多少|几)|收益倍数|盈利倍数|盈亏倍率|回本/u.test(
+      normalizedQuestion,
+    )
+  ) {
+    expansions.push('持仓盈亏 盈亏倍率 收益统计');
+  }
+
+  return [...new Set(expansions)];
 }
 
 function calculateBm25(

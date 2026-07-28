@@ -419,7 +419,7 @@ function knowledgeRefreshPresentation(result: KnowledgeRefreshStatusResult | und
   }
 
   const { status } = result;
-  const schedule = `每 ${status.schedule.incrementalEveryMinutes} 分钟增量更新，${status.schedule.fullDailyAt} 全量更新`;
+  const schedule = `每日 ${status.schedule.incrementalDailyAt} 增量更新，全量更新仅手动执行（${status.schedule.timeZone}）`;
   const lastRun = formatLastKnowledgeRefresh(status);
   if (!status.enabled || status.state === 'disabled') {
     return {
@@ -431,7 +431,7 @@ function knowledgeRefreshPresentation(result: KnowledgeRefreshStatusResult | und
   }
   if (status.state === 'healthy') {
     return {
-      detail: lastRun ?? `已开启 · 每 ${status.schedule.incrementalEveryMinutes} 分钟`,
+      detail: lastRun ?? `已开启 · 每日 ${status.schedule.incrementalDailyAt}`,
       label: '知识库自动更新已开启',
       title: `${schedule}${lastRun === undefined ? '' : `；${lastRun}`}`,
       tone: 'healthy',

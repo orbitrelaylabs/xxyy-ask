@@ -10,8 +10,8 @@ const healthyPayload = {
     status: 'succeeded',
   },
   schedule: {
-    fullDailyAt: '03:30',
-    incrementalEveryMinutes: 30,
+    fullMode: 'manual',
+    incrementalDailyAt: '08:00',
     timeZone: 'Asia/Shanghai',
   },
   state: 'healthy',

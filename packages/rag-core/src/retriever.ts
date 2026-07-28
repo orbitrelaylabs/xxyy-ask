@@ -2,7 +2,13 @@ import type { RagIndex } from '@xxyy/shared';
 import { tokenize } from '@xxyy/knowledge';
 
 import { reciprocalRankFusionScore } from './hybrid-rank.js';
-import { retrieve, type RetrieveOptions, type RetrievedChunk } from './retrieve.js';
+import {
+  createRetrieveQueryTokens,
+  isHistoricalOrTweetQuestion,
+  retrieve,
+  type RetrieveOptions,
+  type RetrievedChunk,
+} from './retrieve.js';
 import { isSupportQuestionText } from './support-entity.js';
 import {
   noopQualityTracer,
@@ -31,14 +37,15 @@ export interface RerankingRetrieverOptions {
 }
 
 const BASE_RANK_WEIGHT = 2;
-const BASE_SCORE_WEIGHT = 7;
-const METADATA_RERANK_WEIGHT = 1;
+const BASE_SCORE_WEIGHT = 5;
+const METADATA_RERANK_WEIGHT = 3;
 const TITLE_CONTAINMENT_WEIGHT = 2;
-const CONTENT_COVERAGE_WEIGHT = 4;
+const CONTENT_COVERAGE_WEIGHT = 6;
 const HOW_TO_DIRECT_EVIDENCE_BONUS = 3;
 const STRUCTURED_ANSWER_WEIGHT = 3;
 const DIRECT_SUPPORT_EVIDENCE_WEIGHT = 2;
 const DIRECT_SOURCE_WEIGHT = 1;
+const TEMPORAL_STATUS_WEIGHT = 1.5;
 const QUERY_STOP_TOKENS = new Set([
   'xxyy',
   '什么',
@@ -50,6 +57,9 @@ const QUERY_STOP_TOKENS = new Set([
   '支持',
   '当前',
   '现在',
+  '版都',
+  '都有',
+  '有啥',
 ]);
 
 export function createLazyRetriever(
@@ -124,9 +134,9 @@ export function createRerankingRetriever(
 export function createMetadataReranker(): Reranker {
   return {
     rerank({ chunks, question }) {
-      const queryTokens = new Set(tokenize(question));
+      const queryTokens = new Set(createRetrieveQueryTokens(question));
       const maximumScore = maximumRetrievedScore(chunks);
-      return [...chunks].sort((left, right) => {
+      const ranked = [...chunks].sort((left, right) => {
         const rightScore = rerankScore(right, queryTokens, question, maximumScore);
         const leftScore = rerankScore(left, queryTokens, question, maximumScore);
 
@@ -140,6 +150,11 @@ export function createMetadataReranker(): Reranker {
 
         return left.id.localeCompare(right.id);
       });
+      return demoteStaleNumericClaims(
+        demotePromotionalBenefitChunks(ranked, question),
+        question,
+        queryTokens,
+      );
     },
   };
 }
@@ -184,6 +199,7 @@ function rerankScore(
     titleContainmentScore(chunk, question) * TITLE_CONTAINMENT_WEIGHT +
     contentCoverage * CONTENT_COVERAGE_WEIGHT +
     directSourceScore(chunk) * DIRECT_SOURCE_WEIGHT +
+    temporalStatusScore(chunk, question) * TEMPORAL_STATUS_WEIGHT +
     structuredAnswerScore(chunk, question) * contentCoverage * STRUCTURED_ANSWER_WEIGHT +
     directSupportEvidenceScore(chunk, question) * DIRECT_SUPPORT_EVIDENCE_WEIGHT +
     howToEvidenceScore(chunk, question) * (0.5 + contentCoverage * 0.5)
@@ -248,7 +264,7 @@ function isInformativeQueryToken(token: string): boolean {
 }
 
 function structuredAnswerScore(chunk: RetrievedChunk, question: string): number {
-  if (!/哪些|哪几|区别|对比|多少|字段|参数|选项|包括|列表/u.test(question)) {
+  if (!/哪些|哪几|有啥|啥|区别|对比|多少|字段|参数|选项|包括|列表/u.test(question)) {
     return 0;
   }
 
@@ -307,6 +323,112 @@ function directSupportSubject(question: string): string | undefined {
 
 function directSourceScore(chunk: RetrievedChunk): number {
   return chunk.metadata.sourceUrl === undefined ? 0 : 1;
+}
+
+function temporalStatusScore(chunk: RetrievedChunk, question: string): number {
+  if (isHistoricalOrTweetQuestion(question)) {
+    return 0;
+  }
+
+  switch (chunk.metadata.status) {
+    case 'current':
+      return 0.5;
+    case 'historical':
+      return -1;
+    case 'deprecated':
+      return -4;
+    case undefined:
+      return 0;
+  }
+  return 0;
+}
+
+function demotePromotionalBenefitChunks(
+  chunks: RetrievedChunk[],
+  question: string,
+): RetrievedChunk[] {
+  if (
+    isHistoricalOrTweetQuestion(question) ||
+    !/\bpro\b|会员|权益|额外|区别|比.{0,8}多/iu.test(question)
+  ) {
+    return chunks;
+  }
+
+  return stableDemote(chunks, (chunk) =>
+    /限时|一折|折扣|促销|春节|周年|抽奖|返佣|返现|福利|欢迎.{0,8}(?:体验|参加|来玩)/u.test(
+      chunk.text,
+    ),
+  );
+}
+
+function demoteStaleNumericClaims(
+  chunks: RetrievedChunk[],
+  question: string,
+  queryTokens: Set<string>,
+): RetrievedChunk[] {
+  if (
+    isHistoricalOrTweetQuestion(question) ||
+    /各自|分别|比较|对比|区别|和几|以及几|及几/u.test(question) ||
+    !/多少|最多|最少|上限|下限|限制|当前|现在|目前|最新/u.test(question)
+  ) {
+    return chunks;
+  }
+
+  const datedClaims = chunks
+    .map((chunk) => ({
+      chunk,
+      coverage: contentCoverageScore(chunk, queryTokens),
+      timestamp: Date.parse(chunk.metadata.effectiveAt ?? ''),
+      values: numericFactValues(chunk.text),
+    }))
+    .filter(
+      (candidate) =>
+        candidate.coverage >= 0.2 &&
+        Number.isFinite(candidate.timestamp) &&
+        candidate.values.size > 0,
+    );
+  const maximumCoverage = Math.max(0, ...datedClaims.map((candidate) => candidate.coverage));
+  const referenceCoverage = Math.max(0.2, maximumCoverage * 0.75);
+  const latestClaim = datedClaims
+    .filter((candidate) => candidate.coverage >= referenceCoverage)
+    .sort((left, right) => right.timestamp - left.timestamp)[0];
+  if (latestClaim === undefined) {
+    return chunks;
+  }
+
+  const staleIds = new Set(
+    datedClaims
+      .filter(
+        (candidate) =>
+          latestClaim.timestamp - candidate.timestamp > 30 * 24 * 60 * 60 * 1000 &&
+          !setsIntersect(candidate.values, latestClaim.values),
+      )
+      .map((candidate) => candidate.chunk.id),
+  );
+  return stableDemote(chunks, (chunk) => staleIds.has(chunk.id));
+}
+
+function numericFactValues(text: string): Set<string> {
+  return new Set(
+    Array.from(
+      text.matchAll(/(?<value>\d[\d,. ]*)\s*(?:秒|分钟|小时|天|个|条|种|项|钱包|地址|链)/gu),
+      (match) => match.groups?.value?.replace(/[,. ]/gu, ''),
+    ).filter((value): value is string => value !== undefined && value.length > 0),
+  );
+}
+
+function setsIntersect(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return Array.from(left).some((value) => right.has(value));
+}
+
+function stableDemote(
+  chunks: RetrievedChunk[],
+  shouldDemote: (chunk: RetrievedChunk) => boolean,
+): RetrievedChunk[] {
+  return [
+    ...chunks.filter((chunk) => !shouldDemote(chunk)),
+    ...chunks.filter((chunk) => shouldDemote(chunk)),
+  ];
 }
 
 function howToEvidenceScore(chunk: RetrievedChunk, question: string): number {

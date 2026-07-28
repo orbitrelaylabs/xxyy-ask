@@ -92,8 +92,8 @@ describe('KnowledgeRefreshBadge', () => {
               status: 'succeeded',
             },
             schedule: {
-              fullDailyAt: '03:30',
-              incrementalEveryMinutes: 30,
+              fullMode: 'manual',
+              incrementalDailyAt: '08:00',
               timeZone: 'Asia/Shanghai',
             },
             state: 'healthy',
@@ -104,7 +104,9 @@ describe('KnowledgeRefreshBadge', () => {
 
     expect(markup).toContain('知识库自动更新已开启');
     expect(markup).toContain('最近刷新');
-    expect(markup).toContain('每 30 分钟增量更新');
+    expect(markup).toContain('每日 08:00 增量更新');
+    expect(markup).toContain('全量更新仅手动执行');
+    expect(markup).toContain('Asia/Shanghai');
     expect(markup).toContain('is-healthy');
   });
 

@@ -10,8 +10,8 @@ export interface KnowledgeRefreshStatus {
   enabled: boolean;
   state: KnowledgeRefreshState;
   schedule: {
-    fullDailyAt: string;
-    incrementalEveryMinutes: number;
+    fullMode: 'manual';
+    incrementalDailyAt: string;
     timeZone: string;
   };
   lastRun?: {
@@ -49,8 +49,8 @@ function isKnowledgeRefreshStatus(value: unknown): value is KnowledgeRefreshStat
     typeof value.enabled !== 'boolean' ||
     !isRefreshState(value.state) ||
     !isRecord(value.schedule) ||
-    typeof value.schedule.fullDailyAt !== 'string' ||
-    typeof value.schedule.incrementalEveryMinutes !== 'number' ||
+    value.schedule.fullMode !== 'manual' ||
+    typeof value.schedule.incrementalDailyAt !== 'string' ||
     typeof value.schedule.timeZone !== 'string'
   ) {
     return false;

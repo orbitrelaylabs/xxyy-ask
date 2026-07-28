@@ -956,8 +956,9 @@ export function formatTelegramKnowledgeRefreshStatus(status: KnowledgeRefreshSta
   const lines = [`知识库自动更新：${telegramRefreshStateLabel(status)}`];
   if (status.enabled) {
     lines.push(
-      `增量更新：每 ${status.schedule.incrementalEveryMinutes} 分钟`,
-      `全量更新：每日 ${status.schedule.fullDailyAt}`,
+      `增量更新：每日 ${status.schedule.incrementalDailyAt}`,
+      '全量更新：仅手动执行',
+      `计划时区：${status.schedule.timeZone}`,
     );
   }
   if (status.lastRun !== undefined) {

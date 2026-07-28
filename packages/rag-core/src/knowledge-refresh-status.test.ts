@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { readKnowledgeRefreshStatus } from './knowledge-refresh-status.js';
 
 const SCHEDULE = {
-  fullDailyAt: '03:30',
-  incrementalEveryMinutes: 30,
+  fullMode: 'manual',
+  incrementalDailyAt: '08:00',
   timeZone: 'Asia/Shanghai',
 };
 
@@ -44,6 +44,27 @@ describe('readKnowledgeRefreshStatus', () => {
       schedule: SCHEDULE,
       state: 'healthy',
     });
+  });
+
+  it('reports the configured daily incremental time and keeps full refresh manual', async () => {
+    const configured = await readKnowledgeRefreshStatus({
+      env: {
+        KNOWLEDGE_AUTO_REFRESH_INCREMENTAL_DAILY_AT: '09:45',
+        KNOWLEDGE_AUTO_REFRESH_TIME_ZONE: 'Asia/Shanghai',
+      },
+    });
+    const invalid = await readKnowledgeRefreshStatus({
+      env: {
+        KNOWLEDGE_AUTO_REFRESH_INCREMENTAL_DAILY_AT: '8am',
+      },
+    });
+
+    expect(configured.schedule).toEqual({
+      fullMode: 'manual',
+      incrementalDailyAt: '09:45',
+      timeZone: 'Asia/Shanghai',
+    });
+    expect(invalid.schedule).toEqual(SCHEDULE);
   });
 
   it('reports stale and failed receipts without exposing receipt details', async () => {

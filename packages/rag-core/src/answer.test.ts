@@ -57,9 +57,74 @@ describe('createGroundedAnswer', () => {
   it('uses a conservative fallback when product context is unavailable', () => {
     const response = createGroundedAnswer('XXYY Pro 有哪些权益？', productClassification, []);
 
-    expect(response.answer).toContain('暂时没有找到');
+    expect(response.answer).toContain('暂未找到');
     expect(response.citations).toEqual([]);
     expect(response.confidence).toBeLessThan(0.5);
+  });
+
+  it('keeps deterministic evidence fallbacks concise when several long chunks are retrieved', () => {
+    const retrieved = Array.from({ length: 4 }, (_, index) =>
+      createRetrievedChunk({
+        id: `scan-filter-${index}`,
+        rank: index + 1,
+        text: [
+          '🔥 扫链筛选支持按创建时间、市值、Dev Buy 金额和 Holder 人数设置条件。',
+          '这是一段很长的产品宣传和社区活动说明。'.repeat(30),
+          'https://t.co/example',
+        ].join(' '),
+        title: `扫链筛选 ${index + 1}`,
+      }),
+    );
+
+    const response = createGroundedAnswer(
+      '扫链支持哪些筛选条件？',
+      productClassification,
+      retrieved,
+    );
+
+    expect(response.answer.length).toBeLessThanOrEqual(560);
+    expect(response.answer).toContain('创建时间');
+    expect(response.answer).not.toContain('https://');
+  });
+
+  it('prefers authored documentation over OCR rows from the same page in fallback answers', () => {
+    const sourceUrl = 'https://docs.xxyy.io/getting-started/dashboard/chi-cang-guan-li';
+    const response = createGroundedAnswer(
+      '小币种资产怎么不显示',
+      { ...productClassification, intent: 'how_to' },
+      [
+        createRetrievedChunk({
+          id: 'position-page',
+          sourceUrl,
+          text: '持仓管理支持隐藏小额代币，默认阈值是 0.001；取消勾选后可查看，或点击展示所有代币。',
+          title: '持仓管理',
+        }),
+        createRetrievedChunk({
+          id: 'enriched/media/position-ocr',
+          rank: 2,
+          sourceUrl,
+          text: '隐藏小额代币 0.001 TRUMP 13.09 SOL +818.68% BOME 0.4247 SOL。',
+          title: '持仓管理：截图文字',
+        }),
+      ],
+    );
+
+    expect(response.answer).toContain('隐藏小额代币');
+    expect(response.answer).not.toContain('TRUMP');
+    expect(response.citations.map((citation) => citation.title)).toEqual(['持仓管理']);
+  });
+
+  it('formats labeled structured fallback fields as a compact list', () => {
+    const response = createGroundedAnswer('我想盯几个地址，有啥提醒能配', productClassification, [
+      createRetrievedChunk({
+        id: 'wallet-push-rules',
+        text: '钱包交易类型：选择买入或卖出 最小买入金额：低于该金额不推送 最小卖出金额：低于该金额不推送 是否开启推送：可关闭 仅推送Pump交易：可选',
+        title: '关注钱包设置',
+      }),
+    ]);
+
+    expect(response.answer).toContain('\n- 最小买入金额');
+    expect(response.answer).toContain('\n- 是否开启推送');
   });
 
   it('extracts video attachments from grounded product context', () => {

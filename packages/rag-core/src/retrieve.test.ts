@@ -170,6 +170,62 @@ describe('retrieve', () => {
     expect(results[0]?.lexicalScore).toBeGreaterThan(0);
   });
 
+  it.each([
+    [
+      '会员版都有啥',
+      'official_docs:pro-benefits:chunk:0001',
+      'XXYY Pro 权益',
+      'XXYY Pro 权益包括独享服务器和节点。',
+    ],
+    [
+      '扫链都能按啥条件过滤',
+      'official_docs:scan-filters:chunk:0001',
+      '扫链筛选',
+      '扫链筛选支持按创建时间、市值、Dev Buy 金额和 Holder 人数设置条件。',
+    ],
+    [
+      '小币种资产怎么不显示',
+      'official_docs:small-assets:chunk:0001',
+      '持仓管理',
+      '持仓管理支持隐藏小额代币，也可以选择展示所有代币。',
+    ],
+    [
+      '手机上怎么用',
+      'official_docs:mobile:chunk:0001',
+      '移动端桌面入口',
+      '使用手机浏览器打开 XXYY，并添加到主屏幕。',
+    ],
+    [
+      '哪里看赚了多少倍',
+      'official_docs:pnl:chunk:0001',
+      '持仓盈亏',
+      '持仓盈亏页面会展示盈亏倍率和收益统计。',
+    ],
+  ] as const)(
+    'expands colloquial query "%s" toward its canonical product terminology',
+    (question, expectedId, title, text) => {
+      const index = createFixtureIndex([
+        {
+          id: expectedId,
+          title,
+          sourceType: 'official_docs',
+          text,
+        },
+        {
+          id: 'x_updates:generic-promotion:chunk:0001',
+          title: '产品活动',
+          sourceType: 'x_updates',
+          text: '查看最新活动、交易奖励和社区消息。',
+        },
+      ]);
+
+      const results = retrieve(question, index, { topK: 1 });
+
+      expect(results[0]?.id).toBe(expectedId);
+      expect(results[0]?.lexicalScore).toBeGreaterThan(0);
+    },
+  );
+
   it('expands Pro upgrade questions with the membership-point concepts needed for instructions', () => {
     const index = createFixtureIndex([
       {

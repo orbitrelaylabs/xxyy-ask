@@ -80,6 +80,7 @@ describe('createOpenAiAnswerProvider', () => {
 
   it('asks the LLM to preserve relevant option lists deterministically', async () => {
     interface CapturedRequest {
+      max_tokens?: number;
       messages?: Array<{ content?: string }>;
       temperature?: number;
     }
@@ -128,7 +129,10 @@ describe('createOpenAiAnswerProvider', () => {
     const request = requests[0];
     const prompt = request?.messages?.map((message) => message.content).join('\n') ?? '';
     expect(request?.temperature).toBe(0);
+    expect(request?.max_tokens).toBe(360);
     expect(prompt).toContain('不要遗漏与用户问题直接相关的配置项、限制、数量、条件或步骤');
+    expect(prompt).toContain('不要写“根据知识库”');
+    expect(prompt).toContain('列最多 5 个必要要点');
   });
 
   it('includes freshness metadata and conflict-resolution rules in the prompt context', async () => {
@@ -245,12 +249,12 @@ describe('createOpenAiAnswerProvider', () => {
           module: '产品文档',
           sourceType: 'official_docs' as const,
           status: 'current' as const,
-          title: '长篇背景说明',
+          title: '钱包监控长篇背景说明',
         },
         rank: 1,
         score: 12,
         sourceBoost: 0.05,
-        text: '背景资料。'.repeat(900),
+        text: '钱包监控背景资料。'.repeat(900),
         tokens: [],
         vectorScore: 1,
       },
@@ -288,7 +292,7 @@ describe('createOpenAiAnswerProvider', () => {
     });
 
     const prompt = requests[0]?.messages?.map((message) => message.content).join('\n') ?? '';
-    expect(prompt).toContain('[1] 长篇背景说明');
+    expect(prompt).toContain('[1] 钱包监控长篇背景说明');
     expect(prompt).toContain('已省略');
     expect(prompt).toContain('[2] 钱包监控上限');
     expect(prompt).toContain('关键限制：钱包监控最多支持5000个地址');

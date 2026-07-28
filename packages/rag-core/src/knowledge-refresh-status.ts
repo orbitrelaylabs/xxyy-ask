@@ -3,9 +3,8 @@ import path from 'node:path';
 
 import type { KnowledgeRefreshStatus } from '@xxyy/shared';
 
-const DEFAULT_INCREMENTAL_INTERVAL_MINUTES = 30;
-const DEFAULT_FULL_DAILY_AT = '03:30';
-const DEFAULT_STALE_AFTER_MINUTES = 90;
+const DEFAULT_INCREMENTAL_DAILY_AT = '08:00';
+const DEFAULT_STALE_AFTER_MINUTES = 26 * 60;
 const DEFAULT_TIME_ZONE = 'Asia/Shanghai';
 const DEFAULT_RECEIPT_PATH = '.rag/knowledge-refresh/latest.json';
 
@@ -30,10 +29,10 @@ export async function readKnowledgeRefreshStatus(
   const env = options.env ?? process.env;
   const enabled = parseEnabled(env.KNOWLEDGE_AUTO_REFRESH_ENABLED);
   const schedule = {
-    fullDailyAt: parseDailyTime(env.KNOWLEDGE_AUTO_REFRESH_FULL_DAILY_AT),
-    incrementalEveryMinutes: parsePositiveInteger(
-      env.KNOWLEDGE_AUTO_REFRESH_INCREMENTAL_MINUTES,
-      DEFAULT_INCREMENTAL_INTERVAL_MINUTES,
+    fullMode: 'manual' as const,
+    incrementalDailyAt: parseDailyTime(
+      env.KNOWLEDGE_AUTO_REFRESH_INCREMENTAL_DAILY_AT,
+      DEFAULT_INCREMENTAL_DAILY_AT,
     ),
     timeZone: normalizeOptionalText(env.KNOWLEDGE_AUTO_REFRESH_TIME_ZONE) ?? DEFAULT_TIME_ZONE,
   };
@@ -123,11 +122,11 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function parseDailyTime(value: string | undefined): string {
+function parseDailyTime(value: string | undefined, fallback: string): string {
   const normalized = normalizeOptionalText(value);
   return normalized !== undefined && /^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(normalized)
     ? normalized
-    : DEFAULT_FULL_DAILY_AT;
+    : fallback;
 }
 
 function normalizeOptionalText(value: string | undefined): string | undefined {

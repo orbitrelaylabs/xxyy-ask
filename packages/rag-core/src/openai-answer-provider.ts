@@ -61,7 +61,8 @@ interface AnswerExecution {
 const GROUNDED_INTENTS = new Set(['product_qa', 'how_to']);
 const DEFAULT_MAX_RETRIES = 1;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
-const OPENAI_ANSWER_PROMPT_VERSION = 'answer-v3';
+const MAX_ANSWER_TOKENS = 360;
+const OPENAI_ANSWER_PROMPT_VERSION = 'answer-v4';
 
 export class LlmConfigurationError extends Error {}
 
@@ -148,7 +149,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
 
       if (input.retrievedChunks.length === 0) {
         return {
-          answer: `当前知识库没有找到与「${input.question}」直接相关的资料。为了避免误导，我不能编造产品细节。`,
+          answer: `暂未找到与「${input.question}」直接相关的资料。请补充具体功能名或模块。`,
           citations: [],
           confidence: 0.25,
           intent: input.classification.intent,
@@ -290,7 +291,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
 
       if (input.retrievedChunks.length === 0) {
         yield* streamStaticAnswer({
-          answer: `当前知识库没有找到与「${input.question}」直接相关的资料。为了避免误导，我不能编造产品细节。`,
+          answer: `暂未找到与「${input.question}」直接相关的资料。请补充具体功能名或模块。`,
           citations: [],
           confidence: 0.25,
           intent: input.classification.intent,
@@ -530,6 +531,7 @@ function createChatCompletionBody(
         role: 'user',
       },
     ],
+    max_tokens: MAX_ANSWER_TOKENS,
     model,
     ...(stream ? { stream: true } : {}),
     temperature: 0,
@@ -703,7 +705,9 @@ function systemPrompt(): string {
     '如果知识库片段提供“标准客服回答”，优先使用该标准回答，不要混入其他来源扩展步骤。',
     '对于“是否支持/当前支持”类问题，必须确认片段直接提到用户询问的对象；没有直接证据时只回答“当前知识库没有明确说明”，不要引用弱相关功能。',
     '回答前检查知识库中与用户问题直接相关的配置项、限制、数量、条件或步骤；不要遗漏与用户问题直接相关的配置项、限制、数量、条件或步骤。',
-    '回答使用简洁中文。先给结论；操作类问题再给必要步骤。',
+    '回答使用简洁中文并直接作答，不要复述问题，不要写“根据知识库”“希望对你有帮助”等套话。',
+    '简单事实或是否支持类问题用 1 至 2 句；操作或清单类问题先给结论，再列最多 5 个必要要点。',
+    '只回答用户问到的维度；不要扩展产品宣传、使用建议、市场判断或未被询问的相关功能。',
     '不要在正文粘贴原始 Markdown 表格、URL 列表、推文 ID 串或大段无关清单。',
     '不要在正文中伪造来源编号；来源由系统单独返回。',
   ].join('\n');

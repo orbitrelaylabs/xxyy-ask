@@ -98,8 +98,9 @@ Compose 将该回执目录以只读方式挂载到 API 和 Telegram 容器。
 
 对于当前单人维护阶段：
 
-- 每 15–30 分钟运行一次增量 `pnpm rag:refresh`；
-- 每天或每周在低峰期运行一次 `pnpm rag:refresh -- --full`，频率取决于官网和媒体变更量；
+- 当前部署按 `Asia/Shanghai` 每日 08:00 运行一次增量 `pnpm rag:refresh`；
+- 全量更新不配置定时任务，只在官网/媒体结构显著变化、发布前重建或明确需要时手动运行
+  `pnpm rag:refresh -- --full`；
 - 调度器把非零退出视为失败并通知维护者；
 - 监控 `latest.json` 的 `status`、`finishedAt` 和预期新鲜度；
 - 全量 Job 前确认工作区可写、Postgres 已备份且 embedding 配置稳定；

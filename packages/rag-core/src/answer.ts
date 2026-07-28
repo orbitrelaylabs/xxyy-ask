@@ -1,7 +1,12 @@
 import type { ChatAttachment, ChatResponse, Citation, Classification, Intent } from '@xxyy/shared';
 import { tokenize } from '@xxyy/knowledge';
 
-import { isHistoricalOrTweetQuestion, type RetrievedChunk } from './retrieve.js';
+import {
+  createRetrieveQueryTokens,
+  createSemanticRetrieveQuery,
+  isHistoricalOrTweetQuestion,
+  type RetrievedChunk,
+} from './retrieve.js';
 import {
   hasUsableKnowledgeText,
   sanitizeRetrievedKnowledgeChunk,
@@ -19,7 +24,9 @@ const MAX_CITATIONS = 3;
 const MAX_ATTACHMENTS = 4;
 const MAX_STRUCTURED_GROUNDING_CHUNKS = 4;
 const MAX_EXCERPT_LENGTH = 220;
-const MAX_ANSWER_EVIDENCE_LENGTH = 600;
+const MAX_ANSWER_EVIDENCE_LENGTH = 260;
+const MAX_FALLBACK_ANSWER_LENGTH = 380;
+const MAX_FALLBACK_EVIDENCE_CHUNKS = 4;
 const ANSWER_STOP_TOKENS = new Set([
   'xxyy',
   '什么',
@@ -52,7 +59,7 @@ export function createGroundedAnswer(
 
   if (retrievedChunks.length === 0) {
     return {
-      answer: `暂时没有找到与「${question}」直接相关的知识库内容。为了避免误导，我不能基于缺失资料补充产品细节；可以换一种问法，或提供更具体的功能名称。`,
+      answer: `暂未找到与「${question}」直接相关的资料。请补充具体功能名或模块。`,
       intent: classification.intent,
       citations: [],
       confidence: 0.25,
@@ -64,10 +71,25 @@ export function createGroundedAnswer(
     return createInsufficientKnowledgeAnswer(question, classification.intent);
   }
 
-  const citations = createCitationsForQuestion(question, groundingChunks);
-  const answerEvidence = groundingChunks.map((chunk) =>
-    createRelevantExcerpt(question, chunk.text, MAX_ANSWER_EVIDENCE_LENGTH),
+  const fallbackEvidenceChunks = selectFallbackEvidenceChunks(question, groundingChunks);
+  const perChunkEvidenceLength = Math.min(
+    MAX_ANSWER_EVIDENCE_LENGTH,
+    Math.floor(MAX_FALLBACK_ANSWER_LENGTH / Math.max(1, fallbackEvidenceChunks.length)),
   );
+  const answerEvidence = fallbackEvidenceChunks
+    .map((chunk) =>
+      formatFallbackEvidence(
+        question,
+        withFallbackEvidenceDate(
+          question,
+          chunk,
+          cleanEvidenceSentence(
+            createRelevantExcerpt(question, chunk.text, perChunkEvidenceLength),
+          ),
+        ),
+      ),
+    )
+    .filter((evidence) => evidence.length > 0);
   const standardSupportAnswer = isSupportQuestionText(question)
     ? groundingChunks
         .map((chunk) => extractStandardCustomerAnswer(chunk.text))
@@ -78,20 +100,38 @@ export function createGroundedAnswer(
     : undefined;
   const supportConclusion =
     standardSupportAnswer ?? createSupportConclusion(question, groundingChunks);
+  const answerChunks = supportConclusion === undefined ? fallbackEvidenceChunks : groundingChunks;
+  const citations = createCitationsForQuestion(question, answerChunks);
+  const evidenceAnswer = truncateAnswerText(
+    answerEvidence.join(isStructuredAnswerQuestion(question) ? '\n' : ' '),
+    MAX_FALLBACK_ANSWER_LENGTH,
+  );
   const answerPrefix =
-    classification.intent === 'how_to' ? '根据知识库，可以按这些信息操作：' : '根据知识库，';
+    classification.intent === 'how_to'
+      ? `操作要点：${evidenceAnswer.includes('\n') ? '\n' : ''}`
+      : '';
+  const structuredSubjectPrefix =
+    isStructuredAnswerQuestion(question) &&
+    fallbackEvidenceChunks.length > 1 &&
+    fallbackEvidenceChunks.every(
+      (chunk) => chunk.metadata.title === fallbackEvidenceChunks[0]?.metadata.title,
+    )
+      ? `${fallbackEvidenceChunks[0]?.metadata.title}：\n`
+      : '';
 
   return withOptionalAttachments(
     {
-      answer: supportConclusion ?? `${answerPrefix}${answerEvidence.join(' ')}`,
+      answer:
+        supportConclusion ??
+        `${answerPrefix}${structuredSubjectPrefix}${evidenceAnswer.length > 0 ? evidenceAnswer : insufficientKnowledgeText(question)}`,
       intent: classification.intent,
       citations,
       confidence: calculateGroundedConfidence(
         classification.confidence,
-        groundingChunks[0]?.score ?? 0,
+        answerChunks[0]?.score ?? 0,
       ),
     },
-    createAttachmentsFromChunks(groundingChunks),
+    createAttachmentsFromChunks(answerChunks),
   );
 }
 
@@ -171,7 +211,11 @@ export function selectGroundingChunks(
   const standardAnswerChunk = highRankedChunks.find(
     (chunk) => /标准客服回答：/u.test(chunk.text) && standardAnswerMatchesQuestion(chunk, question),
   );
-  if (standardAnswerChunk !== undefined && !requiresMultipleGroundingSources(question)) {
+  if (
+    standardAnswerChunk !== undefined &&
+    !requiresMultipleGroundingSources(question) &&
+    !requiresDetailedOperationalEvidence(question)
+  ) {
     return [standardAnswerChunk];
   }
 
@@ -523,7 +567,7 @@ function isDirectSourceQuestion(question: string): boolean {
 function requiresMultipleGroundingSources(question: string): boolean {
   return (
     /比较|对比|区别|分别|同时|以及|与|\bcompare\b|\bversus\b|\bvs\b/iu.test(question) ||
-    /(?:权益|功能|设置|上限|限制|管理).+和.+(?:权益|功能|设置|上限|限制|管理)/u.test(question)
+    /(?:权益|功能|设置|上限|限制|管理).*和.*(?:权益|功能|设置|上限|限制|管理)/u.test(question)
   );
 }
 
@@ -745,7 +789,7 @@ function splitEvidenceSentences(text: string): string[] {
 
 function cleanEvidenceSentence(sentence: string): string {
   return sentence
-    .replace(/\[[^\]]+\]\(([^)\s]+)\)/gu, '$1')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/gu, '$1')
     .replace(/https?:\/\/\S+/giu, '')
     .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F]/gu, '')
     .replace(/^[\s\-*•|]+/gu, '')
@@ -935,6 +979,98 @@ function createExcerpt(text: string): string {
   return `${compact.slice(0, MAX_EXCERPT_LENGTH - 1)}…`;
 }
 
+function selectFallbackEvidenceChunks(
+  question: string,
+  chunks: RetrievedChunk[],
+): RetrievedChunk[] {
+  const firstChunk = chunks[0];
+  if (firstChunk === undefined) {
+    return [];
+  }
+  const authoredAlternative =
+    firstChunk.metadata.sourceUrl === undefined || isAuthoredOfficialKnowledgeChunk(firstChunk)
+      ? undefined
+      : chunks.find(
+          (chunk) =>
+            chunk.metadata.sourceUrl === firstChunk.metadata.sourceUrl &&
+            isAuthoredOfficialKnowledgeChunk(chunk),
+        );
+  const anchor = authoredAlternative ?? firstChunk;
+  const ordered = [anchor, ...chunks.filter((chunk) => chunk.id !== anchor.id)];
+
+  if (
+    isDirectSourceQuestion(question) ||
+    (extractStandardCustomerAnswer(anchor.text) !== undefined &&
+      standardAnswerMatchesQuestion(anchor, question) &&
+      !requiresMultipleGroundingSources(question))
+  ) {
+    return [anchor];
+  }
+
+  if (isStructuredAnswerQuestion(question) && !requiresMultipleGroundingSources(question)) {
+    const sameDocumentChunks = ordered.filter((chunk) => chunk.documentId === anchor.documentId);
+    if (
+      sameDocumentChunks.length > 1 &&
+      (!isAuthoredOfficialKnowledgeChunk(anchor) ||
+        /各自|分别|每个|作用|做什么|干什么|区域|部分|模块/u.test(question))
+    ) {
+      return sameDocumentChunks.slice(0, MAX_FALLBACK_EVIDENCE_CHUNKS);
+    }
+    if (isAuthoredOfficialKnowledgeChunk(anchor)) {
+      return [anchor];
+    }
+    return ordered.slice(0, 2);
+  }
+
+  if (requiresMultipleGroundingSources(question)) {
+    const selected: RetrievedChunk[] = [];
+    const seenScopes = new Set<string>();
+    for (const chunk of ordered) {
+      const scope = fallbackEvidenceScopeKey(chunk);
+      if (seenScopes.has(scope)) {
+        continue;
+      }
+      seenScopes.add(scope);
+      selected.push(chunk);
+      if (selected.length >= MAX_FALLBACK_EVIDENCE_CHUNKS) {
+        break;
+      }
+    }
+    return selected;
+  }
+
+  const sameDocumentChunks = ordered.filter((chunk) => chunk.documentId === anchor.documentId);
+  return sameDocumentChunks.slice(0, MAX_FALLBACK_EVIDENCE_CHUNKS);
+}
+
+function isAuthoredOfficialKnowledgeChunk(chunk: RetrievedChunk): boolean {
+  return (
+    chunk.metadata.sourceType === 'official_docs' &&
+    !chunk.metadata.file.replaceAll('\\', '/').includes('/enriched/')
+  );
+}
+
+function fallbackEvidenceScopeKey(chunk: RetrievedChunk): string {
+  return chunk.metadata.sourceUrl ?? chunk.documentId;
+}
+
+function withFallbackEvidenceDate(
+  question: string,
+  chunk: RetrievedChunk,
+  evidence: string,
+): string {
+  const publicationDate = chunk.metadata.effectiveAt?.slice(0, 10);
+  if (
+    publicationDate === undefined ||
+    evidence.includes(publicationDate) ||
+    (!isHistoricalOrTweetQuestion(question) &&
+      !/什么时候|何时|哪年|哪月|哪天|开放时间|发布时间|发布日期/u.test(question))
+  ) {
+    return evidence;
+  }
+  return `${publicationDate}：${evidence}`;
+}
+
 function createRelevantExcerpt(
   question: string,
   text: string,
@@ -946,7 +1082,7 @@ function createRelevantExcerpt(
   }
 
   const segments = text
-    .split(/\n{2,}|\n(?=\s*[-*]\s+)|(?<=[。！？!?])\s+/u)
+    .split(/\n+|(?<=[。！？!?；;])\s*/u)
     .map((segment) => segment.replace(/\s+/gu, ' ').trim())
     .filter((segment) => segment.length > 0);
   if (segments.length <= 1) {
@@ -1004,10 +1140,47 @@ function truncateExcerpt(text: string, maximumLength: number): string {
   return `${compact.slice(0, maximumLength - 1)}…`;
 }
 
+function truncateAnswerText(text: string, maximumLength: number): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maximumLength) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, maximumLength - 1).trimEnd()}…`;
+}
+
+function formatFallbackEvidence(question: string, text: string): string {
+  if (!isStructuredAnswerQuestion(question)) {
+    return text.replace(/\s+\*\s+/gu, '；');
+  }
+
+  const fieldLabel =
+    '(?:社交媒体|创建时间(?:（分钟）)?|市值|Dev Buy金额|Dev Sell金额|Holder人数|钱包交易类型|最小买入金额|最小卖出金额|是否开启推送|仅推送Pump交易|买入价值(?:（Invested）)?|卖出价值(?:（Sold）)?|剩余价值(?:（Remaining）)?|盈亏倍率(?:（Change in P\\\\&L）)?)';
+  const withBreaks = text
+    .replace(/\s+\*\s+/gu, '\n')
+    .replace(new RegExp(`\\s+(?=${fieldLabel}[：:])`, 'gu'), '\n');
+  const lines = withBreaks
+    .split(/\n+/u)
+    .map((line) => line.replace(/^[-*•]\s*/u, '').trim())
+    .filter((line) => line.length > 0);
+  if (lines.length < 2) {
+    return text.replace(/\s+\*\s+/gu, '；');
+  }
+
+  if (
+    lines.length > 1 &&
+    /事半功倍|快人一步|神器|赚钱|胜率|福利|立即体验|欢迎/u.test(lines[0] ?? '')
+  ) {
+    lines.shift();
+  }
+
+  return lines.map((line) => `- ${line}`).join('\n');
+}
+
 function meaningfulAnswerTokens(question: string): string[] {
   return Array.from(
     new Set(
-      tokenize(question).filter(
+      createRetrieveQueryTokens(question).filter(
         (token) =>
           !ANSWER_STOP_TOKENS.has(token) &&
           (/^[a-z0-9][a-z0-9_-]*$/u.test(token) || token.length === 2),
@@ -1038,7 +1211,19 @@ function evidenceSegmentScore(segment: string, queryTokens: string[], question: 
 }
 
 function isStructuredAnswerQuestion(question: string): boolean {
-  return /什么|哪些|哪几|有什么|多少|字段|参数|选项|包括|列表|区域|类型|条件/u.test(question);
+  return /什么(?!时候)|哪些|哪几|有什么|有啥|啥|多少|字段|参数|选项|包括|列表|区域|类型|条件/u.test(
+    question,
+  );
+}
+
+function requiresDetailedOperationalEvidence(question: string): boolean {
+  return /具体步骤|第[一二三四五六七八九十\d]+步|iphone|safari|分享按钮|二维码|验证码|add\s+to\s+home\s+screen|添加到主屏幕/iu.test(
+    question,
+  );
+}
+
+function shouldPreferAuthoredTitleAnchor(question: string): boolean {
+  return /哪些|哪几|有什么|有啥|啥|字段|参数|选项|包括|列表|区域|类型|条件/u.test(question);
 }
 
 function isInstallationOrSetupQuestion(question: string): boolean {
@@ -1056,18 +1241,25 @@ function selectStructuredGroundingChunks(
     return [];
   }
   const queryTokens = meaningfulAnswerTokens(question);
-  const titleMatchedAnchor = chunks
-    .filter((chunk) => titleMatchesQuestion(chunk.metadata.title, question))
-    .map((chunk) => ({
-      chunk,
-      score:
-        groundingEvidenceStrength(chunk, question, queryTokens, undefined) +
-        reciprocalGroundingRank(chunk.rank),
-    }))
-    .sort(
-      (left, right) => right.score - left.score || left.chunk.rank - right.chunk.rank,
-    )[0]?.chunk;
-  const anchorChunk = titleMatchedAnchor ?? firstChunk;
+  const preferredAuthoredAnchor = shouldPreferAuthoredTitleAnchor(question)
+    ? chunks.find(
+        (chunk) =>
+          isAuthoredOfficialKnowledgeChunk(chunk) &&
+          titleMatchesQuestion(chunk.metadata.title, question),
+      )
+    : undefined;
+  const anchorChunk =
+    preferredAuthoredAnchor ??
+    chunks
+      .map((chunk) => ({
+        chunk,
+        score:
+          groundingEvidenceStrength(chunk, question, queryTokens, undefined) +
+          reciprocalGroundingRank(chunk.rank) * 2,
+      }))
+      .sort((left, right) => right.score - left.score || left.chunk.rank - right.chunk.rank)[0]
+      ?.chunk ??
+    firstChunk;
   const anchorDocumentId =
     chunks.filter((chunk) => chunk.documentId === anchorChunk.documentId).length > 1
       ? anchorChunk.documentId
@@ -1084,12 +1276,14 @@ function selectStructuredGroundingChunks(
       ? []
       : scored.filter((candidate) => candidate.chunk.documentId === anchorDocumentId);
   if (sameDocumentCandidates.length > 0 && !requiresMultipleGroundingSources(question)) {
-    return [
-      anchorChunk,
-      ...sameDocumentCandidates
-        .sort((left, right) => right.score - left.score || left.chunk.rank - right.chunk.rank)
-        .map((candidate) => candidate.chunk),
-    ].slice(0, MAX_STRUCTURED_GROUNDING_CHUNKS);
+    const orderedSameDocumentChunks = sameDocumentCandidates
+      .sort((left, right) => right.score - left.score || left.chunk.rank - right.chunk.rank)
+      .map((candidate) => candidate.chunk);
+    return (
+      /功能目录页|具体说明见/u.test(anchorChunk.text)
+        ? orderedSameDocumentChunks
+        : [anchorChunk, ...orderedSameDocumentChunks]
+    ).slice(0, MAX_STRUCTURED_GROUNDING_CHUNKS);
   }
   const remaining = scored
     .sort((left, right) => {
@@ -1111,12 +1305,31 @@ function groundingEvidenceStrength(
   const titleMatch = titleMatchesQuestion(chunk.metadata.title, question) ? 2 : 0;
   const evidenceTokens = new Set(tokenize(chunk.text));
   const contentMatches = queryTokens.filter((token) => evidenceTokens.has(token)).length;
-  if (titleMatch === 0 && contentMatches === 0) {
+  const isRequestedSiblingSection =
+    anchorDocumentId !== undefined &&
+    chunk.documentId === anchorDocumentId &&
+    /区域|部分|模块|各自|分别/u.test(question);
+  if (titleMatch === 0 && contentMatches === 0 && !isRequestedSiblingSection) {
     return 0;
   }
 
   const definitionBonus =
     /什么|区域|类型|分类|含义/u.test(question) && /是指|分为/u.test(chunk.text) ? 4 : 0;
+  const quantityAnswerBonus =
+    /多少|最多|上限|几条|几个|秒级/u.test(question) &&
+    /\d[\d,. ]*\s*(?:秒|个|条|种|项|钱包|地址|链)/u.test(chunk.text)
+      ? 6
+      : 0;
+  const timelineAnswerBonus =
+    /什么时候|何时|哪年|哪月|哪天|开放时间|发布时间|发布日期/u.test(question) &&
+    /(?:19|20)\d{2}(?:\s*年|[-/]\d{1,2})?/u.test(chunk.text)
+      ? 5
+      : 0;
+  const listAnswerBonus =
+    /哪些|哪几|有啥|啥|字段|参数|选项|列表|区域|类型|条件/u.test(question) &&
+    (chunk.text.match(/[、，,；;：:]|(?:^|\s)[-*]|\d+[.)、]/gu)?.length ?? 0) >= 2
+      ? 3
+      : 0;
   const documentCoherenceBonus =
     anchorDocumentId !== undefined && chunk.documentId === anchorDocumentId ? 4 : 0;
   return (
@@ -1124,12 +1337,17 @@ function groundingEvidenceStrength(
     contentMatches +
     evidenceSegmentScore(chunk.text, queryTokens, question) +
     definitionBonus +
+    quantityAnswerBonus +
+    timelineAnswerBonus +
+    listAnswerBonus +
     documentCoherenceBonus
   );
 }
 
 function titleMatchesQuestion(title: string, question: string): boolean {
-  const normalizedQuestion = normalizeForEvidenceMatch(question).replace(/\s+/gu, '');
+  const normalizedQuestion = normalizeForEvidenceMatch(
+    createSemanticRetrieveQuery(question),
+  ).replace(/\s+/gu, '');
   const normalizedTitle = normalizeForEvidenceMatch(title).replace(/\s+/gu, '');
   return normalizedTitle.length >= 2 && normalizedQuestion.includes(normalizedTitle);
 }
