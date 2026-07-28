@@ -785,7 +785,7 @@ describe('createTelegramBot', () => {
         chat: { id: 123 },
         from: { id: 456 },
         message_id: 1,
-        text: '检查这笔交易是否被夹',
+        text: '给我看产品功能截图',
       },
       update_id: 10,
     });
@@ -796,6 +796,62 @@ describe('createTelegramBot', () => {
       photo: 'https://ask.example.com/assets/xxyy-feature/example.png',
       replyToMessageId: 1,
     });
+  });
+
+  it('does not send promotional attachments for a factual product question', async () => {
+    const sendMessage = createSendMessageMock();
+    const sendPhoto = vi.fn(() => Promise.resolve());
+    const sendVideo = vi.fn(() => Promise.resolve());
+    const bot = createTelegramBot({
+      api: {
+        getUpdates: vi.fn(),
+        sendMessage,
+        sendPhoto,
+        sendVideo,
+      },
+      chatService: {
+        ask: vi.fn(() =>
+          Promise.resolve(
+            createResponse({
+              answer: '当前知识库没有明确说明返佣的具体到账时间。',
+              attachments: [
+                {
+                  kind: 'image',
+                  mediaType: 'image/jpeg',
+                  title: '@useXXYYio 更新 1997871585991229871 图片 1',
+                  url: 'https://pbs.twimg.com/media/rebate.jpg',
+                },
+                {
+                  kind: 'video',
+                  mediaType: 'text/html',
+                  title: '@useXXYYio 更新 2049204239633903983 视频 1',
+                  url: 'https://x.com/useXXYYio/status/2049204239633903983/video/1',
+                },
+              ],
+            }),
+          ),
+        ),
+      },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+    });
+
+    await bot.handleUpdate({
+      message: {
+        chat: { id: 123 },
+        message_id: 1,
+        text: 'XXYY 返佣到账时间是什么时候？',
+      },
+      update_id: 10,
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      chatId: 123,
+      parseMode: 'HTML',
+      replyToMessageId: 1,
+      text: '当前知识库没有明确说明返佣的具体到账时间。',
+    });
+    expect(sendPhoto).not.toHaveBeenCalled();
+    expect(sendVideo).not.toHaveBeenCalled();
   });
 
   it('sends local MP4 attachments through Telegram sendVideo', async () => {
@@ -935,14 +991,9 @@ describe('createTelegramBot', () => {
       chatId: 123,
       parseMode: 'HTML',
       replyToMessageId: 1,
-      text: [
-        'XXYY 支持跟单。',
-        '',
-        '<b>来源</b>',
-        '1. <b>XXYY X 历史推文产品更新汇总</b>',
-        '<code>docs/product-features/xxyy-x-updates.md</code>',
-        '跟单功能上线，支持 SOL、BSC、Base、ETH、X Layer、Plasma 六条链。',
-      ].join('\n'),
+      text: ['XXYY 支持跟单。', '', '<b>来源</b>', '1. <b>XXYY X 历史推文产品更新汇总</b>'].join(
+        '\n',
+      ),
     });
   });
 

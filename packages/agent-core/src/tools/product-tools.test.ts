@@ -100,18 +100,14 @@ describe('createProductTools', () => {
         },
         text: '标准客服回答：可以添加到桌面，和 App 体验差不多。演示视频：[添加到桌面演示](/assets/xxyy-add-to-home.mp4)',
       }),
-      createRetrievedChunk({
-        id: 'token-info',
-        text: '代币基本信息：合约地址、价格、流动性、市值、安全性数据。',
-      }),
     ]);
 
-    for (const tool of createProductTools({ config: { topK: 2 }, retriever: { retrieve } })) {
+    for (const tool of createProductTools({ config: { topK: 1 }, retriever: { retrieve } })) {
       registry.register(tool);
     }
 
     const result = (await registry.execute('search_product_docs', {
-      query: 'XXYY 有 APP 吗？',
+      query: 'XXYY 有 APP 吗？有添加到桌面的演示视频吗？',
     })) as { attachments?: unknown[]; citations: Array<{ title: string }> };
 
     expect(result.citations).toHaveLength(1);

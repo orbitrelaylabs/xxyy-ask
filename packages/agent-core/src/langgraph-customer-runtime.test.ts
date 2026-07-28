@@ -722,7 +722,7 @@ describe('createLangGraphCustomerRuntime', () => {
     const response = await createLangGraphCustomerRuntime({
       planner: createScriptedPlannerModel([
         {
-          input: { query: 'XXYY 有 APP 吗？' },
+          input: { query: 'XXYY 有 APP 吗？有添加到桌面的演示视频吗？' },
           kind: 'tool',
           reason: 'Search mobile app docs.',
           route: 'product_answer',
@@ -732,7 +732,7 @@ describe('createLangGraphCustomerRuntime', () => {
       registry,
     }).ask({
       channel: 'web',
-      message: 'XXYY 有 APP 吗？',
+      message: 'XXYY 有 APP 吗？有添加到桌面的演示视频吗？',
     });
 
     expect(response).toMatchObject({

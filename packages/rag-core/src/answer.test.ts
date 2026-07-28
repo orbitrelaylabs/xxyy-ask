@@ -127,7 +127,7 @@ describe('createGroundedAnswer', () => {
     expect(response.answer).toContain('\n- 是否开启推送');
   });
 
-  it('extracts video attachments from grounded product context', () => {
+  it('only returns grounded videos when the question asks for media or a visual operation', () => {
     const index = createFixtureIndex([
       {
         id: 'official_docs:mobile-app:chunk:0001',
@@ -140,9 +140,15 @@ describe('createGroundedAnswer', () => {
     const retrieved = retrieve('XXYY 有 APP 吗？', index);
 
     const response = createGroundedAnswer('XXYY 有 APP 吗？', productClassification, retrieved);
+    const visualResponse = createGroundedAnswer(
+      '怎么添加到桌面？',
+      productClassification,
+      retrieved,
+    );
 
     expect(response.answer).toContain('添加到桌面');
-    expect(response.attachments).toEqual([
+    expect(response.attachments).toBeUndefined();
+    expect(visualResponse.attachments).toEqual([
       {
         kind: 'video',
         mediaType: 'video/mp4',
@@ -170,10 +176,10 @@ describe('createGroundedAnswer', () => {
         ],
       },
     ]);
-    const retrieved = retrieve('Telegram 钱包监控怎么配置？', index);
+    const retrieved = retrieve('给我看 Telegram 钱包监控配置截图', index);
 
     const response = createGroundedAnswer(
-      'Telegram 钱包监控怎么配置？',
+      '给我看 Telegram 钱包监控配置截图',
       productClassification,
       retrieved,
     );
@@ -202,7 +208,7 @@ describe('createGroundedAnswer', () => {
     ];
 
     const response = createGroundedAnswer(
-      '钱包监控配置步骤是什么？',
+      '钱包监控有没有配置截图和演示视频？',
       productClassification,
       retrieved,
     );
@@ -246,14 +252,78 @@ describe('createGroundedAnswer', () => {
     expect(response.citations).toHaveLength(1);
     expect(response.citations[0]?.title).toBe('移动端桌面入口');
     expect(response.citations[0]?.excerpt).toBe('可以添加到桌面，和 App 体验差不多。');
-    expect(response.attachments).toEqual([
+    expect(response.attachments).toBeUndefined();
+  });
+
+  it('does not return promotional media for a factual rebate question', () => {
+    const retrieved = [
+      createRetrievedChunk({
+        attachments: [
+          {
+            kind: 'image',
+            mediaType: 'image/jpeg',
+            title: '@useXXYYio 更新 1997871585991229871 图片 1',
+            url: 'https://pbs.twimg.com/media/rebate.jpg',
+          },
+          {
+            kind: 'video',
+            mediaType: 'text/html',
+            title: '@useXXYYio 更新 2049204239633903983 视频 1',
+            url: 'https://x.com/useXXYYio/status/2049204239633903983/video/1',
+          },
+        ],
+        id: 'rebate-update',
+        sourceType: 'x_updates',
+        text: '最高享受 50% 返佣和 30% 返现。',
+        title: '返佣活动更新',
+      }),
+    ];
+    const response = createGroundedAnswer(
+      'XXYY 返佣到账时间是什么时候？',
+      productClassification,
+      retrieved,
+    );
+    const mediaResponse = createGroundedAnswer(
+      '给我看返佣相关的官方图文素材',
+      productClassification,
+      retrieved,
+    );
+
+    expect(response.attachments).toBeUndefined();
+    expect(mediaResponse.attachments).toEqual([
+      {
+        kind: 'image',
+        mediaType: 'image/jpeg',
+        title: 'XXYY 官方更新图片',
+        url: 'https://pbs.twimg.com/media/rebate.jpg',
+      },
       {
         kind: 'video',
-        mediaType: 'video/mp4',
-        title: '添加到桌面演示',
-        url: '/assets/xxyy-add-to-home.mp4',
+        mediaType: 'text/html',
+        title: 'XXYY 官方更新视频',
+        url: 'https://x.com/useXXYYio/status/2049204239633903983/video/1',
       },
     ]);
+  });
+
+  it('does not return media from a retrieved chunk that misses the requested topic', () => {
+    const response = createGroundedAnswer('XXYY 返佣有官方图片或视频吗？', productClassification, [
+      createRetrievedChunk({
+        attachments: [
+          {
+            kind: 'image',
+            mediaType: 'image/png',
+            title: '收藏截图',
+            url: '/assets/favorites.png',
+          },
+        ],
+        id: 'favorites-screenshot',
+        text: '在收藏页面可以查看已收藏的代币。',
+        title: '收藏：截图文字',
+      }),
+    ]);
+
+    expect(response.attachments).toBeUndefined();
   });
 
   it('returns a scoped standard customer answer verbatim for support questions', () => {
@@ -913,6 +983,7 @@ describe('createGroundedAnswer', () => {
 });
 
 function createRetrievedChunk(input: {
+  attachments?: RetrievedChunk['metadata']['attachments'];
   documentId?: string;
   effectiveAt?: string;
   id: string;
@@ -934,6 +1005,7 @@ function createRetrievedChunk(input: {
       headingPath: [input.title],
       module: input.title,
       sourceType: input.sourceType ?? 'official_docs',
+      ...(input.attachments === undefined ? {} : { attachments: input.attachments }),
       ...(input.status === undefined ? {} : { status: input.status }),
       title: input.title,
       ...(input.effectiveAt === undefined ? {} : { effectiveAt: input.effectiveAt }),

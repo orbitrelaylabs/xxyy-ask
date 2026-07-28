@@ -678,7 +678,7 @@ function FeedbackControls({
   );
 }
 
-function CitationList({ citations }: { citations: Citation[] }): ReactElement {
+export function CitationList({ citations }: { citations: Citation[] }): ReactElement {
   return (
     <div className="citation-list">
       {citations.map((citation, index) => (
@@ -689,15 +689,13 @@ function CitationList({ citations }: { citations: Citation[] }): ReactElement {
               <span className="citation-source">{citationSourceLabel(citation.sourceType)}</span>
             )}
           </div>
-          <div className="citation-meta">
-            {citation.sourceUrl === undefined ? (
-              citation.file
-            ) : (
+          {citation.sourceUrl === undefined ? null : (
+            <div className="citation-meta">
               <a href={citation.sourceUrl} rel="noreferrer" target="_blank">
-                {citation.file}
+                {citationSourceLinkLabel(citation.sourceType)}
               </a>
-            )}
-          </div>
+            </div>
+          )}
           <div className="citation-excerpt">{citation.excerpt}</div>
         </article>
       ))}
@@ -713,6 +711,16 @@ function citationSourceLabel(sourceType: NonNullable<Citation['sourceType']>): s
     return 'XXYY 官方 X 更新';
   }
   return 'XXYY 客服群审核知识';
+}
+
+function citationSourceLinkLabel(sourceType: Citation['sourceType']): string {
+  if (sourceType === 'official_docs') {
+    return '查看官方文档';
+  }
+  if (sourceType === 'x_updates') {
+    return '查看官方 X 更新';
+  }
+  return '查看原始来源';
 }
 
 export function AttachmentList({ attachments }: { attachments: Attachment[] }): ReactElement {

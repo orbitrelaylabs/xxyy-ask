@@ -1,12 +1,12 @@
 import type { ChatAttachment, ChatResponse, ChatStreamEvent, ChatTokenUsage } from '@xxyy/shared';
 
 import {
-  createAttachmentsFromChunks,
   createBoundaryAnswer,
   createCitationsForAnswer,
   createCitationsFromChunks,
   createGroundedAnswer,
   createInsufficientKnowledgeAnswer,
+  createQuestionRelevantAttachments,
   selectGroundingChunks,
   shouldUseDeterministicSupportAnswer,
 } from './answer.js';
@@ -166,7 +166,6 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
 
       const groundedInput = { ...input, retrievedChunks: groundingChunks };
       const preliminaryCitations = createCitationsFromChunks(groundingChunks);
-      const attachments = createAttachmentsFromChunks(groundingChunks);
       const packedContext = packKnowledgeContext(input.question, groundingChunks);
       const execution = await tracer.run(
         {
@@ -261,6 +260,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
             groundingValidation.supportedChunkIds,
           );
           const citations = createCitationsForAnswer(input.question, answer, citationChunks);
+          const attachments = createQuestionRelevantAttachments(input.question, citationChunks);
 
           return {
             groundingValidation,
@@ -315,7 +315,6 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
 
       const groundedInput = { ...input, retrievedChunks: groundingChunks };
       const preliminaryCitations = createCitationsFromChunks(groundingChunks);
-      const attachments = createAttachmentsFromChunks(groundingChunks);
       const packedContext = packKnowledgeContext(input.question, groundingChunks);
       yield* tracer.stream(
         {
@@ -415,6 +414,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
             streamedAnswer,
             citationChunks,
           );
+          const attachments = createQuestionRelevantAttachments(input.question, citationChunks);
           for (const delta of deltas) {
             yield { type: 'answer_delta', delta };
           }

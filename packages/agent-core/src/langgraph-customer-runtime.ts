@@ -11,6 +11,7 @@ import type {
 import {
   classifyQuestion,
   createBoundaryAnswer,
+  filterQuestionRelevantAttachments,
   createInsufficientKnowledgeAnswer,
   createSupportConclusionFromEvidence,
   hasProductDomainSignal,
@@ -1092,7 +1093,10 @@ function responseFromSearchEvidenceList(
     })
     .map((evidence) => evidence.output);
   const citations = uniqueCitations(outputs.flatMap((output) => output.citations));
-  const attachments = uniqueAttachments(outputs.flatMap((output) => output.attachments ?? []));
+  const attachments = filterQuestionRelevantAttachments(
+    question,
+    uniqueAttachments(outputs.flatMap((output) => output.attachments ?? [])),
+  );
   const excerpts = citations.map((citation) => citation.excerpt);
   const supportConclusion = createSupportConclusionFromEvidence(question, excerpts);
   const confidence = outputs.reduce((max, output) => Math.max(max, output.confidence), 0);

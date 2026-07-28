@@ -1,9 +1,9 @@
 import type { RagIndex } from '@xxyy/shared';
 import {
-  createAttachmentsFromChunks,
   createCitationsFromChunks,
   createLocalRetriever,
   createMetadataReranker,
+  createQuestionRelevantAttachments,
   createRerankingRetriever,
   loadRagConfig,
   sanitizeRetrievedKnowledgeChunk,
@@ -70,7 +70,7 @@ function createConfiguredRetriever(options: CreateProductSearchHandlerOptions): 
 
 function toProductSearchOutput(question: string, chunks: RetrievedChunk[]): ProductSearchOutput {
   const citationChunks = selectGroundingChunks(question, chunks);
-  const attachments = createAttachmentsFromChunks(citationChunks);
+  const attachments = createQuestionRelevantAttachments(question, citationChunks);
   const output: ProductSearchOutput = {
     ...(attachments.length === 0 ? {} : { attachments }),
     chunks: chunks.map(toOutputChunk),

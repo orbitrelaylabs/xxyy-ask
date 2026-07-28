@@ -166,6 +166,7 @@ describe('createTelegramApiClient', () => {
     expect(fetch).toHaveBeenNthCalledWith(1, 'https://telegram.test/bot123:abc/sendMessage', {
       body: JSON.stringify({
         chat_id: -100,
+        link_preview_options: { is_disabled: true },
         parse_mode: 'HTML',
         reply_parameters: { message_id: 11 },
         text: '<b>hello</b>',

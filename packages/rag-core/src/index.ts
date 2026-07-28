@@ -5,6 +5,8 @@ export {
 export type { AnswerQualityJudge } from './answer-quality-judge.js';
 export {
   createAttachmentsFromChunks,
+  createQuestionRelevantAttachments,
+  filterQuestionRelevantAttachments,
   createBoundaryAnswer,
   createCitationsForAnswer,
   createCitationsFromChunks,

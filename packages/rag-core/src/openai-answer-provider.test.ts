@@ -447,7 +447,7 @@ describe('createOpenAiAnswerProvider', () => {
         text: 'XXYY 可以添加到桌面，和 App 体验差不多。[添加到桌面演示](/assets/xxyy-add-to-home.mp4)',
       },
     ]);
-    const retrieved = retrieve('XXYY 有 APP 吗？', index);
+    const retrieved = retrieve('XXYY 有 APP 吗？有添加到桌面的演示视频吗？', index);
 
     const response = await provider.answer({
       classification: {
@@ -455,7 +455,7 @@ describe('createOpenAiAnswerProvider', () => {
         intent: 'product_qa',
         reason: 'product question',
       },
-      question: 'XXYY 有 APP 吗？',
+      question: 'XXYY 有 APP 吗？有添加到桌面的演示视频吗？',
       retrievedChunks: retrieved,
     });
 

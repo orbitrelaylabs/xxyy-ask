@@ -5,7 +5,7 @@ import {
   type ChatStreamEvent,
   type KnowledgeRefreshStatus,
 } from '@xxyy/shared';
-import type { ChatService } from '@xxyy/rag-core';
+import { filterQuestionRelevantAttachments, type ChatService } from '@xxyy/rag-core';
 
 export interface TelegramBotConfig {
   autoLearningContextMessages: number;
@@ -345,7 +345,14 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
 
       const response = await options.chatService.ask(request);
 
-      await sendChatResponse(options.api, chatId, response, options.config, message.message_id);
+      await sendChatResponse(
+        options.api,
+        chatId,
+        response,
+        request.message,
+        options.config,
+        message.message_id,
+      );
     });
   }
 
@@ -538,6 +545,7 @@ async function trySendStreamingChatResponse(options: {
       ...(metadata.attachments === undefined ? {} : { attachments: metadata.attachments }),
       ...(metadata.tokenUsage === undefined ? {} : { tokenUsage: metadata.tokenUsage }),
     },
+    options.request.message,
     options.config,
     options.replyToMessageId,
   );
@@ -616,11 +624,13 @@ async function sendChatResponse(
   api: Pick<TelegramApi, 'sendMessage' | 'sendPhoto' | 'sendVideo'>,
   chatId: number,
   response: ChatResponse,
+  question: string,
   config: Pick<TelegramBotConfig, 'publicBaseUrl'>,
   replyToMessageId?: number,
 ): Promise<void> {
+  const attachments = filterQuestionRelevantAttachments(question, response.attachments);
   const attachmentLines = attachmentFallbackLines(
-    response.attachments,
+    attachments,
     config.publicBaseUrl,
     api.sendVideo !== undefined,
   );
@@ -643,7 +653,7 @@ async function sendChatResponse(
     }
   }
 
-  for (const attachment of response.attachments ?? []) {
+  for (const attachment of attachments) {
     if (attachment.kind === 'video') {
       if (attachment.mediaType !== 'video/mp4' || api.sendVideo === undefined) {
         continue;
@@ -705,13 +715,12 @@ function telegramPlainTextCitationLines(citations: ChatResponse['citations']): s
   return [
     '',
     '来源',
-    ...citations.flatMap((citation, index) => [
-      `${index + 1}. ${telegramCitationSourcePrefix(citation)}${citation.title}${
-        citation.sourceUrl === undefined ? '' : ` ${citation.sourceUrl}`
-      }`,
-      citation.file,
-      citation.excerpt,
-    ]),
+    ...citations.map(
+      (citation, index) =>
+        `${index + 1}. ${telegramCitationSourcePrefix(citation)}${citation.title}${
+          citation.sourceUrl === undefined ? '' : ` ${citation.sourceUrl}`
+        }`,
+    ),
   ];
 }
 
@@ -723,11 +732,7 @@ function telegramCitationLines(citations: ChatResponse['citations']): string[] {
   return [
     '',
     '<b>来源</b>',
-    ...citations.flatMap((citation, index) => [
-      `${index + 1}. ${telegramCitationTitle(citation)}`,
-      `<code>${escapeHtml(citation.file)}</code>`,
-      escapeHtml(citation.excerpt),
-    ]),
+    ...citations.map((citation, index) => `${index + 1}. ${telegramCitationTitle(citation)}`),
   ];
 }
 

@@ -78,6 +78,30 @@ describe('AttachmentList', () => {
   });
 });
 
+describe('CitationList', () => {
+  it('shows a friendly official-source link without exposing the internal JSONL path', () => {
+    const markup = renderToStaticMarkup(
+      createElement(appModule.CitationList, {
+        citations: [
+          {
+            excerpt: '最高享受 50% 返佣和 30% 返现。',
+            file: 'docs/product-features/sources/usexxyyio-x-posts.jsonl',
+            sourceType: 'x_updates',
+            sourceUrl: 'https://x.com/useXXYYio/status/1997871585991229871',
+            title: 'XXYY 官方 X 更新',
+          },
+        ],
+      }),
+    );
+
+    expect(markup).toContain('查看官方 X 更新');
+    expect(markup).toContain('href=\"https://x.com/useXXYYio/status/1997871585991229871\"');
+    expect(markup).toContain('最高享受 50% 返佣和 30% 返现。');
+    expect(markup).not.toContain('jsonl');
+    expect(markup).not.toContain('docs/product-features/sources');
+  });
+});
+
 describe('KnowledgeRefreshBadge', () => {
   it('renders enabled scheduling and freshness state', () => {
     const markup = renderToStaticMarkup(

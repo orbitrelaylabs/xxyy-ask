@@ -76,6 +76,7 @@ export function createTelegramApiClient(options: CreateTelegramApiClientOptions)
     sendMessage(input) {
       return callTelegramMethod(fetchImpl, apiBaseUrl, options.botToken, 'sendMessage', {
         chat_id: input.chatId,
+        link_preview_options: { is_disabled: true },
         ...(input.parseMode === undefined ? {} : { parse_mode: input.parseMode }),
         ...(input.replyToMessageId === undefined
           ? {}

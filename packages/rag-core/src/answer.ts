@@ -27,6 +27,7 @@ const MAX_EXCERPT_LENGTH = 220;
 const MAX_ANSWER_EVIDENCE_LENGTH = 260;
 const MAX_FALLBACK_ANSWER_LENGTH = 380;
 const MAX_FALLBACK_EVIDENCE_CHUNKS = 4;
+const MAX_RELEVANT_ATTACHMENTS_PER_KIND = 1;
 const ANSWER_STOP_TOKENS = new Set([
   'xxyy',
   '什么',
@@ -131,7 +132,7 @@ export function createGroundedAnswer(
         answerChunks[0]?.score ?? 0,
       ),
     },
-    createAttachmentsFromChunks(answerChunks),
+    createQuestionRelevantAttachments(question, answerChunks),
   );
 }
 
@@ -463,6 +464,105 @@ export function createAttachmentsFromChunks(retrievedChunks: RetrievedChunk[]): 
   }
 
   return Array.from(byUrl.values());
+}
+
+export function createQuestionRelevantAttachments(
+  question: string,
+  retrievedChunks: RetrievedChunk[],
+): ChatAttachment[] {
+  const topicTokens = attachmentTopicTokens(question);
+  if (topicTokens.length === 0) {
+    return [];
+  }
+
+  const relevantChunks = retrievedChunks.filter((chunk) =>
+    attachmentEvidenceMatchesTopic(chunk, topicTokens),
+  );
+  return filterQuestionRelevantAttachments(question, createAttachmentsFromChunks(relevantChunks));
+}
+
+export function filterQuestionRelevantAttachments(
+  question: string,
+  attachments: ChatAttachment[] | undefined,
+): ChatAttachment[] {
+  const requestedKinds = requestedAttachmentKinds(question);
+  if (requestedKinds.size === 0 || attachments === undefined) {
+    return [];
+  }
+
+  const includedByKind = new Map<ChatAttachment['kind'], number>();
+  return attachments.flatMap((attachment) => {
+    if (!requestedKinds.has(attachment.kind)) {
+      return [];
+    }
+    const includedCount = includedByKind.get(attachment.kind) ?? 0;
+    if (includedCount >= MAX_RELEVANT_ATTACHMENTS_PER_KIND) {
+      return [];
+    }
+    includedByKind.set(attachment.kind, includedCount + 1);
+    return [{ ...attachment, title: friendlyAttachmentTitle(attachment) }];
+  });
+}
+
+function requestedAttachmentKinds(question: string): Set<ChatAttachment['kind']> {
+  const normalized = question.normalize('NFKC').toLowerCase();
+  const kinds = new Set<ChatAttachment['kind']>();
+  if (/图片|截图|图示|照片|配图|界面图|image|screenshot|photo/iu.test(normalized)) {
+    kinds.add('image');
+  }
+  if (
+    /视频|演示|录屏|录像|动图|video|demo/iu.test(normalized) ||
+    /添加到(?:手机)?桌面|添加到主屏幕|add\s+to\s+(?:the\s+)?home\s+screen/iu.test(normalized)
+  ) {
+    kinds.add('video');
+  }
+  if (/媒体|素材|图文/iu.test(normalized)) {
+    kinds.add('image');
+    kinds.add('video');
+  }
+  return kinds;
+}
+
+function attachmentTopicTokens(question: string): string[] {
+  const topicText = question
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\bxxyy\b/gu, ' ')
+    .replace(
+      /给我看|发给我|发一下|帮我找|请问|有没有|是否有|相关的?|官方|图片|截图|图示|照片|配图|界面图|视频|演示|录屏|录像|动图|媒体|素材|图文|哪里|在哪(?:里)?|怎么|如何|可以|有|吗|么|呢/gu,
+      ' ',
+    );
+  return Array.from(
+    new Set(
+      tokenize(topicText).filter(
+        (token) =>
+          !ANSWER_STOP_TOKENS.has(token) &&
+          (/^[a-z0-9][a-z0-9_-]*$/u.test(token) || token.length === 2),
+      ),
+    ),
+  );
+}
+
+function attachmentEvidenceMatchesTopic(chunk: RetrievedChunk, topicTokens: string[]): boolean {
+  const evidenceTokens = new Set(
+    tokenize(
+      [
+        chunk.metadata.title,
+        chunk.metadata.module,
+        ...chunk.metadata.headingPath,
+        chunk.text,
+        ...(chunk.metadata.attachments ?? []).map((attachment) => attachment.title),
+      ].join(' '),
+    ),
+  );
+  return topicTokens.some((token) => evidenceTokens.has(token));
+}
+
+function friendlyAttachmentTitle(attachment: ChatAttachment): string {
+  if (/@usexxyyio\s+更新\s+\d+\s+(?:视频|图片)\s*\d*|x\s*post\s+\d+/iu.test(attachment.title)) {
+    return attachment.kind === 'video' ? 'XXYY 官方更新视频' : 'XXYY 官方更新图片';
+  }
+  return attachment.title.replace(/：截图文字$/u, '截图');
 }
 
 function extractInlineMediaAttachments(text: string, fallbackTitle: string): ChatAttachment[] {
