@@ -1,8 +1,8 @@
-# MCP / Skill Capability Plane v0.4
+# MCP / Skill Capability Plane v0.5
 
 ## 当前状态
 
-Capability Plane 已完成产品检索的公开运行面接入，以及链上分析的内部受控接入，但没有扩大公开客服业务边界：
+Capability Plane 已完成产品检索、公开交易查询与证据受控的深度链上分析接入：
 
 - `packages/product-qa-mcp` 提供 `xxyy-product-support` MCP server/client。
 - MCP 只暴露只读 `search_product_docs`、`xxyy://skills/product-support` Resource 和 `xxyy_product_support` Prompt。
@@ -10,12 +10,14 @@ Capability Plane 已完成产品检索的公开运行面接入，以及链上分
 - Web/API、CLI 和 Telegram 的 LangGraph runtime 都通过同一条 Skill → MCP bridge 检索产品知识。
 - `packages/chain-analysis-mcp` 提供与产品域解耦的 `onchain-analysis` MCP server/client、`get_transaction`、`inspect_transaction`、`detect_sandwich`、capabilities/Skill Resources 与 Prompts。
 - `get_transaction` 解析六条内置链的 Explorer 链接或显式 network + transaction id，通过配置的 EVM/Solana RPC 查询；工具输入不接受 endpoint。
-- `skills/onchain-transaction-inspector` 和 `skills/evm-sandwich-detector` 默认禁止隐式调用；XXYY Chain Capability factory 只接受 `internal/(service|admin)` 或 `cli/admin`。
-- `pnpm onchain:mcp:dev` 自动读取根目录 `.env` 中必填的 `ONCHAIN_RPC_CONFIG_JSON`，可运行 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain 基础交易查询；`.env.example` 的免费公共 RPC 便利配置不启用 Sandwich。
+- `skills/onchain-transaction-inspector` 和 `skills/evm-sandwich-detector` 默认禁止外部 MCP host 隐式调用；XXYY 公开 composition 只为固定 `web/anonymous` 与 `telegram/service` 创建三项 Chain 工具的六条精确授权，内部 factory 仍只接受 `internal/(service|admin)` 或 `cli/admin`。
+- `pnpm onchain:mcp:dev` 自动读取根目录 `.env` 中必填的 `ONCHAIN_RPC_CONFIG_JSON`。`evm` / `solana` 配置基础快照，可选 `execution` 和 `mevObservation` 分别配置 trace/factory 与 archive/pool allowlist；`.env.example` 的免费公共 RPC 便利配置本身不启用 Sandwich。
+- `pnpm onchain:query` 是固定 `cli/admin` 的开发集成入口，实际执行 Tool → Skill → MCP 两层授权与 linked in-memory MCP protocol；生产环境失败关闭。
+- `pnpm onchain:query:production` 是固定 `cli/admin` 的生产内部查询入口，通过子进程 stdio 连接 readiness-gated composition；不读取 `.env`，门禁失败时不回退公共 RPC。
 - `pnpm chain:mcp:serve` 是 XXYY 的 production composition，只有在固定 data-plane manifest 和 canonical readiness lineage 当前有效时才启动，且每次调用继续检查 attestation 时间窗。
-- 交易哈希、Explorer、池子、链上取证、MEV、账户、订单、钱包余额和投资建议仍不开放。
+- 用户提供的公开交易引用基础查询、单笔 EVM inspection 和 allowlisted pool Sandwich/MEV 判断已开放；账户、订单、钱包余额、任意地址历史、地址归属、交易执行和投资建议仍不开放。
 
-Planner 的业务工具列表仍只有经过审查的 `search_product_docs`。MCP discovery、Resource 或 Skill 元数据不会自动注册工具，也不会自动生成 grant。
+Planner 的业务工具列表只包含经过审查且由 composition root 注册的 `search_product_docs` 与可选 `get_public_transaction`。公开交易引用先走确定性路由；MCP discovery、Resource 或 Skill 元数据不会自动注册工具，也不会自动生成 grant。
 
 ## 执行链
 
@@ -32,6 +34,12 @@ flowchart LR
   Server --> Retriever["Product RAG Retriever"]
   Skill --> Audit["redacted agent.capability trace"]
   MCP --> Audit
+
+  Runtime --> ChainTool["ToolRegistry: get_public_transaction"]
+  ChainTool --> ChainSkill["chain.skill.get | inspect | sandwich v0.3.0"]
+  ChainSkill --> ChainMCP["chain.mcp.get | inspect | sandwich v0.3.0"]
+  ChainMCP --> ChainClient["Linked MCP client"]
+  ChainClient --> RPC["Startup-allowlisted snapshot / trace / archive RPC"]
 
   Host["External MCP Host"] --> Stdio["stdio transport"]
   Stdio --> Server
@@ -65,7 +73,8 @@ flowchart LR
   Tool --> Skill["chain.skill.* v0.1.0"]
   Skill --> MCP["chain.mcp.* v0.1.0"]
   MCP --> Client["MCP Client"]
-  Client --> Server["onchain-analysis"]
+  Client --> Stdio["Child stdio transport"]
+  Stdio --> Server["onchain-analysis"]
   Server --> TimeGate["Per-call readiness window"]
   TimeGate --> Snapshot["Dual-provider snapshot"]
   TimeGate --> Execution["Dual-provider execution"]
@@ -84,6 +93,7 @@ flowchart LR
 ```bash
 pnpm onchain:mcp:dev
 pnpm chain:mcp:serve
+NODE_ENV=production pnpm onchain:query:production -- help
 ```
 
 `onchain:mcp:dev` 自动读取根目录 `.env` 中的 `ONCHAIN_RPC_CONFIG_JSON`，同名进程环境变量优先；该变量在所有 `NODE_ENV` 下都必填，运行时代码不包含 RPC endpoint 或开发/生产 Provider 分支。`.env.example` 提供六链公共 RPC 便利值，生产部署沿用同一 JSON 结构替换为托管 Provider。`chain:mcp:serve` 仍不读取项目 `.env`，并要求 deployment environment 显式提供独立 control DB、manifest/secret mount、instance identity，以及：
@@ -99,12 +109,12 @@ pnpm chain:mcp:serve
 | --------------------------------- | ------- | -------- | --------------- | ------------------------------------ | --------------- |
 | `product.skill.search_docs`       | `skill` | low      | `external_read` | `product.public`                     | 公开固定 bridge |
 | `product.mcp.search_docs`         | `mcp`   | low      | `external_read` | `product.public`                     | 不直接暴露      |
-| `chain.skill.get_transaction`     | `skill` | moderate | `external_read` | public EVM/Solana transaction        | 仅内部 factory  |
-| `chain.mcp.get_transaction`       | `mcp`   | moderate | `external_read` | public EVM/Solana transaction        | 不直接暴露      |
-| `chain.skill.inspect_transaction` | `skill` | moderate | `external_read` | public EVM transaction/execution     | 仅内部 factory  |
-| `chain.mcp.inspect_transaction`   | `mcp`   | moderate | `external_read` | public EVM transaction/execution     | 不直接暴露      |
-| `chain.skill.detect_sandwich`     | `skill` | moderate | `external_read` | public EVM transaction/execution/MEV | 仅内部 factory  |
-| `chain.mcp.detect_sandwich`       | `mcp`   | moderate | `external_read` | public EVM transaction/execution/MEV | 不直接暴露      |
+| `chain.skill.get_transaction`     | `skill` | moderate | `external_read` | public EVM/Solana transaction        | 公开固定 bridge |
+| `chain.mcp.get_transaction`       | `mcp`   | moderate | `external_read` | public EVM/Solana transaction        | 公开间接授权    |
+| `chain.skill.inspect_transaction` | `skill` | moderate | `external_read` | public EVM transaction/execution     | 公开固定 bridge |
+| `chain.mcp.inspect_transaction`   | `mcp`   | moderate | `external_read` | public EVM transaction/execution     | 公开间接授权    |
+| `chain.skill.detect_sandwich`     | `skill` | moderate | `external_read` | public EVM transaction/execution/MEV | 公开固定 bridge |
+| `chain.mcp.detect_sandwich`       | `mcp`   | moderate | `external_read` | public EVM transaction/execution/MEV | 公开间接授权    |
 
 两项 Product 能力均固定为 `1.0.0`，单次 timeout 为 30 秒，最大 JSON 输出为 262144 bytes。六项 Chain 能力固定为 `0.3.0`；基础 transaction query 的 timeout/output 上限为 30 秒/524288 bytes，EVM transaction inspection 为 60 秒/524288 bytes，Sandwich 为 120 秒/1048576 bytes。它们都是只读 external read，不要求确认或幂等 key。Skill adapter 只能调用同一 Registry 内已授权的 MCP capability。
 
@@ -117,9 +127,9 @@ pnpm chain:mcp:serve
 | Telegram Bot     | `telegram` | `service`   |
 | 默认内部 runtime | `agent`    | `service`   |
 
-每个 runtime 只创建覆盖自身 channel/principal 的两条精确 grant。使用其它 channel、principal、source、version、side effect 或 data scope 会在解析业务输入前拒绝。
+产品 runtime 为产品 Skill/MCP 创建覆盖自身 channel/principal 的两条精确 grant。配置 `ONCHAIN_RPC_CONFIG_JSON` 时，Web 与 Telegram 另为三项 Chain 工具创建六条精确 grant。使用其它 channel、principal、source、version、side effect 或 data scope 会在解析业务输入前拒绝。
 
-XXYY Chain registry 不使用上表中的公开调用身份。它在 factory 构造时硬拒绝任何不属于 `internal/(service|admin)` 或 `cli/admin` 的 caller，并为三个 Skill/MCP 对创建六条仅覆盖该 caller 的 grant。公开 CustomerAgentRuntime 没有实例化该 registry，也没有把三个 Chain Tool 注册给 Planner。独立 MCP host 可以安装通用 Skills，但这不自动改变 XXYY 授权。
+XXYY 提供两个分离的 Chain registry factory：公开 factory 只接受 `web/anonymous` 或 `telegram/service`，内部 factory 只接受 `internal/(service|admin)` 或 `cli/admin`；两者都为三个 Skill/MCP 对创建六条仅覆盖固定 caller 的 grant。数据权限没有合并：公开查询只能使用启动时配置的公开链数据，生产深度 composition 继续由 readiness、Provider lineage、budget 和 pool allowlist 门禁。独立 MCP host 可以安装通用 Skills，但这不自动改变 XXYY 授权。
 
 ## MCP 与 Skill Surface
 
@@ -202,6 +212,6 @@ Product MCP handler 将配置类故障编码为稳定错误类别；进程内 cl
 
 Tool trace、Skill trace、MCP trace 和 RAG trace保持父子关系，便于定位失败层，同时不扩大明文日志。
 
-## 仍未开放的能力
+## 仍未开放或未就绪的能力
 
-通用 `onchain-analysis` MCP/Skills、六链基础 transaction query 与 XXYY 内部 Capability bridge 已实现。`pnpm onchain:mcp:dev` 可以用于开发和小规模验证，但公共免费 RPC 没有 SLA，不能作为 XXYY production readiness 证明。深度 Chain production composition 仍只有 synthetic/contract fixtures，没有真实 Provider credential、reviewed mainnet corpus、SLO/security/runbook evidence 或 canonical `ready` attestation，因此 `pnpm chain:mcp:serve` 在默认环境按设计失败关闭。XXYY Web/API/Telegram 继续拒绝交易与 MEV 请求；公开路由、回答编排、产品/安全/合规评审属于后续独立阶段。
+三项只读 Chain 工具已接入 Web/API/Telegram，但授权不等于数据就绪：`.env.example` 的公共免费 RPC 没有 SLA，默认没有 execution/archive/pool 配置，不能作为 trace 或 Sandwich 的 production readiness 证明。未配置时 inspection 只返回可验证的 transaction snapshot 并标明 trace 未提供，Sandwich 返回配置/池子提示；不得将其解释为 negative verdict。任意地址历史、地址归属、任意池发现、账户数据和交易执行仍不开放。`pnpm onchain:query:production` 只接入 readiness-gated stdio composition，不代表外部证据已经具备；深度 production composition 仍缺真实 Provider credential、reviewed mainnet corpus、SLO/security/runbook evidence 和 canonical `ready` attestation。

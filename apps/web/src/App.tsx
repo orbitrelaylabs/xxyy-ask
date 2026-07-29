@@ -332,8 +332,12 @@ function Sidebar({
             Pro 权益与更新日志
           </li>
           <li>
+            <span className="dot" />
+            公开交易、调用追踪与 MEV
+          </li>
+          <li>
             <span className="dot warn" />
-            不查询账户或交易记录
+            不查询账户或私有记录
           </li>
           <li>
             <span className="dot warn" />
@@ -757,9 +761,10 @@ function createWelcomeMessage(): ChatMessage {
     attachments: [],
     citations: [],
     id: 'welcome',
-    rawAnswer: '你好，我可以回答 XXYY 产品功能、Pro 权益、交易设置、钱包监控和更新日志相关问题。',
+    rawAnswer:
+      '你好，我可以回答 XXYY 产品功能、Pro 权益、交易设置、钱包监控和更新日志，也可以查询你提供的公开 Explorer 交易链接。',
     role: 'assistant',
-    text: '你好，我可以回答 XXYY 产品功能、Pro 权益、交易设置、钱包监控和更新日志相关问题。',
+    text: '你好，我可以回答 XXYY 产品功能、Pro 权益、交易设置、钱包监控和更新日志，也可以查询你提供的公开 Explorer 交易链接。',
   };
 }
 

@@ -4,7 +4,7 @@
 
 `@xxyy/evm-mev-observation-data-adapter` 是一个内部专用的只读 EVM 数据边界。它以启动时冻结的 chain、archive provider、Uniswap V2/V3 pool、排序 token、fee 和 exact-input route policy 为信任根，从精确目标交易构建同区块 pool swap neighborhood，并直接输出 `@xxyy/evm-price-impact-sandwich-core` 的输入。
 
-该包没有内置 RPC endpoint 或环境变量 loader；隔离的私有 data-plane composition root 可从 opaque secret mount 为它配置两个独立 archive provider 和共享控制，`onchain-analysis` MCP 的 `detect_sandwich` 在 readiness 门禁通过后消费其结果。`.env.example` 中用于基础交易查询的免费 RPC 便利配置不启用该能力。仓库没有真实 production credential/部署；API、Web、Telegram 和公开 LangGraph 仍不引用它，交易哈希、Explorer、池子查询、链上取证和 MEV 问题继续返回边界或澄清回复。私有接线路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
+该包没有内置 RPC endpoint 或环境变量 loader；通用 `ONCHAIN_RPC_CONFIG_JSON.mevObservation` 可在开发/小规模验证中显式配置 archive Provider 与 pool allowlist，隔离的私有 data-plane composition root 则从 opaque secret mount 配置两个独立 archive provider 和共享控制。`.env.example` 中用于基础交易查询的免费 RPC 便利配置不启用该能力。API、Web、Telegram 已授权 `detect_sandwich`，但 pool 未 allowlist、archive evidence 不完整或跨阶段锚点不闭合时必须澄清或 abstain。仓库仍没有真实 production credential/部署；生产接线路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
 
 ## 数据流与信任边界
 

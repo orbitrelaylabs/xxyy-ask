@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@xxyy/agent-core": "workspace:*",
     "@xxyy/chain-analysis-mcp": "workspace:*",
     "@xxyy/evm-data-adapter": "workspace:*",
     "@xxyy/evm-chain-analysis-control-store": "workspace:*",
@@ -21,6 +22,8 @@
   "scripts": {
     "mcp": "tsx src/mcp-stdio.ts",
     "mcp:dev": "tsx src/public-mcp-stdio.ts",
+    "query:dev": "tsx src/internal-query.ts",
+    "query:production": "tsx src/production-query.ts",
     "start": "tsx src/index.ts",
     "test": "vitest run src",
     "typecheck": "tsc --noEmit -p tsconfig.json"

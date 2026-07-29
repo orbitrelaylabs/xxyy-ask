@@ -2,11 +2,15 @@
 
 ## 当前状态
 
-`@xxyy/evm-execution-data-adapter` 是内部专用的公开链执行数据边界。它从启动时配置的 provider 获取 Geth `debug_traceTransaction` / `callTracer`，并在指定历史 block 上读取和验证 Uniswap V2/V3 pool metadata，输出可以直接交给 `@xxyy/evm-execution-enrichment-core` 的 `EvmCallTrace` 与 `EvmPoolMetadata`。
+`@xxyy/evm-execution-data-adapter` 是内部专用的公开链执行数据边界。它从启动时配置的 provider 获取 Geth `debug_traceTransaction` / `callTracer`，或从显式配置的 Blockscout v2 `raw-trace` 端点获取有界调用树；同时在指定历史 block 上读取和验证 Uniswap V2/V3 pool metadata，输出可以直接交给 `@xxyy/evm-execution-enrichment-core` 的 `EvmCallTrace` 与 `EvmPoolMetadata`。
 
-该包没有内置 endpoint 或环境变量 loader；隔离的私有 data-plane composition root 可从 opaque secret mount 为它配置双 provider 和共享控制，`onchain-analysis` MCP 在 readiness 门禁通过后消费其结果。基础开发 MCP 没有 trace/factory 配置时会安全跳过 execution enrichment。仓库没有真实 production credential/部署；API、Web、Telegram 和公开 LangGraph 仍不引用它。通用 MCP 存在不等于能力已在 XXYY 客服中开放。私有接线路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
+该包没有内置 endpoint 或环境变量 loader；通用 `ONCHAIN_RPC_CONFIG_JSON.execution` 可在开发/小规模验证中显式配置 Provider 与 factory allowlist，隔离的私有 data-plane composition root 则从 opaque secret mount 配置双 provider 和共享控制。基础配置没有 trace/factory 时会安全跳过 execution enrichment。API、Web、Telegram 已授权 `inspect_transaction` / `detect_sandwich`，但只消费 MCP 的有界投影，不能注入 endpoint、method、tracer 或 calldata。仓库仍没有真实 production credential/部署；生产深度接线路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
 
 现有 `@xxyy/evm-data-adapter` 的标准 RPC allowlist 仍保持 transaction、receipt、chain id 和 block 四个方法不变。执行数据使用独立包和独立 RPC call schema，避免把通用 `debug_*` 或任意 `eth_call` 权限加入基础 snapshot client。
+
+Blockscout trace source 只接受 HTTPS（测试可显式允许 loopback HTTP）、不接受 URL credential/query/fragment、不跟随重定向，并限制超时和响应大小。其 source kind 固定投影为 `explorer`，adapter 增加 `explorer_trace_partial_evidence`，enrichment 增加 `trace_source_partial`；即使调用树结构完整，最终状态也不会被提升为生产级 `success`。
+
+Swap 识别包含规范的 Uniswap V2、V3 和 V4 topic。V2/V3 只有完成 factory/token/fee/getPair|getPool 验证后才解码；V4 singleton 需要 PoolKey、Hook 与状态证据，当前只记录格式命中并以 `uniswap_v4_pool_key_not_configured` 降级，避免把 `PoolManager` 地址错误当成独立池地址。
 
 ## 数据流
 

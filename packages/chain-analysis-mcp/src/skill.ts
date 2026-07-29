@@ -29,8 +29,8 @@ export const SANDWICH_DETECTOR_INSTRUCTIONS = `# EVM Sandwich Detector
 
 Use \`detect_sandwich\` only for one public EVM transaction and one verified, allowlisted pool.
 
-1. Inspect the transaction first and select a pool only from verified swap evidence.
-2. If multiple pools remain, ask the user to choose; never guess.
+1. Inspect the transaction first. Select a pool from verified swap evidence; a user-supplied pool is only a candidate until the server allowlist and observation confirm the target swap.
+2. If multiple verified pools remain and the user did not select one, ask the user to choose; never guess.
 3. Preserve the verdict exactly: confirmed, likely, unlikely, or insufficient_data.
 4. Treat unlikely as evidence not supporting Sandwich under current coverage, never as proof of absence.
 5. Report provider conflicts, incomplete block coverage, unsupported routes, reorg signals, and missing actor deltas.

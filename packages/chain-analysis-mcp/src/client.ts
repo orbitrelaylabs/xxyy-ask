@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import {
   CHAIN_ANALYSIS_MCP_SERVER_NAME,
@@ -23,23 +24,69 @@ import { ChainAnalysisMcpToolError, decodeChainAnalysisMcpError } from './errors
 import { createChainAnalysisMcpServer } from './server.js';
 
 export interface CreateInMemoryChainAnalysisMcpClientOptions {
+  connectionTimeoutMs?: number;
   handler: ChainAnalysisHandler;
+}
+
+export interface CreateChainAnalysisMcpClientOptions {
+  connectionTimeoutMs?: number;
+  transport: Transport;
+}
+
+const DEFAULT_CONNECTION_TIMEOUT_MS = 15_000;
+
+export function createChainAnalysisMcpClient(
+  options: CreateChainAnalysisMcpClientOptions,
+): ChainAnalysisMcpClient {
+  return createProtocolClient({
+    ...(options.connectionTimeoutMs === undefined
+      ? {}
+      : { connectionTimeoutMs: options.connectionTimeoutMs }),
+    transport: options.transport,
+  });
 }
 
 export function createInMemoryChainAnalysisMcpClient(
   options: CreateInMemoryChainAnalysisMcpClientOptions,
 ): ChainAnalysisMcpClient {
   const server = createChainAnalysisMcpServer({ handler: options.handler });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  return createProtocolClient({
+    beforeConnect: () => server.connect(serverTransport),
+    closeAdditional: () => server.close(),
+    ...(options.connectionTimeoutMs === undefined
+      ? {}
+      : { connectionTimeoutMs: options.connectionTimeoutMs }),
+    transport: clientTransport,
+  });
+}
+
+interface CreateProtocolClientOptions {
+  beforeConnect?: () => Promise<void>;
+  closeAdditional?: () => Promise<void>;
+  connectionTimeoutMs?: number;
+  transport: Transport;
+}
+
+function createProtocolClient(options: CreateProtocolClientOptions): ChainAnalysisMcpClient {
   const client = new Client({
     name: `${CHAIN_ANALYSIS_MCP_SERVER_NAME}-agent-bridge`,
     version: CHAIN_ANALYSIS_MCP_VERSION,
   });
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   let closed = false;
-  const ready = (async () => {
-    await server.connect(serverTransport);
-    await client.connect(clientTransport);
-  })();
+  const connectionTimeoutMs = options.connectionTimeoutMs ?? DEFAULT_CONNECTION_TIMEOUT_MS;
+  if (!Number.isSafeInteger(connectionTimeoutMs) || connectionTimeoutMs <= 0) {
+    throw new RangeError('Chain-analysis MCP connection timeout must be a positive integer.');
+  }
+  const ready = withConnectionTimeout(
+    (async () => {
+      await options.beforeConnect?.();
+      await client.connect(options.transport);
+    })(),
+    connectionTimeoutMs,
+  );
+  void ready.catch(() => undefined);
 
   const call = async (
     name:
@@ -52,9 +99,9 @@ export function createInMemoryChainAnalysisMcpClient(
     if (closed) {
       throw new ChainAnalysisMcpToolError('tool_failure', 'Onchain-analysis MCP client is closed.');
     }
-    await ready;
     let result: Awaited<ReturnType<Client['callTool']>>;
     try {
+      await ready;
       result = await client.callTool(
         { arguments: input, name },
         undefined,
@@ -63,6 +110,9 @@ export function createInMemoryChainAnalysisMcpClient(
     } catch (error) {
       if (signal?.aborted === true) {
         throw new ChainAnalysisMcpToolError('request_aborted');
+      }
+      if (error instanceof ChainAnalysisMcpToolError) {
+        throw error;
       }
       throw new ChainAnalysisMcpToolError('tool_failure', undefined, { cause: error });
     }
@@ -81,8 +131,10 @@ export function createInMemoryChainAnalysisMcpClient(
         return;
       }
       closed = true;
-      await ready.catch(() => undefined);
-      await Promise.allSettled([client.close(), server.close()]);
+      await Promise.allSettled([
+        client.close(),
+        ...(options.closeAdditional === undefined ? [] : [options.closeAdditional()]),
+      ]);
     },
 
     async detectSandwich(input, requestOptions = {}) {
@@ -103,6 +155,20 @@ export function createInMemoryChainAnalysisMcpClient(
       );
     },
   };
+}
+
+async function withConnectionTimeout(connection: Promise<void>, timeoutMs: number): Promise<void> {
+  let timeout: NodeJS.Timeout | undefined;
+  const timedOut = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      reject(new ChainAnalysisMcpToolError('tool_timeout'));
+    }, timeoutMs);
+  });
+  try {
+    await Promise.race([connection, timedOut]);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function createChainAnalysisMcpClientStub(options: {

@@ -10,8 +10,8 @@ Use `detect_sandwich` only after identifying one verified swap pool for the targ
 ## Workflow
 
 1. Resolve the transaction with `get_transaction`, then inspect the EVM transaction with `inspect_transaction`.
-2. Select a pool only from its verified decoded swap evidence.
-3. If there are no verified pools, report insufficient evidence. If there are multiple pools, ask the user to choose; never guess.
+2. Select a pool from verified decoded swap evidence. A user-provided pool is only a candidate until the server allowlist and observation confirm that the target transaction swapped through it.
+3. If there are no verified pools and no user-provided candidate, report insufficient evidence. If there are multiple verified pools, ask the user to choose; never guess.
 4. Call `detect_sandwich` with `chainId`, `transactionHash`, and the selected `poolAddress`.
 5. Preserve the verdict exactly:
    - `confirmed`: complete evidence satisfies the deterministic Sandwich conditions.

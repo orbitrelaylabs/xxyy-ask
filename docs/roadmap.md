@@ -69,8 +69,8 @@
 
 ## Paused / Out of Scope
 
-- [ ] 链上 MCP / Skill 的生产与公开激活：内部 server/client、两个 Skills、精确 Capability factory 和 fail-closed stdio composition 已实现；真实 production readiness 通过前不能启动，Web/API/Telegram 仍不注册、不授权、不暴露。
-- [ ] 公开交易分析、池子查询和链上取证入口：当前客服入口只做知识库产品回答，相关问题进入边界/澄清回复；离线 EVM transaction/execution/MEV cores 和未接线 RPC data adapters 不扩大运行面。
+- [ ] 链上 MCP / Skill 的深度生产激活：`get_transaction` / `inspect_transaction` / `detect_sandwich` 已为固定 Web/Telegram caller 创建精确授权并完成确定性路由；真实 trace/archive Provider、reviewed corpus 与 canonical readiness 尚未提供，生产深度数据面继续 fail closed。
+- [x] 公开交易分析入口：客服入口已支持基础交易事实、单笔 EVM 调用追踪和 allowlisted pool Sandwich/MEV 四态判断；任意地址历史/归属、任意池发现、泛区块取证和写操作仍不扩大运行面。
 - [ ] 账户、订单、钱包余额、私有交易记录和投资建议：长期保持边界，不进入自动回答或自动操作链路。
 
 ## v0.2 RAG Trustworthiness
@@ -136,7 +136,7 @@
 - [x] Project Skill：`skills/xxyy-product-support` 定义检索、引用、证据不足和客服边界工作流，并声明同名 MCP 依赖。
 - [x] 显式 Agent bridge：生产 `search_product_docs` 依次执行 `product.skill.search_docs → product.mcp.search_docs`，两层都固定 source/version/data scope/channel/principal grant；Web/API、CLI、Telegram 共用该路径。
 - [x] Planner 隔离：MCP discovery 和 Skill 元数据不会自动注册工具，Planner 仍只看到审查过的 `search_product_docs`。
-- [x] 通用链上只读 MCP / Skills：MCP identity 已解耦为 `onchain-analysis`，提供 `get_transaction` / `inspect_transaction` / `detect_sandwich`；`onchain-transaction-inspector` 与 `evm-sandwich-detector` 默认不隐式调用。基础交易查询的内置网络与 XXYY 当前主站对齐为 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain，并继续支持配置其它 EVM chain id；XXYY bridge 仍只有内部/CLI admin grants，公开 Planner 不自动获得工具。
+- [x] 通用链上只读 MCP / Skills：MCP identity 已解耦为 `onchain-analysis`，提供 `get_transaction` / `inspect_transaction` / `detect_sandwich`；`onchain-transaction-inspector` 与 `evm-sandwich-detector` 默认不隐式调用。基础交易查询的内置网络与 XXYY 当前主站对齐为 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain，并继续支持配置其它 EVM chain id；XXYY bridge 为固定公开与内部 caller 分别创建六条精确 grant，MCP discovery 不自动扩权。
 - [ ] Chain MCP 生产激活：提供真实 Provider、governed mainnet corpus、operations evidence 与 canonical `ready` attestation，验证实际部署后再启动内部进程；公开客服接入另行评审。
 
 成功标准：产品检索实际穿过 MCP protocol 和 Skill/MCP 双层 Capability；未授权、版本漂移、来源/通道/数据范围不匹配和缺少确认/幂等的调用全部失败；超时、取消、超限与非 JSON 输出有稳定错误；当前客服边界和 Chat API 契约保持不变。详细设计见 [capability-plane.md](capability-plane.md)。
@@ -253,7 +253,7 @@
 
 ## v0.14a Reviewed Replay & Production Readiness Control Plane
 
-目标：不接入公开客服、不注册 Capability，先把公开主网样本治理和真实 provider 生产证据定义为可校验、fail-closed 的离线控制面。
+目标：在公开授权与生产数据面隔离的前提下，把公开主网样本治理和真实 provider 生产证据定义为可校验、fail-closed 的离线控制面。
 
 - [x] 定义 content-addressed intake 和确定性敏感信息扫描；reviewable payload 强制 public-chain、无 credential、无 private data，并用 scanner/source payload hash 固定证据。
 - [x] 实现 owner 复核、submitter/reviewer 分离、标签指纹、争议/拒绝/过期状态，以及 reviewer identity hash 和审核证据闭合；后续单 owner profile 将必需审核数收敛为一。

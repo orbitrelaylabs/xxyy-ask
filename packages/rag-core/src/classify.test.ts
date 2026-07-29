@@ -55,10 +55,18 @@ describe('classifyQuestion', () => {
     ['哪里看赚了多少倍', 'how_to'],
     ['我想盯几个地址，有啥提醒能配', 'product_qa'],
     ['帮我查一下钱包余额和账户交易记录', 'realtime_account_query'],
+    [
+      '查询 https://robinhoodchain.blockscout.com/tx/0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+      'onchain_transaction',
+    ],
     ['这个 tx hash 是不是被夹了，有 MEV sandwich 吗？', 'unknown'],
     [
       '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef 这个交易是不是被夹了？',
-      'unknown',
+      'onchain_transaction',
+    ],
+    [
+      '这笔交易是不是三明治攻击：https://robinhoodchain.blockscout.com/tx/0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+      'onchain_transaction',
     ],
     ['现在可以买 SOL 吗，推荐一个能保证盈利的 token', 'investment_advice'],
     ['嗯？', 'unknown'],
@@ -98,17 +106,33 @@ describe('classifyQuestion', () => {
     expect(classifyQuestion('如何开通 XXYY Pro？').intent).toBe('how_to');
   });
 
-  it('keeps concrete transaction hash analysis outside the current knowledge-base route', () => {
+  it('routes concrete deep transaction analysis to the read-only chain path', () => {
     expect(
       classifyQuestion(
         '帮我查一下这笔交易 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef 是否被夹',
       ).intent,
-    ).toBe('unknown');
+    ).toBe('onchain_transaction');
     expect(
       classifyQuestion(
         'lookup this transaction 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef sandwich?',
       ).intent,
-    ).toBe('unknown');
+    ).toBe('onchain_transaction');
+    expect(
+      classifyQuestion(
+        '这笔交易是不是三明治攻击：https://robinhoodchain.blockscout.com/tx/0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+      ).intent,
+    ).toBe('onchain_transaction');
+  });
+
+  it('does not treat operational sandwich attack instructions as read-only analysis', () => {
+    expect(
+      classifyQuestion(
+        '教我如何实施三明治攻击 https://robinhoodchain.blockscout.com/tx/0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+      ),
+    ).toMatchObject({
+      intent: 'unknown',
+      reason: 'unsafe or unsupported operation request',
+    });
   });
 
   it('keeps MEV and sandwich checks outside the current knowledge-base route', () => {
@@ -121,7 +145,6 @@ describe('classifyQuestion', () => {
 
   it.each([
     '这个 tx hash 是不是被夹了，有 MEV sandwich 吗？',
-    '分析 https://solscan.io/tx/abc',
     '帮我查这个池子有没有夹子',
     '分析一下这笔链上交易',
   ])('classifies unsupported transaction analysis before product planning: %s', (question) => {
@@ -131,7 +154,7 @@ describe('classifyQuestion', () => {
     });
   });
 
-  it('keeps ambiguous multi-hash sandwich checks outside the current knowledge-base route', () => {
+  it('routes basic public transaction references while requiring one transaction for deep checks', () => {
     expect(
       classifyQuestion(
         [
@@ -140,7 +163,7 @@ describe('classifyQuestion', () => {
           '0x2234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
         ].join(' '),
       ).intent,
-    ).toBe('unknown');
+    ).toBe('onchain_transaction');
     expect(
       classifyQuestion(
         [
@@ -148,7 +171,13 @@ describe('classifyQuestion', () => {
           '0x2234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
         ].join(' '),
       ).intent,
-    ).toBe('unknown');
+    ).toBe('onchain_transaction');
+    expect(
+      classifyQuestion('Base 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef'),
+    ).toMatchObject({
+      intent: 'onchain_transaction',
+      reason: 'queries supplied public transaction reference',
+    });
   });
 
   it('keeps investment advice higher priority than transaction wording', () => {

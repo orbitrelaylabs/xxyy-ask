@@ -37,7 +37,7 @@
 
 ## 当前系统
 
-当前项目是 XXYY 产品客服 Agentic RAG 系统，正式路径为 LangGraph JS + Postgres + pgvector + OpenAI-compatible embeddings/chat completion。公开运行面只保留知识库产品问答；Product MCP/Skill 已正式接入，Chain MCP/Skills 仅完成内部、readiness-gated 的受控接入，交易分析客服入口仍不开放。
+当前项目是 XXYY 产品客服 Agentic RAG 系统，正式路径为 LangGraph JS + Postgres + pgvector + OpenAI-compatible embeddings/chat completion。公开运行面提供知识库产品问答，以及用户明确提供交易引用后的基础查询、单笔 EVM inspection 和 allowlisted pool Sandwich/MEV 分析；Product MCP/Skill 与三项 Chain MCP/Skill 均已接入，深度生产数据仍受 readiness 门禁。
 
 - `packages/shared`：共享类型与聊天请求/响应契约。
 - `packages/knowledge`：产品文档加载、Markdown chunk、tokenize 和 embedding provider。

@@ -4,7 +4,7 @@
 
 `@xxyy/evm-chain-analysis-harness` 是不执行网络 I/O 的离线组合与评测包。它把已经归一化的 transaction snapshot、可选 execution trace/pool metadata、已经由受控 adapter 验证的 MEV observation，以及现有 price-impact/Sandwich core 组合成一个可重放 pipeline。
 
-该包定义 `chain.inspect_transaction` 与 `chain.detect_sandwich` 的最小 transport-neutral 请求和结构化结果；内部 `packages/chain-analysis-mcp` 已在包外提供 MCP Tool、Skill Resource 与精确 Capability bridge。harness 自身仍不注册 manifest/grant、不实例化 transport，也不进入公开 LangGraph/API/Telegram。公开客服对交易哈希、Explorer、池子、链上取证和 MEV 请求继续返回既有边界或澄清回复。
+该包定义 `chain.inspect_transaction` 与 `chain.detect_sandwich` 的最小 transport-neutral 请求和结构化结果；`packages/chain-analysis-mcp` 已在包外提供 MCP Tool、Skill Resource 与精确 Capability bridge。harness 自身仍不注册 manifest/grant、不实例化 transport，也不直接进入 LangGraph/API/Telegram；公开客服通过 Chain MCP 消费其有界投影，缺 transaction/execution/observation 锚点时按状态降级或拒绝。
 
 ## 设计目标
 

@@ -71,7 +71,7 @@ pnpm chain:mcp:dev
 - [Ethereum nodes as a service](https://ethereum.org/developers/docs/nodes-and-clients/nodes-as-a-service/)
 - [PublicNode Ethereum endpoint](https://ethereum-rpc.publicnode.com/)
 
-这些示例值没有 SLA，可能限流、阻断或缺少历史/trace 能力，只用于开发、演示和小规模验证。生产环境沿用同一 `ONCHAIN_RPC_CONFIG_JSON` 结构，但应将 endpoint 替换为有配额和 SLA 的托管 Provider。任何环境缺少该变量都会启动失败。
+这些示例值没有 SLA，可能限流、阻断或缺少历史/trace 能力，只用于开发、演示和小规模验证。基础交易查询的生产配置沿用同一 `ONCHAIN_RPC_CONFIG_JSON` 结构，但应将 endpoint 替换为有配额和 SLA 的托管 Provider。深度生产数据面不能直接使用该便利配置绕过 readiness-gated composition。任何环境缺少该变量都会启动失败。
 
 ## 自定义 RPC
 
@@ -143,6 +143,79 @@ ONCHAIN_RPC_CONFIG_JSON='{
 ```bash
 pnpm onchain:mcp:dev
 ```
+
+开发或小规模验证时，严格 JSON 还接受两个可选字段：
+
+- `execution`：`EvmExecutionChainConfig[]`，显式配置 Uniswap V2/V3 factory allowlist。Provider 默认使用固定 `debug_traceTransaction/callTracer`；也可以增加 `traceSource: { kind: "blockscout_v2", ... }`，改由启动时 allowlist 中的 Blockscout `/api/v2/transactions/:hash/raw-trace` 获取调用追踪。
+- `mevObservation`：`EvmMevObservationChainConfig[]`，显式配置声明 `archive: true` 的 Provider，以及包含协议、token、fee 和 route policy 的 pool allowlist。
+
+这两个字段不会从 `evm` 自动推导，避免把普通公共 RPC 误认为 trace/archive Provider。没有 `execution` 时，`inspect_transaction` 仍可返回 transaction snapshot，但 trace coverage 会明确为 `not_provided`；没有 `mevObservation` 时，不启用 `detect_sandwich`。
+
+`NODE_ENV=production` 下，公开运行时只接受所有 execution Provider 都显式配置 `blockscout_v2` trace source 的组合，并把 Explorer trace 强制标为 `partial`。生产环境中的 RPC callTracer 配置和全部 `mevObservation` 仍失败关闭，必须使用 `chain:mcp:serve` 的 readiness-gated composition。公开 Explorer 追踪能改善客服可见性，但不等于 archive、多 Provider 对账或 production readiness。
+
+## Robinhood Chain 公共数据与协议范围
+
+`.env.example` 为 Robinhood Chain（chain id `4663`）配置：
+
+- 官方限流公共 RPC `https://rpc.mainnet.chain.robinhood.com`：基础交易、回执、区块和有界只读合约调用。
+- 公共 Blockscout `https://robinhoodchain.blockscout.com`：调用追踪；输出始终带单源部分证据警告。
+- Uniswap V2 factory `0x8bceaa40b9acdfaedf85adf4ff01f5ad6517937f`。
+- Uniswap V3 factory `0x1f7d7550b1b028f7571e69a784071f0205fd2efa`。
+
+当前协议策略按 Robinhood 官方生态、XXYY 已展示的发射台和 GMGN 的 Robinhood 交易样本收敛：
+
+| 协议面                                     | 当前处理                                                                                                                                        |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Uniswap V2 / V3                            | 识别 Swap topic；只有 pool/factory/token/fee 与 factory 反查通过时才完整解码                                                                    |
+| Uniswap V4                                 | 识别 `PoolManager` Swap 格式；缺少已验证 PoolKey、Hook 与 singleton 状态时明确标为未安全解码，不输出方向或 MEV 结论                             |
+| Rialto                                     | 作为 Robinhood 官方列出的 PropAMM / Aggregator 记录在支持候选中；尚无固定公开合约清单，不猜测成交协议                                           |
+| Bags                                       | 已识别已验证 `BagsBondingCurve` 的 `TokensBought` / `TokensSold` 事件格式；当前不误标为标准 DEX，缺少版本化池清单与代币元数据时不推断方向或 MEV |
+| Noxa、Virtuals、Bankr、Pons、Flap、Clanker | 视为 XXYY/GMGN 覆盖的发射台或内盘协议，不误标为标准 DEX；在获得版本化合约、事件 ABI 和迁移池规则后逐项接入                                      |
+
+因此，普通 Robinhood 交易和调用树目前可查；Uniswap V2/V3 可在元数据可验证时展开；V4 和 Bags 内盘会显示“识别但未安全解码”，其它发射台在取得可验证 ABI 与合约清单后再接入。公共 RPC 不配置 `mevObservation`，所以不会用不完整证据生成 `confirmed`、`likely` 或 `unlikely` Sandwich 结论。
+
+## XXYY 内部 CLI 集成
+
+开发环境可以通过固定的 `cli/admin` 调用链验证完整 Capability bridge：
+
+```bash
+pnpm onchain:query -- transaction --reference <explorer-url>
+pnpm onchain:query -- transaction --reference <transaction-id> --network <network>
+pnpm onchain:query -- inspect --chain-id <id> --transaction-hash <0x...>
+pnpm onchain:query -- sandwich --chain-id <id> --transaction-hash <0x...> --pool-address <0x...>
+```
+
+该入口在同一进程内执行 `ToolRegistry → Skill capability → MCP capability → linked MCP transport → onchain-analysis handler`，不会把 MCP discovery 自动注册到公开 Planner。它只使用启动时的 RPC allowlist，不接受 endpoint、credential 或任意 RPC method；`NODE_ENV=production` 时失败关闭。
+
+生产内部查询使用同样的显式子命令，但改走 readiness-gated stdio MCP：
+
+```bash
+NODE_ENV=production pnpm onchain:query:production -- transaction --reference <explorer-url>
+NODE_ENV=production pnpm onchain:query:production -- inspect --chain-id <id> --transaction-hash <0x...>
+NODE_ENV=production pnpm onchain:query:production -- sandwich --chain-id <id> --transaction-hash <0x...> --pool-address <0x...>
+```
+
+`onchain:query:production` 固定使用 `cli/admin` grant，启动前校验 data-plane 与 readiness 配置，再通过子进程 stdio 连接 `chain:mcp:serve`。它不读取项目 `.env`，仅传递生产配置 allowlist；门禁失败时不回退到开发 MCP、`ONCHAIN_RPC_CONFIG_JSON` 或公共 RPC。
+
+## Web 与 Telegram 只读链上分析
+
+API 与 Telegram 启动时若存在 `ONCHAIN_RPC_CONFIG_JSON`，会分别以固定的 `web/anonymous` 和 `telegram/service` 身份为三项工具创建六条精确授权。Docker Compose 会把该变量和 `ONCHAIN_ALLOW_INSECURE_LOCALHOST` 显式映射给这两个服务；变量缺失时产品客服保持可用，公开链上分析则明确返回配置提示。
+
+- `chain.skill.get_transaction`
+- `chain.mcp.get_transaction`
+- `chain.skill.inspect_transaction`
+- `chain.mcp.inspect_transaction`
+- `chain.skill.detect_sandwich`
+- `chain.mcp.detect_sandwich`
+
+用户提供支持的 Explorer URL，或网络名称与原始 transaction id 后，客服运行时通过确定性路由调用对应能力：
+
+- 基础查询一次最多处理三笔并按 network + transaction id 去重，展示状态、区块、地址、金额、手续费与有限数量的公开 Token 转账。
+- “调用追踪 / 内部调用 / revert / 深度分析”等请求一次只处理一笔 EVM 交易，展示有界 trace coverage、内部原生币转账、回滚和已验证 Swap；Solana 深度请求会要求改用 EVM 交易。
+- “被夹 / Sandwich / MEV”等请求一次只处理一笔 EVM 交易。用户可以提供“池子地址 0x…”；未提供时只在 inspection 产生唯一已验证 pool 时自动选择，否则要求澄清。pool 还必须位于服务端 allowlist。
+- `insufficient_data` 不附来源链接；`partial` 明确提示证据缺口；缺 trace/archive/pool 不能映射成 positive 或 negative verdict。
+
+公开运行面不接受 endpoint、Provider id、任意 RPC method、地址历史、任意区块范围或私有账户输入，也不执行任意池发现、地址归属、交易模拟、签名或发送。
 
 生产配置应至少使用独立 Provider、secret manager、共享预算/熔断、缓存、持久审计、监控和告警。现有：
 

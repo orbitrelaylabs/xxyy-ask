@@ -19,11 +19,11 @@
     "cutoffPostId": "2080647020461854747",
     "totalPosts": 295
   },
-  "fetchedAt": "2026-07-28T00:00:04.365Z",
-  "configAssetUrl": "https://abs.twimg.com/x-web/x-web/assets/guest-token-DZiscysv.js",
+  "fetchedAt": "2026-07-29T00:00:04.737Z",
+  "configAssetUrl": "https://abs.twimg.com/x-web/x-web/assets/guest-token-yjfdRbXh.js",
   "operations": {
     "userByScreenName": {
-      "queryId": "sYI-6uLoG-9AwGu0GwPx6w",
+      "queryId": "L_eCyvUxu-QprwFaWK0Wyg",
       "operationName": "UserByScreenName",
       "features": {},
       "fieldToggles": {},
@@ -33,7 +33,7 @@
       "variableStyle": "screenName"
     },
     "userTweets": {
-      "queryId": "DRkYO7FZ82RxSRWQ2BNYhw",
+      "queryId": "17Ar8FUoZaXivV7gCXODeQ",
       "operationName": "UserTweets",
       "features": {},
       "fieldToggles": {},

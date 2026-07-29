@@ -1,6 +1,6 @@
 # Production Readiness
 
-本文档记录 XXYY 客服 Agentic RAG 服务公开部署前的安全、观测、配额、迁移、备份和交接要求。当前运行面只暴露产品知识库问答，不接入账户、订单、钱包余额、链上取证、投资建议或自动工单操作。
+本文档记录 XXYY 客服 Agentic RAG 服务公开部署前的安全、观测、配额、迁移、备份和交接要求。当前运行面暴露产品知识库问答，以及用户明确提供交易引用后的只读基础查询、单笔 EVM inspection 和 allowlisted pool Sandwich/MEV 分析；不接入账户、订单、钱包余额、任意地址历史/归属、投资建议或自动工单操作。
 
 ## Request Tracing
 

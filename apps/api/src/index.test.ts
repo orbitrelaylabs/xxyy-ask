@@ -901,6 +901,13 @@ describe('createRequestHandler', () => {
     }));
     const retriever = { retrieve: vi.fn() };
     const createLazyRetriever = vi.fn(() => retriever);
+    const publicChainMcpClient = {
+      close: vi.fn(() => Promise.resolve()),
+      detectSandwich: vi.fn(),
+      getTransaction: vi.fn(),
+      inspectTransaction: vi.fn(),
+    };
+    const createPublicOnchainMcpClient = vi.fn(() => publicChainMcpClient);
 
     vi.doMock('@xxyy/agent-core', async (importOriginal) => {
       const actual = await importOriginal<Record<string, unknown>>();
@@ -914,6 +921,13 @@ describe('createRequestHandler', () => {
       return {
         ...actual,
         createOpenAiEmbeddingProvider: vi.fn(() => ({ embedTexts: vi.fn() })),
+      };
+    });
+    vi.doMock('@xxyy/chain-analysis-mcp', async (importOriginal) => {
+      const actual = await importOriginal<Record<string, unknown>>();
+      return {
+        ...actual,
+        createPublicOnchainMcpClient,
       };
     });
     vi.doMock('@xxyy/rag-core', async (importOriginal) => {
@@ -932,6 +946,7 @@ describe('createRequestHandler', () => {
         createRequestId: () => 'req-agent-1',
         env: {
           DATABASE_URL: 'postgres://xxyy:secret@example.test/xxyy_ask',
+          ONCHAIN_RPC_CONFIG_JSON: '{"evm":[]}',
           OPENAI_API_KEY: 'test-key',
           OPENAI_MODEL: 'test-model',
         },
@@ -962,12 +977,24 @@ describe('createRequestHandler', () => {
         'answerProvider',
         'config',
         'productCapabilityCaller',
+        'publicChainCapabilityCaller',
+        'publicChainMcpClient',
         'retriever',
         'tracer',
       ]);
       expect(serviceOptions.productCapabilityCaller).toEqual({
         channel: 'web',
         principal: 'anonymous',
+      });
+      expect(serviceOptions.publicChainCapabilityCaller).toEqual({
+        channel: 'web',
+        principal: 'anonymous',
+      });
+      expect(serviceOptions.publicChainMcpClient).toBe(publicChainMcpClient);
+      expect(createPublicOnchainMcpClient).toHaveBeenCalledWith({
+        env: {
+          ONCHAIN_RPC_CONFIG_JSON: '{"evm":[]}',
+        },
       });
       expect(serviceOptions.retriever).toBe(retriever);
       expect(typeof serviceOptions.answerProvider.answer).toBe('function');
@@ -979,6 +1006,7 @@ describe('createRequestHandler', () => {
       });
     } finally {
       vi.doUnmock('@xxyy/agent-core');
+      vi.doUnmock('@xxyy/chain-analysis-mcp');
       vi.doUnmock('@xxyy/knowledge');
       vi.doUnmock('@xxyy/rag-core');
     }

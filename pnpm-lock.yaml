@@ -32,6 +32,9 @@ importers:
       '@xxyy/agent-core':
         specifier: workspace:*
         version: link:../../packages/agent-core
+      '@xxyy/chain-analysis-mcp':
+        specifier: workspace:*
+        version: link:../../packages/chain-analysis-mcp
       '@xxyy/knowledge':
         specifier: workspace:*
         version: link:../../packages/knowledge
@@ -69,6 +72,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
+      '@xxyy/agent-core':
+        specifier: workspace:*
+        version: link:../../packages/agent-core
       '@xxyy/chain-analysis-mcp':
         specifier: workspace:*
         version: link:../../packages/chain-analysis-mcp
@@ -121,6 +127,9 @@ importers:
       '@xxyy/agent-core':
         specifier: workspace:*
         version: link:../../packages/agent-core
+      '@xxyy/chain-analysis-mcp':
+        specifier: workspace:*
+        version: link:../../packages/chain-analysis-mcp
       '@xxyy/knowledge':
         specifier: workspace:*
         version: link:../../packages/knowledge

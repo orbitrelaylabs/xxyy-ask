@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import { createCustomerAgentChatService } from '@xxyy/agent-core';
+import { createPublicOnchainMcpClient } from '@xxyy/chain-analysis-mcp';
 import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxyy/knowledge';
 import {
   createOpenAiAnswerProvider,
@@ -63,6 +64,8 @@ type ApiEnv = RagEnv &
       | 'API_RATE_LIMIT_MAX'
       | 'API_RATE_LIMIT_WINDOW_MS'
       | 'NODE_ENV'
+      | 'ONCHAIN_ALLOW_INSECURE_LOCALHOST'
+      | 'ONCHAIN_RPC_CONFIG_JSON'
       | 'KNOWLEDGE_ADMIN_MAX_BODY_BYTES'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_MAX'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS'
@@ -200,7 +203,8 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
   const tracer = noopQualityTracer;
   const renderHtml = options.renderHtml ?? renderChatPage;
   const renderKnowledgeAdminHtml = options.renderKnowledgeAdminHtml ?? renderAdminPage;
-  const getChatService = options.getChatService ?? createCachedChatServiceLoader(config, tracer);
+  const getChatService =
+    options.getChatService ?? createCachedChatServiceLoader(config, tracer, env);
   const getHealthStatus = options.getHealthStatus ?? (() => createDeepHealthStatus(config));
   const getKnowledgeAdminServices =
     options.getKnowledgeAdminServices ?? createCachedKnowledgeAdminServicesLoader({ config, env });
@@ -1098,6 +1102,7 @@ function normalizePortRetryLimit(retryLimit: number): number {
 function createCachedChatServiceLoader(
   config: ReturnType<typeof loadRagConfig>,
   tracer: QualityTracer,
+  env: ApiEnv,
 ): () => Promise<ChatService> {
   let cachedService: ChatService | undefined;
 
@@ -1128,6 +1133,7 @@ function createCachedChatServiceLoader(
         throw error;
       }
     });
+    const publicChainMcpClient = createOptionalPublicOnchainMcpClient(env);
     cachedService = createCustomerAgentChatService({
       answerProvider: createLazyAnswerProvider(config, tracer),
       config,
@@ -1135,11 +1141,38 @@ function createCachedChatServiceLoader(
         channel: 'web',
         principal: 'anonymous',
       },
+      ...(publicChainMcpClient === undefined
+        ? {}
+        : {
+            publicChainCapabilityCaller: {
+              channel: 'web' as const,
+              principal: 'anonymous' as const,
+            },
+            publicChainMcpClient,
+          }),
       retriever,
       tracer,
     });
     return Promise.resolve(cachedService);
   };
+}
+
+function createOptionalPublicOnchainMcpClient(env: ApiEnv) {
+  if (
+    env.ONCHAIN_RPC_CONFIG_JSON?.trim().length === 0 ||
+    env.ONCHAIN_RPC_CONFIG_JSON === undefined
+  ) {
+    return undefined;
+  }
+  return createPublicOnchainMcpClient({
+    env: {
+      ...(env.NODE_ENV === undefined ? {} : { NODE_ENV: env.NODE_ENV }),
+      ...(env.ONCHAIN_ALLOW_INSECURE_LOCALHOST === undefined
+        ? {}
+        : { ONCHAIN_ALLOW_INSECURE_LOCALHOST: env.ONCHAIN_ALLOW_INSECURE_LOCALHOST }),
+      ONCHAIN_RPC_CONFIG_JSON: env.ONCHAIN_RPC_CONFIG_JSON,
+    },
+  });
 }
 
 function createCachedFeedbackRecorder(config: ReturnType<typeof loadRagConfig>): FeedbackRecorder {

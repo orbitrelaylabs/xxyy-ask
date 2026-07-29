@@ -74,7 +74,7 @@ describe('createChatService', () => {
     expect(response.citations).toEqual([]);
   });
 
-  it('returns a boundary response for transaction hash questions without retrieval', async () => {
+  it('returns a chain clarification for transaction questions without invoking product retrieval', async () => {
     const service = createChatService({
       answerProvider: {
         answer() {
@@ -94,8 +94,8 @@ describe('createChatService', () => {
         '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef 这个交易是不是被夹了？',
     });
 
-    expect(response.intent).toBe('unknown');
-    expect(response.answer).toContain('当前不分析交易哈希');
+    expect(response.intent).toBe('onchain_transaction');
+    expect(response.answer).toContain('公开 Explorer 交易链接');
     expect(response.citations).toEqual([]);
     expect(response.attachments).toBeUndefined();
   });

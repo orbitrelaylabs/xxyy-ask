@@ -17,7 +17,9 @@ import {
   CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
   createInternalChainAnalysisCapabilityRegistry,
   createInternalChainAnalysisTools,
+  createPublicChainAnalysisCapabilityRegistry,
   type InternalChainAnalysisCaller,
+  type PublicChainAnalysisCaller,
 } from './chain-analysis-capabilities.js';
 import { createToolRegistry } from './tool-registry.js';
 
@@ -107,5 +109,97 @@ describe('internal chain-analysis MCP and Skill capability bridge', () => {
         mcpClient: createChainAnalysisMcpClientStub({}),
       }),
     ).toThrow('internal-only trusted caller');
+  });
+});
+
+describe('public read-only chain-analysis capability grants', () => {
+  it('registers exact get, inspect, and Sandwich grants for Web', async () => {
+    const fixture = await createChainAnalysisFixtureRuntime('synthetic.confirmed-v2');
+    const mcpClient = createInMemoryChainAnalysisMcpClient({
+      handler: fixture.handler,
+    });
+    const registry = createPublicChainAnalysisCapabilityRegistry({
+      caller: { channel: 'web', principal: 'anonymous' },
+      mcpClient,
+    });
+
+    try {
+      expect(registry.list().map((manifest) => manifest.id)).toEqual([
+        CHAIN_SANDWICH_MCP_CAPABILITY_ID,
+        CHAIN_GET_MCP_CAPABILITY_ID,
+        CHAIN_INSPECT_MCP_CAPABILITY_ID,
+        CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
+        CHAIN_GET_SKILL_CAPABILITY_ID,
+        CHAIN_INSPECT_SKILL_CAPABILITY_ID,
+      ]);
+      await expect(
+        registry.invoke(
+          CHAIN_GET_SKILL_CAPABILITY_ID,
+          {
+            network: `eip155:${fixture.chainId}`,
+            reference: fixture.transactionHash,
+          },
+          { channel: 'web', principal: 'anonymous' },
+        ),
+      ).resolves.toMatchObject({
+        family: 'evm',
+        transactionId: fixture.transactionHash,
+      });
+      await expect(
+        registry.invoke(
+          CHAIN_INSPECT_SKILL_CAPABILITY_ID,
+          {
+            chainId: fixture.chainId,
+            transactionHash: fixture.transactionHash,
+          },
+          { channel: 'web', principal: 'anonymous' },
+        ),
+      ).resolves.toMatchObject({
+        capability: {
+          capability: 'chain.inspect_transaction',
+          transactionHash: fixture.transactionHash,
+        },
+      });
+      await expect(
+        registry.invoke(
+          CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
+          {
+            chainId: fixture.chainId,
+            poolAddress: fixture.poolAddress,
+            transactionHash: fixture.transactionHash,
+          },
+          { channel: 'web', principal: 'anonymous' },
+        ),
+      ).resolves.toMatchObject({
+        capability: {
+          capability: 'chain.detect_sandwich',
+          verdict: 'confirmed',
+        },
+      });
+      await expect(
+        registry.invoke(
+          CHAIN_INSPECT_SKILL_CAPABILITY_ID,
+          {
+            chainId: fixture.chainId,
+            transactionHash: fixture.transactionHash,
+          },
+          { channel: 'telegram', principal: 'service' },
+        ),
+      ).rejects.toBeInstanceOf(CapabilityPolicyDeniedError);
+    } finally {
+      await mcpClient.close();
+    }
+  });
+
+  it('rejects any public caller identity other than the fixed Web and Telegram principals', () => {
+    expect(() =>
+      createPublicChainAnalysisCapabilityRegistry({
+        caller: {
+          channel: 'telegram',
+          principal: 'anonymous',
+        } as unknown as PublicChainAnalysisCaller,
+        mcpClient: createChainAnalysisMcpClientStub({}),
+      }),
+    ).toThrow('web/anonymous or telegram/service');
   });
 });

@@ -37,6 +37,7 @@ describe('chat contract', () => {
       'agent_capabilities',
       'product_qa',
       'how_to',
+      'onchain_transaction',
       'realtime_account_query',
       'investment_advice',
       'unknown',
@@ -44,7 +45,13 @@ describe('chat contract', () => {
   });
 
   it('defines the direct agent answer route separately from product answers', () => {
-    expect(supportedAgentRoutes).toEqual(['agent_answer', 'boundary', 'clarify', 'product_answer']);
+    expect(supportedAgentRoutes).toEqual([
+      'agent_answer',
+      'boundary',
+      'chain_answer',
+      'clarify',
+      'product_answer',
+    ]);
   });
 
   it('allows channel-neutral chat responses with citations', () => {

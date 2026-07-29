@@ -1,4 +1,5 @@
 import type { RagIndex } from '@xxyy/shared';
+import type { ChainAnalysisMcpClient } from '@xxyy/chain-analysis-mcp';
 import {
   createInMemoryProductQaMcpClient,
   createProductSearchHandler,
@@ -19,10 +20,15 @@ import {
 } from './langgraph-customer-runtime.js';
 import { createOpenAiCompatiblePlannerModel, type PlannerModel } from './planner-model.js';
 import {
+  createPublicChainAnalysisCapabilityRegistry,
+  type PublicChainAnalysisCaller,
+} from './chain-analysis-capabilities.js';
+import {
   createProductSupportCapabilityRegistry,
   createProductSupportSkillTool,
   type TrustedProductCapabilityCaller,
 } from './product-support-capabilities.js';
+import { createPublicChainTransactionTool } from './public-transaction-tool.js';
 import { createAgentTools } from './tools/agent-tools.js';
 import { createToolRegistry } from './tool-registry.js';
 
@@ -33,6 +39,8 @@ export interface CreateCustomerAgentChatServiceOptions {
   planner?: PlannerModel;
   productCapabilityCaller?: TrustedProductCapabilityCaller;
   productMcpClient?: ProductQaMcpClient;
+  publicChainCapabilityCaller?: PublicChainAnalysisCaller;
+  publicChainMcpClient?: ChainAnalysisMcpClient;
   retriever?: Retriever;
   tracer?: QualityTracer;
 }
@@ -73,6 +81,30 @@ export function createCustomerAgentChatService(
       registry: capabilityRegistry,
     }),
   );
+
+  const hasPublicChainCaller = options.publicChainCapabilityCaller !== undefined;
+  const hasPublicChainClient = options.publicChainMcpClient !== undefined;
+  if (hasPublicChainCaller !== hasPublicChainClient) {
+    throw new TypeError(
+      'Public chain transaction capability requires both a fixed caller and an MCP client.',
+    );
+  }
+  if (
+    options.publicChainCapabilityCaller !== undefined &&
+    options.publicChainMcpClient !== undefined
+  ) {
+    const publicChainRegistry = createPublicChainAnalysisCapabilityRegistry({
+      caller: options.publicChainCapabilityCaller,
+      mcpClient: options.publicChainMcpClient,
+      ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
+    });
+    registry.register(
+      createPublicChainTransactionTool({
+        caller: options.publicChainCapabilityCaller,
+        registry: publicChainRegistry,
+      }),
+    );
+  }
 
   return createLangGraphCustomerRuntime({
     answerProvider: options.answerProvider,

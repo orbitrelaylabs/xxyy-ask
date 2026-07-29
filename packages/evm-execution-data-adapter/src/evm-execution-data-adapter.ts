@@ -38,6 +38,10 @@ import {
   type LoadEvmExecutionDataInput,
 } from './contracts.js';
 import {
+  createBlockscoutTraceClient,
+  type BlockscoutTraceClient,
+} from './blockscout-trace-client.js';
+import {
   EvmExecutionDataAdapterConfigurationError,
   EvmExecutionRpcRequestError,
   EvmTraceNormalizationError,
@@ -56,6 +60,7 @@ const DEFAULT_MAX_POOL_CANDIDATES = 25;
 interface ConfiguredProvider {
   client: ExecutionJsonRpcClient;
   config: EvmExecutionChainConfig['providers'][number];
+  traceClient?: BlockscoutTraceClient | undefined;
 }
 
 interface ConfiguredChain {
@@ -123,28 +128,42 @@ export function createEvmExecutionDataAdapter(
   for (const chain of chainConfigs) {
     configuredChains.set(chain.chainId, {
       config: chain,
-      providers: chain.providers.map((provider) => ({
-        client: createExecutionJsonRpcClient({
+      providers: chain.providers.map((provider) => {
+        const { traceSource, ...rpcProvider } = provider;
+        const sharedClientOptions = {
           ...(options.allowInsecureLocalhost === undefined
             ? {}
             : { allowInsecureLocalhost: options.allowInsecureLocalhost }),
           ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
-          ...(options.maxBatchSize === undefined ? {} : { maxBatchSize: options.maxBatchSize }),
           ...(options.maxResponseBytes === undefined
             ? {}
             : { maxResponseBytes: options.maxResponseBytes }),
-          ...(options.maxRetries === undefined ? {} : { maxRetries: options.maxRetries }),
-          provider,
           ...(options.requestTimeoutMs === undefined
             ? {}
             : { requestTimeoutMs: options.requestTimeoutMs }),
-          ...(options.retryBaseDelayMs === undefined
+        };
+        return {
+          client: createExecutionJsonRpcClient({
+            ...sharedClientOptions,
+            ...(options.maxBatchSize === undefined ? {} : { maxBatchSize: options.maxBatchSize }),
+            ...(options.maxRetries === undefined ? {} : { maxRetries: options.maxRetries }),
+            provider: rpcProvider,
+            ...(options.retryBaseDelayMs === undefined
+              ? {}
+              : { retryBaseDelayMs: options.retryBaseDelayMs }),
+            ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
+          }),
+          config: provider,
+          ...(traceSource === undefined
             ? {}
-            : { retryBaseDelayMs: options.retryBaseDelayMs }),
-          ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
-        }),
-        config: provider,
-      })),
+            : {
+                traceClient: createBlockscoutTraceClient({
+                  ...sharedClientOptions,
+                  source: traceSource,
+                }),
+              }),
+        };
+      }),
     });
   }
 
@@ -200,6 +219,7 @@ export function createEvmExecutionDataAdapter(
             observedAt,
             pools: eligiblePools,
             signal: loadOptions.signal,
+            traceClient: provider.traceClient,
           }),
         ),
       );
@@ -283,6 +303,7 @@ async function loadProviderObservation(input: {
   observedAt: string;
   pools: readonly EvmPoolCandidate[];
   signal?: AbortSignal | undefined;
+  traceClient?: BlockscoutTraceClient | undefined;
 }): Promise<ProviderObservation> {
   const diagnostics: EvmExecutionDataAdapterDiagnostic[] = [];
   const pools = new Map<string, PoolObservation>();
@@ -317,52 +338,37 @@ async function loadProviderObservation(input: {
     return { diagnostics, pools };
   }
 
-  try {
-    const traceResponse = await input.client.requestBatch(
-      [
-        {
-          method: 'debug_traceTransaction',
-          operation: 'trace',
-          params: [
-            input.input.transactionHash,
-            {
-              timeout: CALL_TRACER_SERVER_TIMEOUT,
-              tracer: 'callTracer',
-              tracerConfig: { onlyTopCall: false, withLog: false },
-            },
-          ],
-        },
-      ],
-      { signal: input.signal },
-    );
-    const traceOutcome = findOutcome(traceResponse.outcomes, 'trace');
-    if (traceOutcome === undefined || !traceOutcome.ok) {
+  if (input.traceClient !== undefined) {
+    const traceResponse = await input.traceClient.requestTrace(input.input.transactionHash, {
+      signal: input.signal,
+    });
+    if (!traceResponse.ok) {
       diagnostics.push({
         attempts: traceResponse.attempts,
-        code: 'rpc_error',
+        code: traceResponse.code,
         operation: 'trace',
-        providerId: input.client.providerId,
-        retryable: false,
-        ...(traceOutcome?.ok === false ? { rpcCode: traceOutcome.error.code } : {}),
-      });
-    } else if (traceOutcome.result === null || traceOutcome.result === undefined) {
-      diagnostics.push({
-        attempts: traceResponse.attempts,
-        code: 'trace_not_found',
-        operation: 'trace',
-        providerId: input.client.providerId,
-        retryable: false,
+        providerId: input.traceClient.providerId,
+        retryable: traceResponse.retryable,
+        ...(traceResponse.httpStatus === undefined ? {} : { httpStatus: traceResponse.httpStatus }),
       });
     } else {
       try {
-        trace = normalizeCallTracerResult(traceOutcome.result, {
+        trace = normalizeCallTracerResult(traceResponse.result, {
           chainId: input.input.chainId,
           observedAt: input.observedAt,
-          payloadHash: combinePayloadHashes([chainResponse.payloadHash, traceResponse.payloadHash]),
-          providerId: input.client.providerId,
+          payloadHash: traceResponse.payloadHash,
+          providerId: input.traceClient.providerId,
+          sourceKind: 'explorer',
           transactionHash: input.input.transactionHash,
         });
         traceFingerprint = fingerprintCallTrace(trace);
+        diagnostics.push({
+          attempts: traceResponse.attempts,
+          code: 'explorer_trace_partial_evidence',
+          operation: 'trace',
+          providerId: input.traceClient.providerId,
+          retryable: false,
+        });
       } catch (error) {
         if (!(error instanceof EvmTraceNormalizationError)) {
           throw error;
@@ -371,19 +377,83 @@ async function loadProviderObservation(input: {
           attempts: traceResponse.attempts,
           code: error.code,
           operation: 'trace',
-          providerId: input.client.providerId,
+          providerId: input.traceClient.providerId,
           retryable: false,
         });
       }
     }
-  } catch (error) {
-    if (error instanceof EvmExecutionRpcRequestError) {
-      if (error.code === 'request_aborted') {
+  } else {
+    try {
+      const traceResponse = await input.client.requestBatch(
+        [
+          {
+            method: 'debug_traceTransaction',
+            operation: 'trace',
+            params: [
+              input.input.transactionHash,
+              {
+                timeout: CALL_TRACER_SERVER_TIMEOUT,
+                tracer: 'callTracer',
+                tracerConfig: { onlyTopCall: false, withLog: false },
+              },
+            ],
+          },
+        ],
+        { signal: input.signal },
+      );
+      const traceOutcome = findOutcome(traceResponse.outcomes, 'trace');
+      if (traceOutcome === undefined || !traceOutcome.ok) {
+        diagnostics.push({
+          attempts: traceResponse.attempts,
+          code: 'rpc_error',
+          operation: 'trace',
+          providerId: input.client.providerId,
+          retryable: false,
+          ...(traceOutcome?.ok === false ? { rpcCode: traceOutcome.error.code } : {}),
+        });
+      } else if (traceOutcome.result === null || traceOutcome.result === undefined) {
+        diagnostics.push({
+          attempts: traceResponse.attempts,
+          code: 'trace_not_found',
+          operation: 'trace',
+          providerId: input.client.providerId,
+          retryable: false,
+        });
+      } else {
+        try {
+          trace = normalizeCallTracerResult(traceOutcome.result, {
+            chainId: input.input.chainId,
+            observedAt: input.observedAt,
+            payloadHash: combinePayloadHashes([
+              chainResponse.payloadHash,
+              traceResponse.payloadHash,
+            ]),
+            providerId: input.client.providerId,
+            transactionHash: input.input.transactionHash,
+          });
+          traceFingerprint = fingerprintCallTrace(trace);
+        } catch (error) {
+          if (!(error instanceof EvmTraceNormalizationError)) {
+            throw error;
+          }
+          diagnostics.push({
+            attempts: traceResponse.attempts,
+            code: error.code,
+            operation: 'trace',
+            providerId: input.client.providerId,
+            retryable: false,
+          });
+        }
+      }
+    } catch (error) {
+      if (error instanceof EvmExecutionRpcRequestError) {
+        if (error.code === 'request_aborted') {
+          throw error;
+        }
+        diagnostics.push(requestDiagnostic(error, undefined, 'trace'));
+      } else {
         throw error;
       }
-      diagnostics.push(requestDiagnostic(error, undefined, 'trace'));
-    } else {
-      throw error;
     }
   }
 

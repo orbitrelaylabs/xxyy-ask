@@ -10,7 +10,7 @@
 - 不访问 RPC、Indexer、Explorer、HTTP、secret manager 或 provider endpoint；
 - 不导入 Agent、LangGraph、Capability、MCP、API 或 Telegram；仅由隔离的 `apps/chain-control-cli` 与 `apps/chain-operations-cli` 注入 client；
 - 不包含真实主网样本、真实 reviewer 身份、生产 grant、provider credential 或生产 readiness evidence；
-- 除两个隔离的私有运维 app 外，不被 API、Web、Telegram、RAG CLI、`agent-core` 或 `rag-core` 引用，公开客服的链上问题边界保持不变。
+- 除两个隔离的私有运维 app 外，不被 API、Web、Telegram、RAG CLI、`agent-core` 或 `rag-core` 直接引用；公开三项 Chain 能力默认使用独立启动配置，不连接本 control store。
 
 它是可部署 backend 实现，不是“已经部署并通过生产评审”的证明。包级 contract-only fixture、fake PostgreSQL client 和迁移测试不能作为主网 corpus、故障演练或 `ready` attestation。
 

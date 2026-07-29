@@ -3,9 +3,13 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 import {
+  BAGS_BONDING_CURVE_TOKENS_BOUGHT_TOPIC,
+  BAGS_BONDING_CURVE_TOKENS_SOLD_TOPIC,
   MAX_SWAP_EVENTS,
   SOLIDITY_ERROR_STRING_SELECTOR,
   UNISWAP_V2_SWAP_TOPIC,
+  UNISWAP_V3_SWAP_TOPIC,
+  UNISWAP_V4_SWAP_TOPIC,
   decodeSolidityRevertData,
   enrichEvmExecution,
   evmExecutionEnrichmentResultSchema,
@@ -530,6 +534,24 @@ describe('EVM execution enrichment defensive behavior', () => {
     expect(result.warnings).toContain('unknown_log_source');
   });
 
+  it('uses Explorer traces while preserving their partial-evidence status', async () => {
+    const fixture = await loadFixture('success-internal-swaps');
+    const trace = fixture.trace as Record<string, unknown>;
+    const source = trace.source as Record<string, unknown>;
+    const result = enrichEvmExecution({
+      ...fixture,
+      trace: {
+        ...trace,
+        source: { ...source, kind: 'explorer' },
+      },
+    });
+
+    expect(result.status).toBe('partial');
+    expect(result.coverage.trace).toBe('available');
+    expect(result.internalTransfers.length).toBeGreaterThan(0);
+    expect(result.warnings).toContain('trace_source_partial');
+  });
+
   it('preserves snapshot conflicts and receipt index disagreement as partial provenance', async () => {
     const fixture = await loadFixture('success-internal-swaps');
     const snapshot = fixture.snapshot as Record<string, unknown>;
@@ -641,9 +663,85 @@ describe('EVM execution enrichment defensive behavior', () => {
     });
 
     expect(UNISWAP_V2_SWAP_TOPIC).toHaveLength(66);
+    expect(UNISWAP_V3_SWAP_TOPIC).toBe(
+      '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67',
+    );
+    expect(UNISWAP_V4_SWAP_TOPIC).toBe(
+      '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f',
+    );
     expect(result.coverage.recognizedSwapLogs).toBe(0);
     expect(result.swaps).toEqual([]);
   });
+
+  it('recognizes Uniswap V4-format Swap events but refuses to infer a pool without PoolKey data', async () => {
+    const fixture = await loadFixture('success-internal-swaps');
+    const snapshot = fixture.snapshot as Record<string, unknown>;
+    const receipt = snapshot.receipt as Record<string, unknown>;
+    const logs = receipt.logs as Array<Record<string, unknown>>;
+    const firstLog = logs[0]!;
+    const topics = firstLog.topics as string[];
+    const result = enrichEvmExecution({
+      ...fixture,
+      snapshot: {
+        ...snapshot,
+        receipt: {
+          ...receipt,
+          logs: [
+            {
+              ...firstLog,
+              topics: [UNISWAP_V4_SWAP_TOPIC, ...topics.slice(1)],
+            },
+            ...logs.slice(1),
+          ],
+        },
+      },
+    });
+
+    expect(result.status).toBe('partial');
+    expect(result.coverage).toMatchObject({
+      decodedSwapLogs: 1,
+      recognizedSwapLogs: 2,
+      unresolvedSwapLogs: 1,
+    });
+    expect(result.warnings).toContain('uniswap_v4_pool_key_not_configured');
+  });
+
+  it.each([BAGS_BONDING_CURVE_TOKENS_BOUGHT_TOPIC, BAGS_BONDING_CURVE_TOKENS_SOLD_TOPIC])(
+    'recognizes Bags bonding-curve trade topic %s without treating it as an allowlisted DEX pool',
+    async (topic) => {
+      const fixture = await loadFixture('success-internal-swaps');
+      const snapshot = fixture.snapshot as Record<string, unknown>;
+      const receipt = snapshot.receipt as Record<string, unknown>;
+      const logs = receipt.logs as Array<Record<string, unknown>>;
+      const firstLog = logs[0]!;
+      const topics = firstLog.topics as string[];
+      const result = enrichEvmExecution({
+        ...fixture,
+        snapshot: {
+          ...snapshot,
+          receipt: {
+            ...receipt,
+            logs: [
+              {
+                ...firstLog,
+                topics: [topic, ...topics.slice(1)],
+              },
+            ],
+          },
+        },
+        poolMetadata: [],
+      });
+
+      expect(result.status).toBe('partial');
+      expect(result.swaps).toEqual([]);
+      expect(result.coverage).toMatchObject({
+        decodedSwapLogs: 0,
+        recognizedSwapLogs: 1,
+        unresolvedSwapLogs: 1,
+      });
+      expect(result.warnings).toContain('bags_bonding_curve_metadata_not_configured');
+    },
+  );
 
   it('keeps the transaction sender as trace provenance without adding root value twice', async () => {
     const result: EvmExecutionEnrichmentResult = enrichEvmExecution(

@@ -188,9 +188,11 @@ const TELEGRAM_DRAFT_UPDATE_MIN_CHARS = 80;
 const TELEGRAM_MESSAGE_LIMIT = 4096;
 const TELEGRAM_TYPING_REFRESH_MS = 4000;
 const HELP_TEXT = [
-  '我是 XXYY 客服 Bot，可以回答产品功能、配置步骤、权益说明和官方更新相关问题。',
+  '我是 XXYY 客服 Bot，可以回答产品功能、配置步骤、权益说明和官方更新，也可以查询公开 Explorer 交易链接。',
   '',
   '私聊直接发送问题；群聊请 @本 Bot 或直接回复 Bot 的消息。',
+  '链上能力支持公开交易基础查询、单笔 EVM 调用追踪和受控 Sandwich/MEV 分析；深度结果取决于 trace/archive Provider、readiness 与池子 allowlist。',
+  '不查询账户、钱包私有记录、任意地址历史，也不代用户执行交易。',
   '发送 /status 可查看知识库自动更新状态。',
   '群聊发送 /learning 可查看自动学习状态；管理员可用 /learning_on 和 /learning_off 开关。',
 ].join('\n');

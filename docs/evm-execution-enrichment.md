@@ -4,7 +4,7 @@
 
 `@xxyy/evm-execution-enrichment-core` 是未接线、无网络依赖的离线领域包。它在 `@xxyy/transaction-analysis-core` 的 transaction/receipt 基础事实之外，消费 normalized call trace 与显式 pool metadata，确定性输出 internal native transfer、revert 语义和首批 Uniswap V2/V3 swap 语义。
 
-该包不获取 trace，不调用 RPC、Indexer 或 Explorer，不读取环境变量，不依赖 LLM、LangGraph、`ToolRegistry`、`CapabilityRegistry` 或 MCP。现有 `@xxyy/evm-data-adapter` 仍只读取 transaction、receipt、chain id 和 block；独立的 `@xxyy/evm-execution-data-adapter` 已能从受控 callTracer 和 factory 反查生成 trace/pool metadata；`@xxyy/evm-price-impact-sandwich-core` 可在额外 block/state/delta 输入完整时消费 directional swap。仓库中仍没有 composition root 把这些包连接到 API、CLI、Telegram 或客服 Agent。交易、Explorer、链上取证和 MEV 问题继续返回现有边界回复。
+该包不获取 trace，不调用 RPC、Indexer 或 Explorer，不读取环境变量，不依赖 LLM、LangGraph、`ToolRegistry`、`CapabilityRegistry` 或 MCP。现有 `@xxyy/evm-data-adapter` 只读取 transaction、receipt、chain id 和 block；独立 callTracer/factory adapter 提供本包所需的受控输入。Web/API/Telegram 已通过 `inspect_transaction` 和 `detect_sandwich` 消费有界投影，但不能直接调用本 core、注入 trace 或绕过来源验证。
 
 ## 数据流与职责边界
 

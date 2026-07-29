@@ -51,10 +51,13 @@ const productOperationPatterns = [
   /(?:哪里|在哪(?:里)?)(?:能|可以)?(?:看|查看).{0,20}(?:收益|盈亏|赚.{0,6}倍|亏损)/u,
 ];
 
-const unsupportedTransactionAnalysisPatterns = [
-  /\b(?:0x)?[a-f0-9]{64}\b/u,
-  /(?:solscan\.io|solana\.fm|etherscan\.io|bscscan\.com|basescan\.org)\/(?:tx|transaction)\//u,
-  /交易哈希|tx\s*hash|transaction\s*hash|explorer|浏览器链接|池子查询|链上取证|链上交易|夹子|sandwich|\bmev\b/u,
+const publicTransactionReferencePatterns = [
+  /\b0x[a-f0-9]{64}\b/u,
+  /(?:explorer\.solana\.com|solscan\.io|etherscan\.io|bscscan\.com|basescan\.org|base\.blockscout\.com|robinhoodchain\.blockscout\.com|stablescan\.xyz)\/tx\//u,
+] as const;
+
+const unsupportedDeepOnchainAnalysisPatterns = [
+  /池子查询|池子|链上取证|调用追踪|trace|分析(?:一下)?.{0,12}链上交易|(?:分析|解析).*(?:\/tx\/|\b0x[a-f0-9]{64}\b)|被夹|夹子|三明治(?:攻击)?|sandwich|\bmev\b|front[- ]?run|back[- ]?run/u,
 ];
 
 const productSupportDomainPattern =
@@ -139,6 +142,14 @@ export function classifyQuestion(question: string): Classification {
     return createClassification('unknown', 0.2, 'question is too short or unclear');
   }
 
+  if (isReadOnlySandwichAnalysisQuestion(normalized)) {
+    return createClassification(
+      'onchain_transaction',
+      0.94,
+      'queries supplied public transaction for read-only sandwich analysis',
+    );
+  }
+
   if (unsafeOperationPatterns.some((pattern) => pattern.test(normalized))) {
     return createClassification('unknown', 0.3, 'unsafe or unsupported operation request');
   }
@@ -161,10 +172,28 @@ export function classifyQuestion(question: string): Classification {
   }
 
   if (
-    unsupportedTransactionAnalysisPatterns.some((pattern) => pattern.test(normalized)) &&
+    unsupportedDeepOnchainAnalysisPatterns.some((pattern) => pattern.test(normalized)) &&
     !isAntiMevModeDocumentationQuestion(normalized)
   ) {
+    if (
+      publicTransactionReferencePatterns.some((pattern) => pattern.test(normalized)) ||
+      /\b0x[a-f0-9]{40}\b/u.test(normalized)
+    ) {
+      return createClassification(
+        'onchain_transaction',
+        0.94,
+        'queries supplied public transaction for deep read-only analysis',
+      );
+    }
     return createClassification('unknown', 0.7, 'unsupported transaction or mev analysis request');
+  }
+
+  if (publicTransactionReferencePatterns.some((pattern) => pattern.test(normalized))) {
+    return createClassification(
+      'onchain_transaction',
+      0.94,
+      'queries supplied public transaction reference',
+    );
   }
 
   if (productOperationPatterns.some((pattern) => pattern.test(normalized))) {
@@ -214,6 +243,27 @@ function isAntiMevModeDocumentationQuestion(normalizedQuestion: string): boolean
     !/tx\s*hash|transaction\s*hash|explorer|solscan|etherscan|bscscan|basescan|sandwich|交易哈希|链上取证|链上交易|池子/u.test(
       normalizedQuestion,
     )
+  );
+}
+
+function isReadOnlySandwichAnalysisQuestion(normalizedQuestion: string): boolean {
+  if (
+    !publicTransactionReferencePatterns.some((pattern) => pattern.test(normalizedQuestion)) ||
+    !/被夹|夹子|三明治(?:攻击)?|sandwich|\bmev\b/u.test(normalizedQuestion)
+  ) {
+    return false;
+  }
+
+  if (
+    /如何|怎么|教我|实施|发动|构造|编写|部署|帮我(?:攻击|发起)|how\s+to|teach\s+me/u.test(
+      normalizedQuestion,
+    )
+  ) {
+    return false;
+  }
+
+  return /是否|是不是|有没有|有无|被|遭遇|检测|分析|判断|查看|查(?:一下)?|吗|么|\?/u.test(
+    normalizedQuestion,
   );
 }
 

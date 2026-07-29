@@ -408,7 +408,6 @@ describe('createLangGraphCustomerRuntime', () => {
 
   it.each([
     '这个 tx hash 是不是被夹了，有 MEV sandwich 吗？',
-    '分析 https://solscan.io/tx/abc',
     '帮我查这个池子有没有夹子',
     '分析一下这笔链上交易',
   ])(
@@ -452,11 +451,36 @@ describe('createLangGraphCustomerRuntime', () => {
         citations: [],
         intent: 'unknown',
       });
-      expect(response.answer).toContain('当前不分析交易哈希');
+      expect(response.answer).toContain('公开 EVM 交易');
+      expect(response.answer).toContain('trace Provider');
       expect(planner.plan).not.toHaveBeenCalled();
       expect(execute).not.toHaveBeenCalled();
     },
   );
+
+  it('clarifies when a public transaction reference is supplied without the chain Tool', async () => {
+    const planner = {
+      plan: vi.fn(() => {
+        throw new Error('planner should not be called');
+      }),
+    };
+
+    const response = await createLangGraphCustomerRuntime({
+      planner,
+      registry: createToolRegistry(),
+    }).ask({
+      channel: 'web',
+      message: '分析 https://solscan.io/tx/abc',
+    });
+
+    expect(response).toMatchObject({
+      agentRoute: 'clarify',
+      citations: [],
+      intent: 'onchain_transaction',
+    });
+    expect(response.answer).toContain('ONCHAIN_RPC_CONFIG_JSON');
+    expect(planner.plan).not.toHaveBeenCalled();
+  });
 
   it('returns clarification when the planner requests an unauthorized tool', async () => {
     const registry = createToolRegistry();

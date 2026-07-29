@@ -13,6 +13,8 @@ import type {
 } from '@xxyy/transaction-analysis-core';
 
 import {
+  BAGS_BONDING_CURVE_TOKENS_BOUGHT_TOPIC,
+  BAGS_BONDING_CURVE_TOKENS_SOLD_TOPIC,
   EVM_EXECUTION_ENRICHMENT_SKILL,
   EVM_EXECUTION_ENRICHMENT_VERSION,
   MAX_SWAP_EVENTS,
@@ -21,6 +23,7 @@ import {
   SOLIDITY_PANIC_SELECTOR,
   UNISWAP_V2_SWAP_TOPIC,
   UNISWAP_V3_SWAP_TOPIC,
+  UNISWAP_V4_SWAP_TOPIC,
   evmCallTraceSchema,
   evmExecutionEnrichmentInputSchema,
   evmExecutionEnrichmentResultSchema,
@@ -292,6 +295,9 @@ function reconcileTrace(
 
   state.coverage.trace = 'available';
   state.coverage.traceNodeCount = parsed.data.nodes.length;
+  if (parsed.data.source.kind === 'explorer' || parsed.data.source.kind === 'indexer') {
+    addIssue(state, 'validate_trace', 'trace_source_partial', false);
+  }
   return parsed.data;
 }
 
@@ -460,8 +466,16 @@ function decodeSwapLogs(
   let overflowEvidenceRecorded = false;
 
   for (const log of [...receipt.logs].sort((left, right) => left.logIndex - right.logIndex)) {
-    const protocol = protocolFromTopic(log.topics[0]);
-    if (protocol === undefined) {
+    const topic = log.topics[0];
+    const protocol = protocolFromTopic(topic);
+    const unresolvedFormatCode =
+      topic === UNISWAP_V4_SWAP_TOPIC
+        ? 'uniswap_v4_pool_key_not_configured'
+        : topic === BAGS_BONDING_CURVE_TOKENS_BOUGHT_TOPIC ||
+            topic === BAGS_BONDING_CURVE_TOKENS_SOLD_TOPIC
+          ? 'bags_bonding_curve_metadata_not_configured'
+          : undefined;
+    if (protocol === undefined && unresolvedFormatCode === undefined) {
       continue;
     }
     state.coverage.recognizedSwapLogs += 1;
@@ -492,6 +506,10 @@ function decodeSwapLogs(
     seenLogIndexes.add(log.logIndex);
     if (log.removed === true) {
       markUnresolvedSwap(snapshot, sources, log, state, 'removed_swap_log');
+      continue;
+    }
+    if (unresolvedFormatCode !== undefined) {
+      markUnresolvedSwap(snapshot, sources, log, state, unresolvedFormatCode);
       continue;
     }
 

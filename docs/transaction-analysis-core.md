@@ -4,7 +4,7 @@
 
 `@xxyy/transaction-analysis-core` 是纯 TypeScript、确定性、只读的领域包。它把已经归一化并带来源的 EVM transaction snapshot 转换为结构化事实、timeline、资产变化和统一 Evidence / SkillResult。
 
-当前 core 包本身没有网络客户端，不访问 RPC、Indexer 或 Explorer，也不依赖 LangGraph、LLM 或 MCP transport。独立的 `@xxyy/evm-data-adapter` 已能把受控标准 JSON-RPC 转成 snapshot；`@xxyy/evm-execution-enrichment-core` 已能离线消费额外 normalized trace 与 pool metadata，提取 internal transfer、revert 和首批 Uniswap swap 语义；`@xxyy/evm-execution-data-adapter` 已能从 allowlisted callTracer 和 factory 反查生成这些额外输入；`@xxyy/evm-mev-observation-data-adapter` 已能构建 canonical 同区块 swap/state/delta；`@xxyy/evm-price-impact-sandwich-core` 已能据此计算 price impact 与四态 verdict；`@xxyy/evm-chain-analysis-harness` 已能离线组合并执行合成回放评测；`@xxyy/evm-chain-analysis-readiness` 已定义 reviewed replay 治理和生产证据就绪控制面。通用 `onchain-analysis` MCP 可在开发模式执行基础 EVM 查询，并在严格 readiness 门禁下组合深度生产模块；XXYY 公开客服收到交易哈希、Explorer 链接、链上取证或 MEV 问题时仍返回既有边界回复。
+当前 core 包本身没有网络客户端，不访问 RPC、Indexer 或 Explorer，也不依赖 LangGraph、LLM 或 MCP transport。独立的 `@xxyy/evm-data-adapter` 能把受控标准 JSON-RPC 转成 snapshot；通用 `onchain-analysis` MCP 的 `get_transaction` 已将该基础结果接入 XXYY Web/Telegram。执行 trace、pool metadata、同区块 observation、价格影响和 Sandwich 模块仍只在严格 readiness 门禁下用于内部深度 composition，公开客服不授权。
 
 ## 数据流
 

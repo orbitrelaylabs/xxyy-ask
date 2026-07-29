@@ -57,6 +57,26 @@ describe('public onchain MCP configuration', () => {
           providers: [{ endpoint: 'https://rpc.stable.xyz', id: 'stable_public' }],
         },
       ],
+      execution: [
+        {
+          chainId: '4663',
+          factories: {
+            uniswapV2: ['0x8bceaa40b9acdfaedf85adf4ff01f5ad6517937f'],
+            uniswapV3: ['0x1f7d7550b1b028f7571e69a784071f0205fd2efa'],
+          },
+          providers: [
+            {
+              endpoint: 'https://rpc.mainnet.chain.robinhood.com',
+              id: 'robinhood_public_execution',
+              traceSource: {
+                endpoint: 'https://robinhoodchain.blockscout.com',
+                id: 'robinhood_blockscout',
+                kind: 'blockscout_v2',
+              },
+            },
+          ],
+        },
+      ],
       profile: 'configured',
       solana: {
         network: 'solana:mainnet',

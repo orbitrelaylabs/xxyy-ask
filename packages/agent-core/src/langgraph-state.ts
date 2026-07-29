@@ -8,6 +8,7 @@ export const AGENT_MAX_STEPS_DEFAULT = 4;
 
 export const ALLOWED_AGENT_TOOL_NAMES = [
   'describe_agent_capabilities',
+  'get_public_transaction',
   'search_product_docs',
 ] as const;
 
@@ -27,6 +28,7 @@ export type AgentMessage = {
 export type PlannerRoute =
   | 'agent_answer'
   | 'boundary'
+  | 'chain_answer'
   | 'clarify'
   | 'product_answer'
   | 'unsupported';

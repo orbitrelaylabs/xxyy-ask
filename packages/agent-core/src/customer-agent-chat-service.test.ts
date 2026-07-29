@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChatResponse, ChatStreamEvent } from '@xxyy/shared';
+import {
+  createChainAnalysisMcpClientStub,
+  createInMemoryChainAnalysisMcpClient,
+} from '@xxyy/chain-analysis-mcp';
+import { createChainAnalysisFixtureRuntime } from '@xxyy/chain-analysis-mcp/test-fixtures';
 import { createProductQaMcpClientStub, type ProductSearchOutput } from '@xxyy/product-qa-mcp';
 import {
   createInMemoryQualityTracer,
@@ -182,6 +187,117 @@ describe('createCustomerAgentChatService', () => {
       },
       expect.any(AbortSignal),
     );
+  });
+
+  it('routes a public Explorer transaction through the explicitly granted chain Skill and MCP', async () => {
+    const fixture = await createChainAnalysisFixtureRuntime('synthetic.inspect-execution');
+    const service = createCustomerAgentChatService({
+      answerProvider: {
+        answer: () => Promise.reject(new Error('product answer should not be called')),
+      },
+      planner: createScriptedPlannerModel([]),
+      publicChainCapabilityCaller: {
+        channel: 'web',
+        principal: 'anonymous',
+      },
+      publicChainMcpClient: createChainAnalysisMcpClientStub({
+        getTransaction: (input, signal) =>
+          fixture.handler.getTransaction(input, signal === undefined ? {} : { signal }),
+      }),
+      retriever: {
+        retrieve: () => Promise.reject(new Error('product retrieval should not be called')),
+      },
+    });
+    const explorerUrl = `https://etherscan.io/tx/${fixture.transactionHash}`;
+
+    await expect(
+      service.ask({
+        channel: 'web',
+        message: `查询这笔交易：${explorerUrl}`,
+      }),
+    ).resolves.toMatchObject({
+      agentRoute: 'chain_answer',
+      citations: [{ sourceUrl: explorerUrl }],
+      confidence: 0.95,
+      intent: 'onchain_transaction',
+    });
+    await expect(
+      service.ask({
+        channel: 'web',
+        message: fixture.transactionHash,
+      }),
+    ).resolves.toMatchObject({
+      agentRoute: 'clarify',
+      citations: [],
+      intent: 'onchain_transaction',
+    });
+  });
+
+  it('routes public call-trace and Sandwich requests through the same Web/Telegram Tool bridge', async () => {
+    const inspectionFixture = await createChainAnalysisFixtureRuntime(
+      'synthetic.inspect-execution',
+    );
+    const inspectionClient = createInMemoryChainAnalysisMcpClient({
+      handler: inspectionFixture.handler,
+    });
+    const inspectionService = createCustomerAgentChatService({
+      answerProvider: {
+        answer: () => Promise.reject(new Error('product answer should not be called')),
+      },
+      planner: createScriptedPlannerModel([]),
+      publicChainCapabilityCaller: {
+        channel: 'web',
+        principal: 'anonymous',
+      },
+      publicChainMcpClient: inspectionClient,
+      retriever: {
+        retrieve: () => Promise.reject(new Error('product retrieval should not be called')),
+      },
+    });
+
+    const sandwichFixture = await createChainAnalysisFixtureRuntime('synthetic.confirmed-v2');
+    const sandwichClient = createInMemoryChainAnalysisMcpClient({
+      handler: sandwichFixture.handler,
+    });
+    const sandwichService = createCustomerAgentChatService({
+      answerProvider: {
+        answer: () => Promise.reject(new Error('product answer should not be called')),
+      },
+      planner: createScriptedPlannerModel([]),
+      publicChainCapabilityCaller: {
+        channel: 'telegram',
+        principal: 'service',
+      },
+      publicChainMcpClient: sandwichClient,
+      retriever: {
+        retrieve: () => Promise.reject(new Error('product retrieval should not be called')),
+      },
+    });
+
+    try {
+      const inspection = await inspectionService.ask({
+        channel: 'web',
+        message: `调用追踪 https://etherscan.io/tx/${inspectionFixture.transactionHash}`,
+      });
+      expect(inspection).toMatchObject({
+        agentRoute: 'chain_answer',
+        intent: 'onchain_transaction',
+      });
+      expect(inspection.answer).toContain('调用追踪：可用（6 个调用节点）');
+
+      const sandwich = await sandwichService.ask({
+        channel: 'telegram',
+        message: `这笔交易是不是被夹了？ https://etherscan.io/tx/${sandwichFixture.transactionHash} 池子地址 ${sandwichFixture.poolAddress}`,
+      });
+      expect(sandwich).toMatchObject({
+        agentRoute: 'chain_answer',
+        confidence: 0.92,
+        intent: 'onchain_transaction',
+      });
+      expect(sandwich.answer).toContain('Sandwich 结论：已确认');
+    } finally {
+      await Promise.all([inspectionClient.close(), sandwichClient.close()]);
+    }
   });
 
   it('propagates one tracer through request, tool, and reranking layers', async () => {

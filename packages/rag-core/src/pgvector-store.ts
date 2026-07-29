@@ -528,6 +528,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
               'agent_capabilities',
               'product_qa',
               'how_to',
+              'onchain_transaction',
               'realtime_account_query',
               'investment_advice',
               'unknown'
@@ -555,6 +556,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
               'agent_capabilities',
               'product_qa',
               'how_to',
+              'onchain_transaction',
               'realtime_account_query',
               'investment_advice',
               'unknown'

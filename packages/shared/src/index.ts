@@ -55,6 +55,7 @@ export const supportedIntents = [
   'agent_capabilities',
   'product_qa',
   'how_to',
+  'onchain_transaction',
   'realtime_account_query',
   'investment_advice',
   'unknown',
@@ -65,6 +66,7 @@ export type Intent = (typeof supportedIntents)[number];
 export const supportedAgentRoutes = [
   'agent_answer',
   'boundary',
+  'chain_answer',
   'clarify',
   'product_answer',
 ] as const;
@@ -148,7 +150,7 @@ export interface ChatTokenUsage {
   totalTokens: number;
 }
 
-const citationSchema = z.object({
+export const citationSchema = z.object({
   excerpt: z.string(),
   file: z.string(),
   sourceType: z.enum(supportedSourceTypes).optional(),
@@ -156,7 +158,7 @@ const citationSchema = z.object({
   title: z.string(),
 });
 
-const chatAttachmentSchema = z.discriminatedUnion('kind', [
+export const chatAttachmentSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('video'),
     mediaType: z.enum(['video/mp4', 'text/html']),
@@ -179,10 +181,20 @@ const chatAttachmentSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
-const chatTokenUsageSchema = z.object({
+export const chatTokenUsageSchema = z.object({
   completionTokens: z.number().int().nonnegative().optional(),
   promptTokens: z.number().int().nonnegative().optional(),
   totalTokens: z.number().int().nonnegative(),
+});
+
+export const chatResponseSchema = z.object({
+  agentRoute: z.enum(supportedAgentRoutes).optional(),
+  answer: z.string(),
+  attachments: z.array(chatAttachmentSchema).optional(),
+  citations: z.array(citationSchema),
+  confidence: z.number(),
+  intent: z.enum(supportedIntents),
+  tokenUsage: chatTokenUsageSchema.optional(),
 });
 
 export const chatStreamEventSchema = z.discriminatedUnion('type', [

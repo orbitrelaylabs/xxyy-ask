@@ -474,6 +474,68 @@ describe('EVM execution data adapter replay contract', () => {
     expect(JSON.stringify(result)).not.toContain('private trace provider detail');
   });
 
+  it('uses a configured Blockscout trace without invoking debug RPC and marks it partial', async () => {
+    const fixture = await loadFixture('provider-success');
+    const replay = createReplayFetch(new Map([['rpc-primary.example', fixture]]));
+    const explorerRequests: string[] = [];
+    const fetchImpl: typeof fetch = (request, init) => {
+      const url = new URL(fetchInputUrl(request));
+      if (url.host === 'blockscout.example') {
+        explorerRequests.push(url.href);
+        expect(init?.method).toBe('GET');
+        return Promise.resolve(new Response(JSON.stringify(fixture.trace), { status: 200 }));
+      }
+      return replay.fetchImpl(request, init);
+    };
+    const adapter = createEvmExecutionDataAdapter({
+      chains: [
+        {
+          chainId: '1',
+          factories: { uniswapV2: [], uniswapV3: [] },
+          providers: [
+            {
+              endpoint: 'https://rpc-primary.example/private?token=query-secret',
+              id: 'rpc_primary',
+              traceSource: {
+                endpoint: 'https://blockscout.example',
+                id: 'blockscout_public',
+                kind: 'blockscout_v2',
+              },
+            },
+          ],
+        },
+      ],
+      fetchImpl,
+      maxRetries: 0,
+      now: fixedNow,
+    });
+
+    const result = await adapter.loadExecutionData(requestFor(fixture, []));
+
+    expect(result.status).toBe('partial');
+    expect(result.trace?.nodes).toHaveLength(5);
+    expect(result.trace?.source).toMatchObject({
+      id: 'blockscout_public',
+      kind: 'explorer',
+    });
+    expect(result.diagnostics).toEqual([
+      {
+        attempts: 1,
+        code: 'explorer_trace_partial_evidence',
+        operation: 'trace',
+        providerId: 'blockscout_public',
+        retryable: false,
+      },
+    ]);
+    expect(explorerRequests).toEqual([
+      `https://blockscout.example/api/v2/transactions/${transactionHash}/raw-trace`,
+    ]);
+    expect(replay.requests.flatMap((request) => request.calls.map((call) => call.method))).toEqual([
+      'eth_chainId',
+    ]);
+    expect(JSON.stringify(result)).not.toContain('query-secret');
+  });
+
   it('rejects a pool whose self-reported factory is not allowlisted', async () => {
     const fixture = await loadFixture('provider-success');
     const replay = createReplayFetch(new Map([['rpc-primary.example', fixture]]));

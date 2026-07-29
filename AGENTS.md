@@ -11,13 +11,13 @@
 
 ## 项目定位
 
-这是 XXYY 客服 Agentic RAG 系统。当前阶段使用 LangGraph JS 作为 Agent Runtime，但运行面暂时收敛为知识库产品问答：产品问题调用 Product RAG，系统会自动根据官方 X / Twitter 和产品文档更新知识库。
+这是 XXYY 客服 Agentic RAG 系统。当前阶段使用 LangGraph JS 作为 Agent Runtime，运行面以知识库产品问答为主，并为用户明确提供的公开交易引用提供只读查询与证据受控的深度分析：产品问题调用 Product RAG，系统会自动根据官方 X / Twitter 和产品文档更新知识库；链上查询只读取启动时 allowlist 中的公开链数据源。
 
 当前边界：
 
 - 可以回答 XXYY 产品功能、配置步骤、权益说明和官方更新相关问题。
-- 交易哈希、公开 explorer 链接、池子查询、链上取证和泛 MEV 问题暂不分析，必须返回边界或澄清回复。
-- 已提供只读 `xxyy-product-support` MCP server 和同名 project Skill；另有与产品域解耦的 `onchain-analysis` MCP、`onchain-transaction-inspector` / `evm-sandwich-detector` 两个 project Skills，以及 XXYY 内部专用、readiness-gated 的生产 composition。公开客服仍不分析交易或 MEV。
+- Web 与 Telegram 可以对用户提供的公开交易哈希/Explorer 链接执行基础查询、单笔 EVM `inspect_transaction` 调用追踪/内部转账/回滚分析，以及指定或唯一推断的 allowlisted pool `detect_sandwich`。深度证据缺失时必须返回部分数据、数据不足或配置提示，不能编造结论。
+- 已提供只读 `xxyy-product-support` MCP server 和同名 project Skill；另有与产品域解耦的 `onchain-analysis` MCP、`onchain-transaction-inspector` / `evm-sandwich-detector` 两个 project Skills，以及 readiness-gated 的深度生产 composition。公开客服对固定 `web/anonymous` 与 `telegram/service` 精确授权 `get_transaction`、`inspect_transaction` 和 `detect_sandwich`，但不得绕过 Provider、池子 allowlist 或生产 readiness。
 - 不直接查询用户账户、订单、钱包余额或私有交易记录。
 - 不提供投资建议。
 - 对边界问题必须返回边界回复，不要编造实时数据。
@@ -39,20 +39,20 @@
 - `packages/shared`：共享类型和聊天契约。
 - `packages/knowledge`：产品文档加载、Markdown chunk、tokenize 和 OpenAI embedding provider。
 - `packages/rag-core`：意图分类、检索接口、pgvector store、LLM answer provider、边界回复和配置错误类型。
-- `packages/agent-core`：LangGraph 客服 Agent runtime、planner、tool registry、Capability Registry，以及 Product Skill → MCP 显式授权 bridge。
+- `packages/agent-core`：LangGraph 客服 Agent runtime、planner、tool registry、Capability Registry，以及 Product Skill → MCP 与公开三项 Chain Skill → MCP 的显式授权 bridge。
 - `packages/product-qa-mcp`：只读产品知识 MCP server/client、`search_product_docs` 契约、Skill Resource/Prompt 和 stdio 入口。
 - `packages/chain-analysis-mcp`：通用只读 `onchain-analysis` MCP server/client、`get_transaction` / `inspect_transaction` / `detect_sandwich`、Explorer 引用解析、Skill Resource/Prompt、输出投影与 readiness 时间窗门禁；自身不绑定 XXYY 产品。
-- `packages/transaction-analysis-core`：无网络依赖的 EVM transaction snapshot 领域分析；由内部 Chain MCP composition 调用。
-- `packages/evm-data-adapter`：启动时 allowlist 的只读 EVM JSON-RPC 获取、归一化和 provider 协调；只接入私有 data plane。
+- `packages/transaction-analysis-core`：无网络依赖的 EVM transaction snapshot 领域分析；由 Chain MCP composition 调用。
+- `packages/evm-data-adapter`：启动时 allowlist 的只读 EVM JSON-RPC 获取、归一化和 provider 协调；公开三项 Chain 能力共享其基础交易快照。
 - `packages/solana-data-adapter`：启动时 allowlist 的只读 Solana `getTransaction` 获取、余额变化归一化和多 Provider 对账；不暴露任意 RPC。
-- `packages/evm-execution-enrichment-core`：离线的 EVM call trace、revert 和 allowlisted DEX swap 语义增强；由内部 Chain MCP composition 调用。
-- `packages/evm-execution-data-adapter`：启动时 allowlist 的 callTracer 获取和 Uniswap V2/V3 pool/factory 元数据验证；只接入私有 data plane。
-- `packages/evm-chain-analysis-harness`：不执行网络 I/O 的 transaction/execution/MEV 离线组合、replay corpus 评测和质量门禁；内部 Chain MCP 只传入已验证对象。
+- `packages/evm-execution-enrichment-core`：离线的 EVM call trace、revert 和 allowlisted DEX swap 语义增强；由 Chain MCP composition 调用。
+- `packages/evm-execution-data-adapter`：启动时 allowlist 的 callTracer 或 Blockscout v2 raw trace 获取，以及 Uniswap V2/V3 pool/factory 元数据验证；公开 Blockscout 单源固定标为部分证据，生产 RPC trace/MEV 数据面仍走 readiness-gated 私有 composition。
+- `packages/evm-chain-analysis-harness`：不执行网络 I/O 的 transaction/execution/MEV 离线组合、replay corpus 评测和质量门禁；Chain MCP 只传入已验证对象。
 - `packages/evm-chain-analysis-readiness`：无网络 I/O 的 sampling plan/evidence intake、manifest/candidate handoff、单 owner reviewed replay 治理、生产数据面证据契约和综合 readiness evaluator；不含真实来源/法务审批、主网样本或 provider backend，Chain MCP 只消费持久化 evaluator 结果。
 - `packages/evm-chain-analysis-control-store`：通过注入 client 执行 SQL 的 Postgres sampling/handoff/单 owner 治理证据存储、sampling/retention/review worker contract、可重算 readiness evidence ledger、哈希链审计、共享 provider budget 和 circuit CAS backend；不自行创建连接、不访问 RPC/HTTP、不含生产 grant/审批/真实证据。
 - `packages/evm-chain-analysis-data-plane`：私有双 Provider composition root；从 opaque secret resolver 构建三个只读 adapter，在 HTTP 外层执行共享 budget/circuit、bounded cache、持久脱敏审计、metrics/alert 以及四类 worker handler contract；仅由运维入口和 readiness-gated Chain MCP 使用，不含真实 endpoint/credential 或生产部署证明。
-- `packages/evm-price-impact-sandwich-core`：离线的 lossless AMM price impact 和 Sandwich 四态判定；由内部 Chain MCP composition 调用。
-- `packages/evm-mev-observation-data-adapter`：启动时 allowlist 的同区块 swap、transaction-boundary pool state、actor token delta 和多 provider 冲突验证；只接入私有 data plane。
+- `packages/evm-price-impact-sandwich-core`：离线的 lossless AMM price impact 和 Sandwich 四态判定；由 Chain MCP composition 调用。
+- `packages/evm-mev-observation-data-adapter`：启动时 allowlist 的同区块 swap、transaction-boundary pool state、actor token delta 和多 provider 冲突验证；通用配置可显式接入，生产深度数据面仍走 readiness-gated 私有 composition。
 - `apps/chain-control-cli`：与客服运行面隔离的生产 provisioning composition root；从受控 plan 与 Ed25519 attestation 写入独立 control Postgres，并重读 receipt/grant lineage/audit chain。
 - `apps/chain-operations-cli`：与客服运行面隔离的 Provider/worker 运维入口；还提供只有固定 manifest、canonical readiness attestation 与 Provider/budget lineage 全部有效时才启动的内部 chain-analysis stdio MCP composition root。
 - `apps/cli`：`rag:ingest`、`rag:sync:x`、`rag:migrate`、`rag:stats`、`rag:evaluate`、`rag:ask`。
@@ -201,8 +201,8 @@ env -u DATABASE_URL -u POSTGRES_DB -u POSTGRES_USER -u POSTGRES_PASSWORD OPENAI_
 - 不要提交 chain-control request、plan、attestation、receipt、authority private key 或真实 identity/evidence fingerprint；通过受保护的运维通道提供。远程 control DB 必须验证 TLS，且不能与 Product RAG 共库。
 - 生产 API 服务端不负责迁移；迁移和正式知识写库由独立 `pnpm rag:refresh` Job、`pnpm rag:knowledge:automation:work`、`pnpm run app:dev -- --sync`、`pnpm run app:dev -- --full-sync`、`pnpm rag:ingest` 或 `pnpm rag:sync:x` 完成。本地 `pnpm run app:dev -- --sync` 可以为空知识库做首次 bootstrap。Telegram Bot 只允许创建、自动决定候选和排队，不直接写 pgvector。
 - Product MCP 只能读取正式产品知识；Onchain MCP 只能读取 `ONCHAIN_RPC_CONFIG_JSON` 或生产 secret/manifest 中启动时配置的公开链数据，工具输入不能接受 endpoint、任意 RPC method、任意区块范围或私有账户输入。通用交易查询支持配置的 EVM chain id 与 Solana mainnet；深度 execution/Sandwich 仍要求 EVM archive Provider、验证过的 factory/pool 和完整数据覆盖。新增 MCP/Skill 必须分别固定 manifest/source/version、配置精确 grant，再通过显式 Tool bridge 暴露，禁止把 discovery 结果自动注册到 Planner。
-- 免费公共 RPC 只存在于 `.env.example` 的便利配置中，运行时代码不得内置 endpoint 或按 `NODE_ENV` 选择 Provider；生产部署必须使用同一配置结构显式替换为具备配额/SLA 的 Provider。Explorer URL 只用于网络识别与规范链接，Etherscan/Solscan 等需要 API key 的增强 API 不得伪装成 RPC 数据源。
-- Chain Capability bridge 仅允许 `internal/(service|admin)` 或 `cli/admin` 可信调用方；Web/API/Telegram 不得创建 chain grant 或注册 chain Tool。生产 stdio 入口还必须逐次检查 readiness 有效时间窗，不能把仓库 fixture 或启动成功描述为 production ready。
+- 免费公共 RPC 和 Robinhood Blockscout trace source 只存在于 `.env.example` 的便利配置中，运行时代码不得内置 endpoint 或按 `NODE_ENV` 选择 Provider；生产部署应显式替换为具备配额/SLA 的 Provider。公开运行时只允许显式 Blockscout execution 配置并强制标为部分证据，生产 RPC callTracer 与全部 MEV observation 仍须 readiness-gated composition。Explorer URL 通常只用于网络识别与规范链接；唯一例外是启动配置 allowlist 中的 Blockscout raw-trace source，Etherscan/Solscan 等需要 API key 的增强 API 不得伪装成 RPC 数据源。
+- Chain Capability bridge 只接受 composition root 固定的可信 caller。Web/API 使用 `web/anonymous`、Telegram 使用 `telegram/service`，分别只为 `get_transaction`、`inspect_transaction`、`detect_sandwich` 创建六条精确 Skill/MCP grant；内部深度 factory 仍只接受 `internal/(service|admin)` 或 `cli/admin`。生产 stdio 深度入口必须逐次检查 readiness 有效时间窗，不能把仓库 fixture、公共 RPC、授权成功或进程启动描述为 production ready。
 - 新增行为需要加测试；风险较高的改动跑 `pnpm check`。
 - 对外错误信息应清晰区分：
   - LLM 配置缺失

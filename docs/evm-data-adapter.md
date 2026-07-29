@@ -4,7 +4,7 @@
 
 `@xxyy/evm-data-adapter` 是 `@xxyy/transaction-analysis-core` 之前的只读数据边界。它通过受控的标准 EVM JSON-RPC 获取公开 transaction、receipt、chain id 和 block，将 hex quantity 无精度损失地转换为 normalized `EvmTransactionSnapshot`，再由离线领域核心计算交易事实。本 adapter 的四方法 allowlist 不扩大；额外 trace 和 pool metadata 由独立的 [EVM Execution Data Adapter](evm-execution-data-adapter.md) 获取并验证。
 
-该包已经实现且被通用 `onchain-analysis` composition 与隔离的私有生产 data-plane composition 引用。通用 composition 只从必填的启动配置获取基础 EVM snapshot；运行时代码不内置 RPC endpoint，`.env.example` 仅提供公共便利值。内部生产 composition 仍需 canonical readiness 门禁。adapter 自身不是 MCP server/capability adapter。公开 LangGraph、API、Web 和 Telegram 仍不注册链上 Tool，收到交易、Explorer、链上取证或 MEV 问题时继续返回现有边界回复。通用配置见 [Onchain Analysis MCP / Skills](onchain-analysis-mcp.md)，私有生产路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
+该包已经实现且被通用 `onchain-analysis` composition 与隔离的私有生产 data-plane composition 引用。通用 composition 只从必填的启动配置获取基础 EVM snapshot；运行时代码不内置 RPC endpoint，`.env.example` 仅提供公共便利值。Web/API/Telegram 的 `get_transaction`、`inspect_transaction` 与 `detect_sandwich` 都以该 snapshot 作为交易事实锚点；trace 与 MEV observation 仍由各自独立 adapter 提供。深度 production composition 继续受 canonical readiness 门禁。通用配置见 [Onchain Analysis MCP / Skills](onchain-analysis-mcp.md)，私有生产路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
 
 ## 组件边界
 
@@ -91,4 +91,4 @@ provider contract tests 另外覆盖 missing result、错误 chain、hash/index/
 - Capability manifest/adapter、MCP client/server、LangGraph bridge 或任何用户可见入口；
 - 私有账户查询、签名、模拟、交易发送或其他写操作。
 
-受控 trace/debug RPC 与 pool metadata 验证已在独立 [EVM Execution Data Adapter](evm-execution-data-adapter.md) 实现；[MEV Observation Data Adapter](evm-mev-observation-data-adapter.md) 已能用 canonical block、pool logs 和 V2/V3 state replay 构建同区块输入；离线价格影响与四态判断由 [EVM Price Impact / Sandwich Core](evm-price-impact-sandwich.md) 完成；[Chain Analysis Harness](evm-chain-analysis-harness.md) 已负责离线组合、合成回放评测与质量门禁；[Readiness Control Plane](evm-chain-analysis-readiness.md) 已定义 reviewed corpus 和生产证据契约。各包仍未接入客服。只有实际部署真实 provider data plane、采集 reviewed 主网 corpus、完成内部 channel 授权/Capability bridge 并通过端到端门禁后，才考虑注册链上能力。
+受控 trace/debug RPC 与 pool metadata 验证已在独立 [EVM Execution Data Adapter](evm-execution-data-adapter.md) 实现；[MEV Observation Data Adapter](evm-mev-observation-data-adapter.md) 已能用 canonical block、pool logs 和 V2/V3 state replay 构建同区块输入；离线价格影响与四态判断由 [EVM Price Impact / Sandwich Core](evm-price-impact-sandwich.md) 完成；[Chain Analysis Harness](evm-chain-analysis-harness.md) 已负责离线组合、合成回放评测与质量门禁；[Readiness Control Plane](evm-chain-analysis-readiness.md) 已定义 reviewed corpus 和生产证据契约。三项只读链上能力已接入客服并采用 fail-closed 输出；真实深度生产结论仍要求部署真实 provider data plane、采集 reviewed 主网 corpus 并通过端到端 readiness 门禁。

@@ -8,7 +8,7 @@
 2. 公开主网 replay case 在进入 `@xxyy/evm-chain-analysis-harness` 前，如何经过可审计的采集、单 owner 复核、修订、保留和删除流程；
 3. 未来真实 provider 数据面需要提交哪些预算、审计、告警、共享熔断、SLO、故障演练、安全和 runbook 证据，才能判断是否具备内部试用条件。
 
-本契约包没有真实主网样本、真实来源/法务审批、endpoint、credential、数据库 client、Redis 或 RPC client，也不读取环境变量。独立 control-store 已实现 Postgres 治理与共享控制 backend，data-plane 包与私有 operations CLI 已实现 opaque secret、双 Provider composition、持久请求审计和 worker handler runtime；内部 Chain MCP/Skills 与 Capability bridge 也已实现，但 stdio composition 必须从 control DB 重读指定 attestation，并只在 `ready`、未过期且 Provider/budget lineage 与固定 manifest 完全一致时启动。仓库没有这些真实生产输入，API、Web、Telegram 与公开 LangGraph 仍不注册链上 Tool。当前公开客服继续只回答产品知识问题。私有运行边界见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
+本契约包没有真实主网样本、真实来源/法务审批、endpoint、credential、数据库 client、Redis 或 RPC client，也不读取环境变量。独立 control-store 已实现 Postgres 治理与共享控制 backend，data-plane 包与私有 operations CLI 已实现 opaque secret、双 Provider composition、持久请求审计和 worker handler runtime；深度 Chain MCP/Skills 与 Capability bridge 也已实现，但 production stdio composition 必须从 control DB 重读指定 attestation，并只在 `ready`、未过期且 Provider/budget lineage 与固定 manifest 完全一致时启动。Web/API/Telegram 已为三项只读 Chain 工具创建公开精确 grant，默认通用 RPC 路径不消费本 readiness-gated production data plane，也不代表本契约已具备真实生产证据。私有运行边界见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
 
 ## 总体流程
 

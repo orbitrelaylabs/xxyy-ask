@@ -1,6 +1,6 @@
 # Architecture
 
-本文档描述当前 XXYY Ask 的业务架构。当前实现聚焦产品客服 RAG：基于产品文档和官方 X 更新回答产品问题；账户、订单、私有交易记录、交易哈希、池子查询、泛 MEV/链上取证和投资建议等问题走边界或澄清回复。
+本文档描述当前 XXYY Ask 的业务架构。当前实现以产品客服 RAG 为主，并支持用户提供的公开交易基础查询、单笔 EVM 调用追踪和 allowlisted pool Sandwich/MEV 判断；账户、订单、私有交易记录、任意地址历史/归属、任意池发现、无具体交易的泛链上取证和投资建议等问题走边界或澄清回复。
 
 ## 当前业务架构
 
@@ -127,7 +127,7 @@ flowchart LR
 
 产品 bridge 固定注册 `product.skill.search_docs` 与 `product.mcp.search_docs` v1.0.0，数据范围只有 `product.public`，副作用是 `external_read`。API 使用可信 `web/anonymous`，CLI 使用 `cli/user`，Telegram 使用 `telegram/service`；请求 payload 不能覆盖这些组合层身份。
 
-链上能力由与产品域解耦的 `onchain-analysis` MCP、两个通用 project Skills 与六项 v0.3.0 Capability 提供。独立 MCP host 可用 `onchain:mcp:dev` 查询 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain，或配置其它 EVM；XXYY factory 仍只接受 `internal/(service|admin)` 或 `cli/admin`。`apps/chain-operations-cli` 的 production stdio composition root 会在加载 Provider secrets 前验证固定 manifest、未过期 canonical `ready` attestation、三类 adapter policy、六个 Provider descriptor 与 budget lineage，并在每次调用重新检查时间窗。Web/API/Telegram 不创建这些 grant，也不注册 `get_transaction` / `inspect_transaction` / `detect_sandwich`。能力被注册不代表被授权，被授权也不代表会暴露给公开 Agent。完整契约见 [capability-plane.md](capability-plane.md)。
+链上能力由与产品域解耦的 `onchain-analysis` MCP、两个通用 project Skills 与六项 v0.3.0 Capability 提供。Web/API/Telegram 使用独立公开 factory，为固定 `web/anonymous`、`telegram/service` 注册三项工具的 Skill/MCP 六条精确授权；内部 factory 仍只接受 `internal/(service|admin)` 或 `cli/admin`。公开授权不绕过数据面：基础 snapshot、execution 和 MEV observation 必须分别来自启动时 allowlist，生产深度数据仍必须通过 readiness-gated composition。`apps/chain-operations-cli` 的 production stdio composition root 会在加载 Provider secrets 前验证固定 manifest、未过期 canonical `ready` attestation、三类 adapter policy、六个 Provider descriptor 与 budget lineage，并在每次调用重新检查时间窗。完整契约见 [capability-plane.md](capability-plane.md)。
 
 ## Read-only EVM Transaction Analysis Core v0.1（离线领域层）
 
@@ -161,7 +161,7 @@ adapter 把递归 call frame 迭代归一化为 250 节点、32 层、单 bytes 
 
 Sandwich 判定使用 `confirmed | likely | unlikely | insufficient_data` 四态门禁。`confirmed` 必须同时具备相邻 front/victim/back 顺序、同一非 victim actor、方向反转、连续 pool state、受害者反事实损失、pool-token 正收益和精确 actor asset loop；缺 actor delta 最多为 `likely`，只有完整 coverage 和反例才可为 `unlikely`，来源冲突或不支持语义返回 `insufficient_data`。
 
-该 core 不构建真实 block neighborhood，不获取 transaction-boundary archive state，不处理跨 tick/multi-hop/特殊代币，也不推断意图或扣除 gas/builder 成本。核心自身仍无网络、MCP 或 Agent 依赖；内部 Chain MCP 可通过受控 composition 调用它，但公开 API/Web/Telegram 不引用该能力。详细设计见 [evm-price-impact-sandwich.md](evm-price-impact-sandwich.md)。
+该 core 不构建真实 block neighborhood，不获取 transaction-boundary archive state，不处理跨 tick/multi-hop/特殊代币，也不推断意图或扣除 gas/builder 成本。核心自身仍无网络、MCP 或 Agent 依赖；Chain MCP 只在 observation、pool allowlist 和跨阶段锚点闭合后调用它，公开 API/Web/Telegram 仅消费其有界投影。详细设计见 [evm-price-impact-sandwich.md](evm-price-impact-sandwich.md)。
 
 ## Allowlisted MEV Observation Data Adapter v0.1（未接线数据边界）
 
@@ -177,7 +177,7 @@ V2 以 parent reserves 为起点，按 `Sync` / `Swap` 顺序重放 transaction-
 
 同一包定义 synthetic/reviewed replay corpus、chain/protocol/router/data-state/tier coverage matrix，以及 precision、recall（包含 positive abstention）、false-positive/false-negative、unsupported rate、provider cost、expected match 和 byte determinism 报告。synthetic regression gate 只证明组合回归；internal readiness gate 强制 reviewed 样本量和更高质量阈值。当前六个合成 case 明确不能通过 internal readiness，不代表主网效果。
 
-该 harness 自身不实例化 RPC adapter，也不读取环境变量或 endpoint。内部 Chain MCP handler 现在以已验证 adapter 输出调用它并投影两个只读 Capability；公开 LangGraph、API、Web 和 Telegram 仍不注册这些工具。详细设计见 [evm-chain-analysis-harness.md](evm-chain-analysis-harness.md)。
+该 harness 自身不实例化 RPC adapter，也不读取环境变量或 endpoint。Chain MCP handler 以已验证 adapter 输出调用它并投影两个只读 Capability；公开 LangGraph、API、Web 和 Telegram 已通过精确 grant 注册这两个能力，但只能消费启动时配置的数据面，缺证据时 fail closed。详细设计见 [evm-chain-analysis-harness.md](evm-chain-analysis-harness.md)。
 
 ## Reviewed Replay & Production Readiness Control Plane v0.1（未接线）
 
@@ -185,7 +185,7 @@ V2 以 parent reserves 为起点，按 `Sync` / `Swap` 顺序重放 transaction-
 
 同一包定义只含 `secretref:` 的 provider descriptor、跨实例 budget lease/settlement、脱敏持久审计 event、共享 circuit state/coordinator interface、SLO/告警、故障演练、安全和 incident runbook evidence contract。综合 evaluator 把 governed corpus export、该 corpus 的 harness report 和生产证据闭合，并固定调用不可由 caller 弱化的 `internalReadinessQualityGate`，输出稳定的 `blocked | degraded | ready` 和逐项 reason。
 
-readiness 契约包自身不实现 owner identity、数据库或真实 provider。独立的 `packages/evm-chain-analysis-control-store` 已实现可注入 client 的 Postgres 持久化层：不可变 sampling/handoff/governance artifact、authorization/revocation、sampling/retention job lease、handoff 单槽 owner review work queue、可重算 readiness evidence ledger、哈希链 audit、budget window/lease/settlement/reconciliation、provider request event 和 circuit history/head CAS。`packages/evm-chain-analysis-data-plane` 在包外组合三个 adapter，解析 opaque secret、执行双 provider/shared controls/cache/audit，并提供四类 worker handler runtime；私有 `apps/chain-control-cli` 与 `apps/chain-operations-cli` 是仅有的部署入口。Chain MCP stdio composition root 已在后者落地，但没有生产 grant、真实 endpoint/credential、主网 corpus 或 readiness 证明时按设计不能启动；contract-only readiness 结果保持 `blocked`，公开 API/Web/Telegram 仍未连接。详细设计见 [evm-chain-analysis-sampling.md](evm-chain-analysis-sampling.md)、[evm-chain-analysis-sampling-handoff.md](evm-chain-analysis-sampling-handoff.md)、[evm-chain-analysis-review-work-queue.md](evm-chain-analysis-review-work-queue.md)、[evm-chain-analysis-readiness.md](evm-chain-analysis-readiness.md)、[evm-chain-analysis-control-store.md](evm-chain-analysis-control-store.md)、[evm-chain-analysis-readiness-evidence-ledger.md](evm-chain-analysis-readiness-evidence-ledger.md) 与 [chain-data-plane-operations.md](chain-data-plane-operations.md)。
+readiness 契约包自身不实现 owner identity、数据库或真实 provider。独立的 `packages/evm-chain-analysis-control-store` 已实现可注入 client 的 Postgres 持久化层：不可变 sampling/handoff/governance artifact、authorization/revocation、sampling/retention job lease、handoff 单槽 owner review work queue、可重算 readiness evidence ledger、哈希链 audit、budget window/lease/settlement/reconciliation、provider request event 和 circuit history/head CAS。`packages/evm-chain-analysis-data-plane` 在包外组合三个 adapter，解析 opaque secret、执行双 provider/shared controls/cache/audit，并提供四类 worker handler runtime；私有 `apps/chain-control-cli` 与 `apps/chain-operations-cli` 是仅有的生产深度部署入口。Chain MCP stdio composition root 已在后者落地，但没有生产 grant、真实 endpoint/credential、主网 corpus 或 readiness 证明时按设计不能启动；contract-only readiness 结果保持 `blocked`。公开 API/Web/Telegram 已获得深度能力授权，但当前通用公共 RPC 配置不等于连接了这套 production data plane。详细设计见 [evm-chain-analysis-sampling.md](evm-chain-analysis-sampling.md)、[evm-chain-analysis-sampling-handoff.md](evm-chain-analysis-sampling-handoff.md)、[evm-chain-analysis-review-work-queue.md](evm-chain-analysis-review-work-queue.md)、[evm-chain-analysis-readiness.md](evm-chain-analysis-readiness.md)、[evm-chain-analysis-control-store.md](evm-chain-analysis-control-store.md)、[evm-chain-analysis-readiness-evidence-ledger.md](evm-chain-analysis-readiness-evidence-ledger.md) 与 [chain-data-plane-operations.md](chain-data-plane-operations.md)。
 
 ## 说明
 

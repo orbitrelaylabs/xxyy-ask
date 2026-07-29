@@ -1,4 +1,5 @@
 import { createCustomerAgentChatService } from '@xxyy/agent-core';
+import type { ChainAnalysisMcpClient } from '@xxyy/chain-analysis-mcp';
 import { createOpenAiEmbeddingProvider } from '@xxyy/knowledge';
 import type { ChatRequest, ChatResponse, ChatStreamEvent } from '@xxyy/shared';
 import {
@@ -23,6 +24,7 @@ export interface TelegramChatRuntime {
 export function createTelegramChatRuntime(
   config: RagConfig,
   tracer: QualityTracer = noopQualityTracer,
+  options: { publicChainMcpClient?: ChainAnalysisMcpClient } = {},
 ): TelegramChatRuntime {
   let vectorPool: ReturnType<typeof createPgPool> | undefined;
   let feedbackPool: ReturnType<typeof createPgPool> | undefined;
@@ -58,6 +60,15 @@ export function createTelegramChatRuntime(
       channel: 'telegram',
       principal: 'service',
     },
+    ...(options.publicChainMcpClient === undefined
+      ? {}
+      : {
+          publicChainCapabilityCaller: {
+            channel: 'telegram' as const,
+            principal: 'service' as const,
+          },
+          publicChainMcpClient: options.publicChainMcpClient,
+        }),
     retriever,
     tracer,
   });
@@ -72,7 +83,11 @@ export function createTelegramChatRuntime(
       vectorPool = undefined;
       const currentFeedbackPool = feedbackPool;
       feedbackPool = undefined;
-      await Promise.all([pool?.end(), currentFeedbackPool?.end()]);
+      await Promise.all([
+        pool?.end(),
+        currentFeedbackPool?.end(),
+        options.publicChainMcpClient?.close(),
+      ]);
     },
     service: withLowEvidenceFeedback(service, recordFeedback),
   };

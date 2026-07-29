@@ -2,11 +2,11 @@
 
 XXYY 客服 Agentic RAG 项目。当前阶段暂时收敛为知识库产品问答：使用 LangGraph JS 编排客服回答，从 [XXYY 官方文档](https://docs.xxyy.io/)、[官方 X 更新](https://x.com/useXXYYio) 和通过严格自动治理发布的客服群知识中检索依据，并通过 OpenAI-compatible chat completion 生成带引用回答。群聊知识按“验证管理员 → 清洗/提取 → 确定性自动决策 → 隔离发布门禁”闭环更新，不需要逐条人工审批。
 
-当前运行面只保留知识库问答：
+当前运行面提供知识库问答与受控公开链只读分析：
 
 - 产品功能、配置步骤、权益说明和官方更新相关问题会走 Product RAG。
-- 交易哈希、公开 explorer 链接、池子查询、链上取证和泛 MEV 问题暂不分析，统一返回边界/澄清回复。
-- 已接入只读 `xxyy-product-support` MCP server 和同名 project Skill。另已实现与产品域解耦的 `onchain-analysis` MCP、onchain transaction inspector / EVM Sandwich detector Skills，以及仅允许 `internal/service|admin`、`cli/admin` 的 XXYY Capability bridge。通用开发 MCP 的内置网络与 XXYY 当前六链对齐：Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain；XXYY 生产 composition 只有在 canonical readiness 为未过期 `ready` 且 manifest/Provider/budget lineage 精确匹配时才能连接，Web/API/Telegram 仍不注册链上工具。
+- Web 与 Telegram 已接入公开交易只读查询：基础查询返回状态、区块、地址、金额、手续费和公开转账事实；单笔 EVM 深度查询可返回调用追踪、内部转账与回滚证据；指定或唯一推断的 allowlisted pool 可执行 Sandwich/MEV 四态判断。
+- 已接入只读 `xxyy-product-support` MCP server 和同名 project Skill。另已实现与产品域解耦的 `onchain-analysis` MCP、onchain transaction inspector / EVM Sandwich detector Skills；公开运行面为固定 `web/anonymous` 与 `telegram/service` 创建三项工具的六条 Skill/MCP 精确授权。深度结果仍受 trace/archive Provider、池子 allowlist 和生产 readiness 门禁约束。内置网络为 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain。
 - 不查询用户账户、订单、钱包余额或私有交易记录，不提供投资建议。
 
 最终产品需求与总体设计见 [docs/target-product-design.md](docs/target-product-design.md)，当前功能状态见 [docs/feature-status.md](docs/feature-status.md)，全自动知识演进流程见 [docs/knowledge-evolution.md](docs/knowledge-evolution.md)，MCP / Skill 安全执行与当前接入见 [docs/capability-plane.md](docs/capability-plane.md)，通用链上 MCP、Explorer 和 RPC 配置见 [docs/onchain-analysis-mcp.md](docs/onchain-analysis-mcp.md)，离线 EVM 交易核心见 [docs/transaction-analysis-core.md](docs/transaction-analysis-core.md)，执行语义增强见 [docs/evm-execution-enrichment.md](docs/evm-execution-enrichment.md)，价格影响与 Sandwich 判定见 [docs/evm-price-impact-sandwich.md](docs/evm-price-impact-sandwich.md)，受控标准 RPC 数据边界见 [docs/evm-data-adapter.md](docs/evm-data-adapter.md)，受控执行数据边界见 [docs/evm-execution-data-adapter.md](docs/evm-execution-data-adapter.md)，同区块 MEV observation 数据边界见 [docs/evm-mev-observation-data-adapter.md](docs/evm-mev-observation-data-adapter.md)，离线组合与评测见 [docs/evm-chain-analysis-harness.md](docs/evm-chain-analysis-harness.md)，主网采样计划与 evidence intake 见 [docs/evm-chain-analysis-sampling.md](docs/evm-chain-analysis-sampling.md)，manifest 到 candidate 的无偏交接见 [docs/evm-chain-analysis-sampling-handoff.md](docs/evm-chain-analysis-sampling-handoff.md)，单 owner 复核任务队列见 [docs/evm-chain-analysis-review-work-queue.md](docs/evm-chain-analysis-review-work-queue.md)，reviewed replay 与生产数据面就绪控制见 [docs/evm-chain-analysis-readiness.md](docs/evm-chain-analysis-readiness.md)，Postgres 治理与共享控制 backend 见 [docs/evm-chain-analysis-control-store.md](docs/evm-chain-analysis-control-store.md)，production provisioning 运维见 [docs/chain-control-provisioning-operations.md](docs/chain-control-provisioning-operations.md)，Provider/worker data plane 运维见 [docs/chain-data-plane-operations.md](docs/chain-data-plane-operations.md)，可重算 readiness 证据账本见 [docs/evm-chain-analysis-readiness-evidence-ledger.md](docs/evm-chain-analysis-readiness-evidence-ledger.md)，生产运行说明见 [docs/production-readiness.md](docs/production-readiness.md)，后续规划见 [docs/roadmap.md](docs/roadmap.md)。
@@ -115,7 +115,7 @@ TELEGRAM_AUTO_LEARNING_ENABLED=false
 TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES=12
 ```
 
-数据库默认从 `POSTGRES_*` 组装连接串；使用托管数据库时可以配置 `DATABASE_URL` 覆盖。`OPENAI_*` 配置 Chat/Planner；`EMBEDDING_API_KEY` 和 `EMBEDDING_BASE_URL` 可把向量请求发送到独立的 OpenAI-compatible 服务，未配置时回退使用 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。当 `OPENAI_BASE_URL` 指向宿主机上的本地服务时，设置 `COMPOSE_OPENAI_BASE_URL=http://host.docker.internal:<端口>/v1`，让 `pnpm run app:up` 中的容器访问宿主机，同时保留 `app:dev` 使用的 `localhost` 地址。OpenAI-compatible 请求默认 30 秒超时、重试 1 次。默认 embedding 维度是 `1536`，匹配 `text-embedding-3-small`；更换 embedding 模型和维度时需要同步调整 `EMBEDDING_DIMENSION`，备份数据库后显式运行 `pnpm rag:ingest -- --rebuild-embedding-schema`。`.env.example` 会列出当前代码支持的环境变量。
+数据库默认从 `POSTGRES_*` 组装连接串；使用托管数据库时可以配置 `DATABASE_URL` 覆盖。`OPENAI_*` 配置 Chat/Planner；`EMBEDDING_API_KEY` 和 `EMBEDDING_BASE_URL` 可把向量请求发送到独立的 OpenAI-compatible 服务，未配置时回退使用 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。`pnpm run app:up` 会把 `ONCHAIN_RPC_CONFIG_JSON` 和 `ONCHAIN_ALLOW_INSECURE_LOCALHOST` 显式映射给 API 与 Telegram；未配置时产品客服仍可用，但公开交易查询会返回配置提示。当 `OPENAI_BASE_URL` 指向宿主机上的本地服务时，设置 `COMPOSE_OPENAI_BASE_URL=http://host.docker.internal:<端口>/v1`，让容器访问宿主机，同时保留 `app:dev` 使用的 `localhost` 地址。OpenAI-compatible 请求默认 30 秒超时、重试 1 次。默认 embedding 维度是 `1536`，匹配 `text-embedding-3-small`；更换 embedding 模型和维度时需要同步调整 `EMBEDDING_DIMENSION`，备份数据库后显式运行 `pnpm rag:ingest -- --rebuild-embedding-schema`。`.env.example` 会列出当前代码支持的环境变量。
 
 例如 Chat/Planner 使用 Sub2API Grok、embedding 使用独立服务：
 
@@ -207,6 +207,8 @@ pnpm run web:dev                 # 只启动 Vite Web
 pnpm run telegram:dev            # 启动 Telegram Bot
 pnpm product:mcp:dev             # 启动只读产品知识 stdio MCP server
 pnpm onchain:mcp:dev             # 从根目录 .env 启动通用六链查询 MCP
+pnpm onchain:query -- help       # 内部 cli/admin 通过 Tool → Skill → MCP 查询
+NODE_ENV=production pnpm onchain:query:production -- help # readiness-gated 生产内部查询
 pnpm chain:mcp:serve             # readiness 通过后启动内部链上分析 stdio MCP
 pnpm check                       # Web build + format check + typecheck + tests + deterministic golden QA
 ```
@@ -216,7 +218,11 @@ pnpm check                       # Web build + format check + typecheck + tests 
 
 `pnpm product:mcp:dev` 暴露一个 read-only MCP tool `search_product_docs`，以及 `xxyy://skills/product-support` Skill Resource 和 `xxyy_product_support` Prompt。API、CLI 和 Telegram 不需要额外进程：它们在同一进程内通过 MCP SDK 的 linked in-memory transport 调用完全相同的 server，再由 Capability Registry 对 `product.skill.search_docs → product.mcp.search_docs` 两层执行精确授权、超时、输出大小和脱敏审计。MCP discovery 不会自动扩展 Planner 工具列表。
 
-`pnpm onchain:mcp:dev` 启动与产品域解耦的 `onchain-analysis` server，暴露 `get_transaction`、`inspect_transaction`、`detect_sandwich`、capabilities Resource、两个 Skill Resources 和 Prompts。它自动读取根目录 `.env`，解析 Solscan/Solana Explorer、Etherscan、BscScan、Basescan/Base Blockscout、Robinhood Blockscout、Stablescan 链接，并从必填的 `ONCHAIN_RPC_CONFIG_JSON` 获取 RPC allowlist。代码不内置 endpoint，也不按 `NODE_ENV` 选择 Provider；`.env.example` 提供可直接启动的六链公共配置，生产使用相同结构替换为托管 Provider。免费节点只适合基础交易查询，不具备可靠 Sandwich 所需的 archive/pool 数据。
+`pnpm onchain:mcp:dev` 启动与产品域解耦的 `onchain-analysis` server，暴露 `get_transaction`、`inspect_transaction`、`detect_sandwich`、capabilities Resource、两个 Skill Resources 和 Prompts。它自动读取根目录 `.env`，解析 Solscan/Solana Explorer、Etherscan、BscScan、Basescan/Base Blockscout、Robinhood Blockscout、Stablescan 链接，并从必填的 `ONCHAIN_RPC_CONFIG_JSON` 获取 RPC allowlist。`evm` / `solana` 配置基础快照；可选 `execution` 显式配置 trace source 和 factory allowlist；可选 `mevObservation` 显式配置 archive Provider 与 pool allowlist。代码不内置 endpoint，也不按 `NODE_ENV` 选择 Provider；`.env.example` 的 Robinhood 示例组合官方公共 RPC 与 Blockscout raw trace，因此可返回带明确部分证据警告的调用树，仍不能作为可靠 Sandwich 或 production readiness 证据。
+
+`pnpm onchain:query` 是内部集成入口，固定使用 `cli/admin` grant，并在同一进程内执行 `ToolRegistry → chain.skill.* → chain.mcp.* → MCP protocol`。它自动读取开发 MCP 的 `ONCHAIN_RPC_CONFIG_JSON`，支持 `transaction`、`inspect` 和 `sandwich` 三个显式子命令；`NODE_ENV=production` 时失败关闭，不能绕过 `pnpm chain:mcp:serve` 的生产 readiness 门禁。Web/API/Telegram 复用同一启动时 allowlist，并以固定公开 caller 注册三项只读能力的六条精确 grant。
+
+`pnpm onchain:query:production` 是对应的受控生产查询入口，同样固定为 `cli/admin` 并保留 Tool → Skill → MCP 两层精确授权。它要求 `NODE_ENV=production`，只把 allowlist 中的 chain-control、manifest、secret mount 和 Product RAG 数据库身份配置传给子进程，然后通过无额外 stdout 包装的 Node/stdio transport 启动与 `pnpm chain:mcp:serve` 相同的生产 MCP 入口。该入口不读取项目 `.env`、不接受 RPC endpoint 参数，也不会在生产门禁失败时回退到 `ONCHAIN_RPC_CONFIG_JSON` 或公共 RPC。
 
 `pnpm chain:mcp:serve` 启动相同 MCP surface 的 XXYY 内部 production composition。该命令不自动加载 `.env`，stdout 只承载 MCP protocol；启动前必须固定 `CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT` 与 `CHAIN_ANALYSIS_READINESS_FINGERPRINT`，并从独立 control DB 重读 attestation、operations evidence 和 policy。证明缺失、非 `ready`、过期或 Provider/budget lineage 漂移都会失败关闭；进程启动后每次调用仍检查有效时间窗。仓库当前没有真实生产证明，因此这不是公开客服入口或 production-ready 声明。通用配置与能力矩阵见 [Onchain Analysis MCP / Skills](docs/onchain-analysis-mcp.md)。
 
@@ -401,11 +407,11 @@ API 默认限制 JSON 请求体最大 `65536` 字节，并对 `/api/chat`、`/ap
 
 ## 边界
 
-当前 Agent 只回答 XXYY 产品支持知识库问题。以下请求必须走边界或澄清回复：
+当前 Agent 回答 XXYY 产品支持知识库问题，并支持用户提供的公开交易基础查询、单笔 EVM 调用追踪和受控 Sandwich/MEV 分析。以下请求必须走边界或澄清回复：
 
 - 用户账户、订单、钱包余额、私有交易记录等实时私有数据查询。
 - 代开通、代取消、代修改等账户或订单操作。
 - 投资建议、收益承诺、买卖建议。
-- 交易哈希、交易链接、池子查询、链上取证和泛 MEV 分析请求。
+- 任意地址历史、地址真实归属、未提供具体交易的泛链上取证，以及要求绕过 Provider/readiness/pool allowlist 的 MEV 结论。
 
 对边界问题不要编造实时数据；产品问题缺少数据库、embedding 或 chat LLM 配置时应明确失败原因。

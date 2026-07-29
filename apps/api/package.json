@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@xxyy/agent-core": "workspace:*",
+    "@xxyy/chain-analysis-mcp": "workspace:*",
     "@xxyy/knowledge": "workspace:*",
     "@xxyy/rag-core": "workspace:*",
     "@xxyy/shared": "workspace:*",

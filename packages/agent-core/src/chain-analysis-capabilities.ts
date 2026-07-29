@@ -46,12 +46,26 @@ const SANDWICH_DATA_SCOPES = [...TRANSACTION_DATA_SCOPES, 'chain.public.evm.mev'
 export type InternalChainAnalysisCaller =
   | { channel: 'cli'; principal: 'admin' }
   | { channel: 'internal'; principal: 'admin' | 'service' };
+export type PublicChainAnalysisCaller =
+  | { channel: 'telegram'; principal: 'service' }
+  | { channel: 'web'; principal: 'anonymous' };
+export type PublicChainTransactionCaller = PublicChainAnalysisCaller;
+type ChainAnalysisCaller = InternalChainAnalysisCaller | PublicChainAnalysisCaller;
 
 export interface CreateInternalChainAnalysisCapabilityRegistryOptions {
   caller: InternalChainAnalysisCaller;
   mcpClient: ChainAnalysisMcpClient;
   tracer?: QualityTracer;
 }
+
+export interface CreatePublicChainAnalysisCapabilityRegistryOptions {
+  caller: PublicChainAnalysisCaller;
+  mcpClient: ChainAnalysisMcpClient;
+  tracer?: QualityTracer;
+}
+
+export type CreatePublicChainTransactionCapabilityRegistryOptions =
+  CreatePublicChainAnalysisCapabilityRegistryOptions;
 
 export function createInternalChainAnalysisCapabilityRegistry(
   options: CreateInternalChainAnalysisCapabilityRegistryOptions,
@@ -82,11 +96,165 @@ export function createInternalChainAnalysisCapabilityRegistry(
     ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
   });
 
+  registerGetTransactionCapabilities(registry, options.mcpClient);
+  registerDeepAnalysisCapabilities(registry, options.mcpClient);
+
+  return registry;
+}
+
+export function createPublicChainAnalysisCapabilityRegistry(
+  options: CreatePublicChainAnalysisCapabilityRegistryOptions,
+): CapabilityRegistry {
+  assertPublicChainAnalysisCaller(options.caller);
+  const grants = [
+    createGrant(CHAIN_GET_MCP_CAPABILITY_ID, 'mcp', PUBLIC_TRANSACTION_DATA_SCOPES, options.caller),
+    createGrant(
+      CHAIN_GET_SKILL_CAPABILITY_ID,
+      'skill',
+      PUBLIC_TRANSACTION_DATA_SCOPES,
+      options.caller,
+    ),
+    createGrant(CHAIN_INSPECT_MCP_CAPABILITY_ID, 'mcp', TRANSACTION_DATA_SCOPES, options.caller),
+    createGrant(
+      CHAIN_INSPECT_SKILL_CAPABILITY_ID,
+      'skill',
+      TRANSACTION_DATA_SCOPES,
+      options.caller,
+    ),
+    createGrant(CHAIN_SANDWICH_MCP_CAPABILITY_ID, 'mcp', SANDWICH_DATA_SCOPES, options.caller),
+    createGrant(CHAIN_SANDWICH_SKILL_CAPABILITY_ID, 'skill', SANDWICH_DATA_SCOPES, options.caller),
+  ];
+  const registry = createCapabilityRegistry({
+    maxOutputBytes: DETECT_SANDWICH_MAX_OUTPUT_BYTES,
+    maxTimeoutMs: DETECT_SANDWICH_TIMEOUT_MS,
+    policy: createDenyByDefaultCapabilityPolicy(grants),
+    ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
+  });
+  registerGetTransactionCapabilities(registry, options.mcpClient);
+  registerDeepAnalysisCapabilities(registry, options.mcpClient);
+  return registry;
+}
+
+export function createPublicChainTransactionCapabilityRegistry(
+  options: CreatePublicChainTransactionCapabilityRegistryOptions,
+): CapabilityRegistry {
+  return createPublicChainAnalysisCapabilityRegistry(options);
+}
+
+export function createInternalChainAnalysisTools(options: {
+  caller: InternalChainAnalysisCaller;
+  registry: CapabilityRegistry;
+}): ToolDefinition[] {
+  assertInternalCaller(options.caller);
+  return [
+    createGetTransactionTool(options),
+    createInspectTransactionTool(options),
+    createDetectSandwichTool(options),
+  ];
+}
+
+function createGetTransactionTool(options: {
+  caller: InternalChainAnalysisCaller;
+  registry: CapabilityRegistry;
+}): ToolDefinition<
+  'get_transaction',
+  typeof getTransactionInputSchema,
+  typeof getTransactionOutputSchema
+> {
+  return {
+    name: 'get_transaction',
+    description: `${TRANSACTION_INSPECTOR_DESCRIPTION} Internal Tool surface; the public runtime uses a separate bounded customer Tool.`,
+    inputSchema: getTransactionInputSchema,
+    outputSchema: getTransactionOutputSchema,
+    async execute(input, context) {
+      return getTransactionOutputSchema.parse(
+        await options.registry.invoke(
+          CHAIN_GET_SKILL_CAPABILITY_ID,
+          input,
+          invocationContext(options.caller, context.requestId),
+        ),
+      );
+    },
+  };
+}
+
+function createInspectTransactionTool(options: {
+  caller: InternalChainAnalysisCaller;
+  registry: CapabilityRegistry;
+}): ToolDefinition<
+  'inspect_transaction',
+  typeof inspectTransactionInputSchema,
+  typeof inspectTransactionOutputSchema
+> {
+  return {
+    name: 'inspect_transaction',
+    description: `${TRANSACTION_INSPECTOR_DESCRIPTION} Internal Tool surface; the public runtime uses a separate bounded customer Tool and fails closed on missing evidence.`,
+    inputSchema: inspectTransactionInputSchema,
+    outputSchema: inspectTransactionOutputSchema,
+    async execute(input, context) {
+      return inspectTransactionOutputSchema.parse(
+        await options.registry.invoke(
+          CHAIN_INSPECT_SKILL_CAPABILITY_ID,
+          input,
+          invocationContext(options.caller, context.requestId),
+        ),
+      );
+    },
+  };
+}
+
+function createDetectSandwichTool(options: {
+  caller: InternalChainAnalysisCaller;
+  registry: CapabilityRegistry;
+}): ToolDefinition<
+  'detect_sandwich',
+  typeof detectSandwichInputSchema,
+  typeof detectSandwichOutputSchema
+> {
+  return {
+    name: 'detect_sandwich',
+    description: `${SANDWICH_DETECTOR_DESCRIPTION} Internal Tool surface; the public runtime uses a separate bounded customer Tool and requires allowlisted evidence.`,
+    inputSchema: detectSandwichInputSchema,
+    outputSchema: detectSandwichOutputSchema,
+    async execute(input, context) {
+      return detectSandwichOutputSchema.parse(
+        await options.registry.invoke(
+          CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
+          input,
+          invocationContext(options.caller, context.requestId),
+        ),
+      );
+    },
+  };
+}
+
+function createGrant(
+  capabilityId: string,
+  source: 'mcp' | 'skill',
+  dataScopes: readonly string[],
+  caller: ChainAnalysisCaller,
+) {
+  return {
+    capabilityId,
+    channels: [caller.channel],
+    dataScopes: [...dataScopes],
+    maxRisk: 'moderate' as const,
+    principals: [caller.principal],
+    sideEffects: ['external_read' as const],
+    source,
+    version: CHAIN_ANALYSIS_SKILL_VERSION,
+  };
+}
+
+function registerGetTransactionCapabilities(
+  registry: CapabilityRegistry,
+  mcpClient: ChainAnalysisMcpClient,
+): void {
   registry.register({
     adapter: {
       source: 'mcp',
       invoke(request) {
-        return options.mcpClient.getTransaction(getTransactionInputSchema.parse(request.input), {
+        return mcpClient.getTransaction(getTransactionInputSchema.parse(request.input), {
           signal: request.context.signal,
         });
       },
@@ -139,15 +307,19 @@ export function createInternalChainAnalysisCapabilityRegistry(
     }),
     outputSchema: getTransactionOutputSchema,
   });
+}
 
+function registerDeepAnalysisCapabilities(
+  registry: CapabilityRegistry,
+  mcpClient: ChainAnalysisMcpClient,
+): void {
   registry.register({
     adapter: {
       source: 'mcp',
       invoke(request) {
-        return options.mcpClient.inspectTransaction(
-          inspectTransactionInputSchema.parse(request.input),
-          { signal: request.context.signal },
-        );
+        return mcpClient.inspectTransaction(inspectTransactionInputSchema.parse(request.input), {
+          signal: request.context.signal,
+        });
       },
     },
     inputSchema: inspectTransactionInputSchema,
@@ -203,7 +375,7 @@ export function createInternalChainAnalysisCapabilityRegistry(
     adapter: {
       source: 'mcp',
       invoke(request) {
-        return options.mcpClient.detectSandwich(detectSandwichInputSchema.parse(request.input), {
+        return mcpClient.detectSandwich(detectSandwichInputSchema.parse(request.input), {
           signal: request.context.signal,
         });
       },
@@ -256,113 +428,6 @@ export function createInternalChainAnalysisCapabilityRegistry(
     }),
     outputSchema: detectSandwichOutputSchema,
   });
-
-  return registry;
-}
-
-export function createInternalChainAnalysisTools(options: {
-  caller: InternalChainAnalysisCaller;
-  registry: CapabilityRegistry;
-}): ToolDefinition[] {
-  assertInternalCaller(options.caller);
-  return [
-    createGetTransactionTool(options),
-    createInspectTransactionTool(options),
-    createDetectSandwichTool(options),
-  ];
-}
-
-function createGetTransactionTool(options: {
-  caller: InternalChainAnalysisCaller;
-  registry: CapabilityRegistry;
-}): ToolDefinition<
-  'get_transaction',
-  typeof getTransactionInputSchema,
-  typeof getTransactionOutputSchema
-> {
-  return {
-    name: 'get_transaction',
-    description: `${TRANSACTION_INSPECTOR_DESCRIPTION} Internal-only in the XXYY host until a separate public rollout is approved.`,
-    inputSchema: getTransactionInputSchema,
-    outputSchema: getTransactionOutputSchema,
-    async execute(input, context) {
-      return getTransactionOutputSchema.parse(
-        await options.registry.invoke(
-          CHAIN_GET_SKILL_CAPABILITY_ID,
-          input,
-          invocationContext(options.caller, context.requestId),
-        ),
-      );
-    },
-  };
-}
-
-function createInspectTransactionTool(options: {
-  caller: InternalChainAnalysisCaller;
-  registry: CapabilityRegistry;
-}): ToolDefinition<
-  'inspect_transaction',
-  typeof inspectTransactionInputSchema,
-  typeof inspectTransactionOutputSchema
-> {
-  return {
-    name: 'inspect_transaction',
-    description: `${TRANSACTION_INSPECTOR_DESCRIPTION} Internal-only until chain readiness is ready.`,
-    inputSchema: inspectTransactionInputSchema,
-    outputSchema: inspectTransactionOutputSchema,
-    async execute(input, context) {
-      return inspectTransactionOutputSchema.parse(
-        await options.registry.invoke(
-          CHAIN_INSPECT_SKILL_CAPABILITY_ID,
-          input,
-          invocationContext(options.caller, context.requestId),
-        ),
-      );
-    },
-  };
-}
-
-function createDetectSandwichTool(options: {
-  caller: InternalChainAnalysisCaller;
-  registry: CapabilityRegistry;
-}): ToolDefinition<
-  'detect_sandwich',
-  typeof detectSandwichInputSchema,
-  typeof detectSandwichOutputSchema
-> {
-  return {
-    name: 'detect_sandwich',
-    description: `${SANDWICH_DETECTOR_DESCRIPTION} Internal-only until chain readiness is ready.`,
-    inputSchema: detectSandwichInputSchema,
-    outputSchema: detectSandwichOutputSchema,
-    async execute(input, context) {
-      return detectSandwichOutputSchema.parse(
-        await options.registry.invoke(
-          CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
-          input,
-          invocationContext(options.caller, context.requestId),
-        ),
-      );
-    },
-  };
-}
-
-function createGrant(
-  capabilityId: string,
-  source: 'mcp' | 'skill',
-  dataScopes: readonly string[],
-  caller: InternalChainAnalysisCaller,
-) {
-  return {
-    capabilityId,
-    channels: [caller.channel],
-    dataScopes: [...dataScopes],
-    maxRisk: 'moderate' as const,
-    principals: [caller.principal],
-    sideEffects: ['external_read' as const],
-    source,
-    version: CHAIN_ANALYSIS_SKILL_VERSION,
-  };
 }
 
 function assertInternalCaller(caller: InternalChainAnalysisCaller): void {
@@ -374,6 +439,18 @@ function assertInternalCaller(caller: InternalChainAnalysisCaller): void {
     return;
   }
   throw new TypeError('Chain-analysis capabilities require an internal-only trusted caller.');
+}
+
+function assertPublicChainAnalysisCaller(caller: PublicChainAnalysisCaller): void {
+  if (
+    (caller.channel === 'web' && caller.principal === 'anonymous') ||
+    (caller.channel === 'telegram' && caller.principal === 'service')
+  ) {
+    return;
+  }
+  throw new TypeError(
+    'Public chain-analysis capabilities require web/anonymous or telegram/service.',
+  );
 }
 
 function invocationContext(

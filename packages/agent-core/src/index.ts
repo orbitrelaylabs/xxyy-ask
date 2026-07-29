@@ -66,8 +66,30 @@ export {
   CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
   createInternalChainAnalysisCapabilityRegistry,
   createInternalChainAnalysisTools,
+  createPublicChainAnalysisCapabilityRegistry,
+  createPublicChainTransactionCapabilityRegistry,
 } from './chain-analysis-capabilities.js';
 export type {
   CreateInternalChainAnalysisCapabilityRegistryOptions,
+  CreatePublicChainAnalysisCapabilityRegistryOptions,
+  CreatePublicChainTransactionCapabilityRegistryOptions,
   InternalChainAnalysisCaller,
+  PublicChainAnalysisCaller,
+  PublicChainTransactionCaller,
 } from './chain-analysis-capabilities.js';
+export {
+  PUBLIC_TRANSACTION_TOOL_NAME,
+  createPublicChainTransactionTool,
+  hasPublicTransactionReference,
+} from './public-transaction-tool.js';
+export {
+  ToolRegistryDuplicateNameError,
+  ToolRegistryToolNotFoundError,
+  createToolRegistry,
+} from './tool-registry.js';
+export type {
+  CreateToolRegistryOptions,
+  ToolContext,
+  ToolDefinition,
+  ToolRegistry,
+} from './tool-registry.js';

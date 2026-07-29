@@ -1,6 +1,8 @@
 export { enrichEvmExecution, decodeSolidityRevertData } from './enrich-execution.js';
 export type { DecodedSolidityRevertData } from './enrich-execution.js';
 export {
+  BAGS_BONDING_CURVE_TOKENS_BOUGHT_TOPIC,
+  BAGS_BONDING_CURVE_TOKENS_SOLD_TOPIC,
   EVM_EXECUTION_ENRICHMENT_SKILL,
   EVM_EXECUTION_ENRICHMENT_VERSION,
   MAX_SWAP_EVENTS,
@@ -11,6 +13,7 @@ export {
   SOLIDITY_PANIC_SELECTOR,
   UNISWAP_V2_SWAP_TOPIC,
   UNISWAP_V3_SWAP_TOPIC,
+  UNISWAP_V4_SWAP_TOPIC,
   evmCallTraceSchema,
   evmCallTypes,
   evmDecodedSwapSchema,

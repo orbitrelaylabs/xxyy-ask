@@ -41,10 +41,14 @@ export type {
   InspectTransactionOutput,
 } from './contracts.js';
 export {
+  createChainAnalysisMcpClient,
   createChainAnalysisMcpClientStub,
   createInMemoryChainAnalysisMcpClient,
 } from './client.js';
-export type { CreateInMemoryChainAnalysisMcpClientOptions } from './client.js';
+export type {
+  CreateChainAnalysisMcpClientOptions,
+  CreateInMemoryChainAnalysisMcpClientOptions,
+} from './client.js';
 export {
   ChainAnalysisMcpToolError,
   chainAnalysisMcpErrorCodes,
@@ -57,6 +61,18 @@ export { createChainAnalysisHandler } from './service.js';
 export type { ChainAnalysisDataPlane, CreateChainAnalysisHandlerOptions } from './service.js';
 export { createReadinessGuardedChainAnalysisHandler } from './runtime-guard.js';
 export type { CreateReadinessGuardedChainAnalysisHandlerOptions } from './runtime-guard.js';
+export {
+  PublicOnchainMcpConfigurationError,
+  createPublicOnchainMcpClient,
+  createPublicOnchainMcpHandler,
+  loadPublicOnchainMcpConfig,
+} from './public-runtime.js';
+export type {
+  CreatePublicOnchainMcpClientOptions,
+  CreatePublicOnchainMcpHandlerOptions,
+  PublicOnchainMcpConfig,
+  PublicOnchainMcpEnv,
+} from './public-runtime.js';
 export { resolvePublicTransactionReference } from './transaction-reference.js';
 export type {
   EvmTransactionReference,

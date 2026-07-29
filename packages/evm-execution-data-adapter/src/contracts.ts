@@ -48,6 +48,7 @@ export const executionRpcMethods = [
 export const evmExecutionDataAdapterDiagnosticCodes = [
   'chain_id_mismatch',
   'chain_id_unavailable',
+  'explorer_trace_partial_evidence',
   'factory_code_missing',
   'factory_lookup_mismatch',
   'http_error',
@@ -88,6 +89,18 @@ const uniqueAddressesSchema = z
     message: 'Factory addresses must be unique.',
   });
 
+export const evmBlockscoutTraceSourceConfigSchema = z
+  .object({
+    endpoint: z.string().trim().max(2_048).url(),
+    id: evmRpcProviderIdSchema,
+    kind: z.literal('blockscout_v2'),
+  })
+  .strict();
+
+export const evmExecutionProviderConfigSchema = evmRpcProviderConfigSchema.extend({
+  traceSource: evmBlockscoutTraceSourceConfigSchema.optional(),
+});
+
 export const evmExecutionFactoryAllowlistSchema = z
   .object({
     uniswapV2: uniqueAddressesSchema.default([]),
@@ -112,12 +125,19 @@ export const evmExecutionChainConfigSchema = z
     chainId: evmChainIdSchema,
     factories: evmExecutionFactoryAllowlistSchema,
     providers: z
-      .array(evmRpcProviderConfigSchema)
+      .array(evmExecutionProviderConfigSchema)
       .min(1)
       .max(MAX_EXECUTION_PROVIDERS)
       .refine(
         (providers) => new Set(providers.map((provider) => provider.id)).size === providers.length,
         { message: 'Provider ids must be unique within a chain.' },
+      )
+      .refine(
+        (providers) =>
+          new Set(
+            providers.map((provider) => provider.traceSource?.id).filter((id) => id !== undefined),
+          ).size === providers.filter((provider) => provider.traceSource !== undefined).length,
+        { message: 'Trace source ids must be unique within a chain.' },
       ),
   })
   .strict();
@@ -329,6 +349,8 @@ export const evmExecutionDataAdapterResultSchema = z
   });
 
 export type EvmExecutionChainConfig = z.output<typeof evmExecutionChainConfigSchema>;
+export type EvmBlockscoutTraceSourceConfig = z.output<typeof evmBlockscoutTraceSourceConfigSchema>;
+export type EvmExecutionProviderConfig = z.output<typeof evmExecutionProviderConfigSchema>;
 export type EvmExecutionFactoryAllowlist = z.output<typeof evmExecutionFactoryAllowlistSchema>;
 export type EvmPoolCandidate = z.output<typeof evmPoolCandidateSchema>;
 export type LoadEvmExecutionDataInput = z.output<typeof loadEvmExecutionDataInputSchema>;

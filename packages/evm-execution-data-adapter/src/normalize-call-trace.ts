@@ -18,6 +18,7 @@ interface NormalizeCallTracerResultOptions {
   observedAt: string;
   payloadHash: string;
   providerId: string;
+  sourceKind?: 'explorer' | 'fixture' | 'indexer' | 'rpc';
   transactionHash: string;
 }
 
@@ -82,7 +83,7 @@ export function normalizeCallTracerResult(
       nodes,
       source: {
         id: options.providerId,
-        kind: 'rpc',
+        kind: options.sourceKind ?? 'rpc',
         observedAt: options.observedAt,
         payloadHash: options.payloadHash,
       },

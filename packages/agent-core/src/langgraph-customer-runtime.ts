@@ -51,6 +51,7 @@ import {
   type PlannerToolDescriptor,
 } from './planner-model.js';
 import type { ToolContext, ToolRegistry } from './tool-registry.js';
+import { PUBLIC_TRANSACTION_TOOL_NAME } from './public-transaction-tool.js';
 
 const KNOWLEDGE_ONLY_CLARIFICATION =
   '当前只支持基于 XXYY 知识库回答产品功能、配置步骤、权益说明和官方更新相关问题。请补充一个具体的 XXYY 产品问题。';
@@ -90,7 +91,7 @@ export function createLangGraphCustomerRuntime(
   const tracer = options.tracer ?? noopQualityTracer;
 
   async function askInternal(request: ChatRequest): Promise<ChatResponse> {
-    const guardedResponse = await tracePreGuard(request, tracer);
+    const guardedResponse = await tracePreGuard(request, tracer, options.registry);
     if (guardedResponse !== undefined) {
       return guardedResponse;
     }
@@ -103,7 +104,7 @@ export function createLangGraphCustomerRuntime(
   }
 
   async function* streamInternal(request: ChatRequest): AsyncIterable<ChatStreamEvent> {
-    const guardedResponse = await tracePreGuard(request, tracer);
+    const guardedResponse = await tracePreGuard(request, tracer, options.registry);
     if (guardedResponse !== undefined) {
       yield* streamChatResponse(guardedResponse);
       return;
@@ -186,6 +187,7 @@ function summarizeStreamEvent(event: ChatStreamEvent): Record<string, unknown> {
 async function tracePreGuard(
   request: ChatRequest,
   tracer: QualityTracer,
+  registry: ToolRegistry,
 ): Promise<ChatResponse | undefined> {
   const classification = await tracer.run(
     {
@@ -207,7 +209,7 @@ async function tracePreGuard(
       }),
       runType: 'chain',
     },
-    () => Promise.resolve(deterministicPreGuard(request, classification)),
+    () => Promise.resolve(deterministicPreGuard(request, classification, registry)),
   );
 }
 
@@ -265,10 +267,11 @@ async function* streamRuntimeRequest(
       }
     }
 
+    const progress = progressForTool(plan.toolName);
     yield {
       type: 'status',
-      phase: plan.toolName === 'search_product_docs' ? 'retrieving' : 'answering',
-      message: plan.toolName === 'search_product_docs' ? '正在检索知识库…' : '正在生成回答…',
+      phase: progress.phase,
+      message: progress.message,
     };
     state = applyStatePatch(state, await toolExecutorNode(state, options.registry));
     state = applyStatePatch(
@@ -328,7 +331,14 @@ function applyStatePatch(
 function deterministicPreGuard(
   request: ChatRequest,
   classification: Classification = classifyQuestion(request.message),
+  registry?: ToolRegistry,
 ): ChatResponse | undefined {
+  if (
+    classification.intent === 'onchain_transaction' &&
+    registry?.get(PUBLIC_TRANSACTION_TOOL_NAME) === undefined
+  ) {
+    return createPublicTransactionUnavailableResponse();
+  }
   if (!shouldReturnDeterministicBoundary(classification)) {
     return undefined;
   }
@@ -387,12 +397,12 @@ async function plannerNode(
     };
   }
 
-  const deterministicPlan = deterministicProductPlan(state, options.registry);
+  const deterministicPlan = deterministicInitialPlan(state, options.registry);
   if (deterministicPlan !== undefined) {
     return {
       currentStep: state.currentStep + 1,
       plan: deterministicPlan,
-      route: 'product_answer',
+      route: normalizeAgentRoute(deterministicPlan.route),
     };
   }
 
@@ -463,7 +473,7 @@ async function plannerNode(
   };
 }
 
-function deterministicProductPlan(
+function deterministicInitialPlan(
   state: LangGraphAgentState,
   registry: ToolRegistry,
 ): AgentPlan | undefined {
@@ -472,11 +482,24 @@ function deterministicProductPlan(
   }
 
   const classification = classifyQuestion(state.request.message);
+  const registeredToolNames = new Set(registry.list().map((tool) => tool.name));
+  if (
+    classification.intent === 'onchain_transaction' &&
+    registeredToolNames.has(PUBLIC_TRANSACTION_TOOL_NAME)
+  ) {
+    return {
+      input: { query: state.request.message },
+      kind: 'tool',
+      reason: 'deterministic public transaction reference classification',
+      route: 'chain_answer',
+      toolName: PUBLIC_TRANSACTION_TOOL_NAME,
+    };
+  }
+
   if (classification.intent !== 'product_qa' && classification.intent !== 'how_to') {
     return undefined;
   }
 
-  const registeredToolNames = new Set(registry.list().map((tool) => tool.name));
   const toolName = registeredToolNames.has('search_product_docs')
     ? 'search_product_docs'
     : registeredToolNames.has('answer_product_question')
@@ -857,7 +880,10 @@ function responseFromEvidence(evidence: AgentEvidence, question: string): ChatRe
     );
   }
 
-  return withAgentRoute(evidence.response, routeForToolName(evidence.toolName));
+  return withAgentRoute(
+    evidence.response,
+    evidence.response.agentRoute ?? routeForToolName(evidence.toolName),
+  );
 }
 
 function withStreamAgentRoute(event: ChatStreamEvent, route: AgentRoute): ChatStreamEvent {
@@ -872,7 +898,10 @@ function withStreamAgentRoute(event: ChatStreamEvent, route: AgentRoute): ChatSt
 }
 
 function routeForToolName(toolName: string): AgentRoute {
-  return toolName === 'describe_agent_capabilities' ? 'agent_answer' : 'product_answer';
+  if (toolName === 'describe_agent_capabilities') {
+    return 'agent_answer';
+  }
+  return toolName === PUBLIC_TRANSACTION_TOOL_NAME ? 'chain_answer' : 'product_answer';
 }
 
 type AgentEvidenceForSearch = Extract<AgentEvidence, { kind: 'search_results' }>['output'];
@@ -1309,6 +1338,19 @@ function toolFailureResponse(toolName: string): ChatResponse {
   );
 }
 
+function progressForTool(toolName: string): {
+  message: string;
+  phase: 'answering' | 'retrieving';
+} {
+  if (toolName === 'search_product_docs') {
+    return { message: '正在检索知识库…', phase: 'retrieving' };
+  }
+  if (toolName === PUBLIC_TRANSACTION_TOOL_NAME) {
+    return { message: '正在执行公开链上只读分析…', phase: 'retrieving' };
+  }
+  return { message: '正在生成回答…', phase: 'answering' };
+}
+
 function isFinalPlannerRoute(route: unknown): route is FinalPlannerRoute {
   return route === 'boundary' || route === 'clarify' || route === 'unsupported';
 }
@@ -1329,6 +1371,16 @@ function createClarificationResponse(answer: string): ChatResponse {
     citations: [],
     confidence: 0.35,
     intent: 'unknown',
+  };
+}
+
+function createPublicTransactionUnavailableResponse(): ChatResponse {
+  return {
+    agentRoute: 'clarify',
+    answer: '公开链上只读分析当前未配置。请稍后重试，或联系管理员检查 ONCHAIN_RPC_CONFIG_JSON。',
+    citations: [],
+    confidence: 0.2,
+    intent: 'onchain_transaction',
   };
 }
 

@@ -10,7 +10,7 @@
 
 每个 adapter 必须恰好配置两个不同 provider organization、failure domain、endpoint secret reference 和 provider id。MEV provider 必须声明 archive；其余两类禁止伪称 archive requirement。配置只保存 `secretref:`，endpoint 和 header value 只能在进程启动时从受控挂载解析。
 
-该执行面仍然是私有的。`packages/chain-analysis-mcp`、两个 project Skills 和 `agent-core` 内部 Capability factory 已连接这套数据边界；`apps/chain-operations-cli` 提供 readiness-gated stdio composition root。但 API、Web、Telegram、Product RAG 和公开客服 Agent 都不创建 chain grant 或注册 chain Tool。仓库中的 schema、fake provider 和本地 PostgreSQL 验证不等于真实 provider 已采购、生产 worker 已部署或 readiness 已通过。
+该生产深度执行面仍然是私有且 readiness-gated 的。`packages/chain-analysis-mcp`、两个 project Skills 和 `agent-core` Capability factory 已连接对应能力；`apps/chain-operations-cli` 提供 production stdio composition root。Web/API/Telegram 已获得三项只读能力的公开精确 grant，但默认使用另一套启动时 RPC allowlist，未自动连接本生产 data plane。仓库中的 schema、fake provider、公开授权和本地 PostgreSQL 验证都不等于真实 provider 已采购、生产 worker 已部署或 readiness 已通过。
 
 ## 请求路径
 
@@ -180,7 +180,10 @@ pnpm chain:worker:retention
 
 ```bash
 pnpm chain:mcp:serve
+NODE_ENV=production pnpm onchain:query:production -- transaction --reference <explorer-url>
 ```
+
+`chain:mcp:serve` 供受控 MCP host 直接连接；`onchain:query:production` 是固定 `cli/admin` 的单次查询包装器，会通过子进程 stdio 启动同一个 server。包装器不读取项目 `.env`，只传递显式生产配置 allowlist；任何配置或 readiness 错误都失败关闭，不会改走公共 RPC。
 
 启动顺序固定为：
 
@@ -193,7 +196,7 @@ pnpm chain:mcp:serve
 7. 通过后才解析 mounted secrets、创建 data plane 并连接 stdio；
 8. 每次 `get_transaction` / `inspect_transaction` / `detect_sandwich` 调用再次验证 readiness 时间窗。
 
-MCP stdout 只能写 JSON-RPC。Provider metric/alert 与安全化启动错误写 stderr。没有上述真实证明时，命令返回配置错误是预期行为；不得用 fixture fingerprint 绕过门禁。
+MCP 子进程 stdout 只能写 JSON-RPC；查询包装器 stdout 只写受输出上限约束的业务 JSON。Provider metric/alert 与安全化启动错误写 stderr。没有上述真实证明时，命令返回配置错误是预期行为；不得用 fixture fingerprint 绕过门禁。
 
 ## Metrics 与告警
 

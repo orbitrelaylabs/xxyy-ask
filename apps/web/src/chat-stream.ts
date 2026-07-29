@@ -39,6 +39,10 @@ export async function readChatStream(
 
 function waitForPaint(): Promise<void> {
   return new Promise((resolve) => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      setTimeout(resolve, 0);
+      return;
+    }
     if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
       window.requestAnimationFrame(() => resolve());
       return;

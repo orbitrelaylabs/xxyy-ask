@@ -32,8 +32,9 @@ describe('langgraph agent state helpers', () => {
     });
   });
 
-  it('allows only knowledge-base customer support tools', () => {
+  it('allows only reviewed customer support tools', () => {
     expect(isAllowedAgentToolName('describe_agent_capabilities')).toBe(true);
+    expect(isAllowedAgentToolName('get_public_transaction')).toBe(true);
     expect(isAllowedAgentToolName('answer_product_question')).toBe(false);
     expect(isAllowedAgentToolName('search_product_docs')).toBe(true);
     expect(isExecutableAgentToolName('answer_product_question')).toBe(true);
@@ -46,6 +47,7 @@ describe('langgraph agent state helpers', () => {
 
   it('normalizes planner routes into shared agent routes', () => {
     expect(normalizeAgentRoute('agent_answer')).toBe('agent_answer');
+    expect(normalizeAgentRoute('chain_answer')).toBe('chain_answer');
     expect(normalizeAgentRoute('product_answer')).toBe('product_answer');
     expect(normalizeAgentRoute('boundary')).toBe('boundary');
     expect(normalizeAgentRoute('clarify')).toBe('clarify');

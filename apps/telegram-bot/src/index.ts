@@ -5,6 +5,7 @@ import {
   resolveWorkspaceCwd,
   type RagEnv,
 } from '@xxyy/rag-core';
+import { createPublicOnchainMcpClient } from '@xxyy/chain-analysis-mcp';
 
 import {
   TelegramBotConfigurationError,
@@ -20,7 +21,16 @@ import { createTelegramKnowledgeAutomationRuntime } from './knowledge-automation
 
 type TelegramEnv = RagEnv &
   TelegramBotEnv &
-  Partial<Record<'INIT_CWD' | 'TELEGRAM_API_BASE_URL', string>>;
+  Partial<
+    Record<
+      | 'INIT_CWD'
+      | 'NODE_ENV'
+      | 'ONCHAIN_ALLOW_INSECURE_LOCALHOST'
+      | 'ONCHAIN_RPC_CONFIG_JSON'
+      | 'TELEGRAM_API_BASE_URL',
+      string
+    >
+  >;
 
 const logger = {
   error(message: string, error?: unknown) {
@@ -36,7 +46,26 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
   const workspaceEnv = loadWorkspaceEnv({ cwd: workspaceCwd, env });
   const config = loadRagConfig(workspaceEnv);
   const botConfig = loadTelegramBotConfig(workspaceEnv);
-  const runtime = createTelegramChatRuntime(config);
+  const publicChainMcpClient =
+    workspaceEnv.ONCHAIN_RPC_CONFIG_JSON?.trim().length === 0 ||
+    workspaceEnv.ONCHAIN_RPC_CONFIG_JSON === undefined
+      ? undefined
+      : createPublicOnchainMcpClient({
+          env: {
+            ...(workspaceEnv.NODE_ENV === undefined ? {} : { NODE_ENV: workspaceEnv.NODE_ENV }),
+            ...(workspaceEnv.ONCHAIN_ALLOW_INSECURE_LOCALHOST === undefined
+              ? {}
+              : {
+                  ONCHAIN_ALLOW_INSECURE_LOCALHOST: workspaceEnv.ONCHAIN_ALLOW_INSECURE_LOCALHOST,
+                }),
+            ONCHAIN_RPC_CONFIG_JSON: workspaceEnv.ONCHAIN_RPC_CONFIG_JSON,
+          },
+        });
+  const runtime = createTelegramChatRuntime(
+    config,
+    undefined,
+    publicChainMcpClient === undefined ? {} : { publicChainMcpClient },
+  );
   const knowledgeRuntime = createTelegramKnowledgeAutomationRuntime({
     botToken: botConfig.botToken,
     config,
