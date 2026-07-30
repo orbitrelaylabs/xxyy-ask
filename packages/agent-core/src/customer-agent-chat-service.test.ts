@@ -449,6 +449,18 @@ describe('createCustomerAgentChatService', () => {
     await service.ask({ channel: 'web', message: '怎么升级？', sessionId: 's1' });
 
     expect(retrieveCalls.at(-1)).toBe('怎么升级？');
+
+    await service.ask({
+      channel: 'web',
+      history: [
+        { content: 'XXYY Pro 有哪些权益？', role: 'user' },
+        { content: 'XXYY Pro 提供进阶会员权益。', role: 'assistant' },
+      ],
+      message: '那怎么升级？',
+      sessionId: 's1',
+    });
+
+    expect(retrieveCalls.at(-1)).toBe('关于“XXYY Pro 有哪些权益？”，怎么升级？');
   });
 
   it('requires LLM planner config for ambiguous requests', async () => {
@@ -608,7 +620,16 @@ describe('createCustomerAgentChatService', () => {
       intent: 'product_qa',
     });
     expect(fetchImpl).not.toHaveBeenCalled();
-    expect(retrieve).toHaveBeenCalledWith('支持跟单么', { topK: 8 });
+    expect(retrieve).toHaveBeenCalledWith(
+      '支持跟单么',
+      expect.objectContaining({
+        policy: expect.objectContaining({
+          preferredSourceTypes: ['admin_verified', 'official_docs', 'x_updates'],
+          version: '1',
+        }),
+        topK: 8,
+      }),
+    );
     const answerInput = answer.mock.calls[0]?.[0];
     expect(answerInput).toBeDefined();
     expect(answerInput?.classification).toMatchObject({
@@ -796,7 +817,7 @@ describe('createCustomerAgentChatService', () => {
     expect(answer).not.toHaveBeenCalled();
   });
 
-  it('returns a bounded clarification when the answer composer fails unexpectedly', async () => {
+  it('falls back to retrieved evidence when the answer composer fails unexpectedly', async () => {
     const service = createCustomerAgentChatService({
       answerProvider: {
         answer: () => Promise.reject(new Error('unexpected composer failure')),
@@ -808,13 +829,18 @@ describe('createCustomerAgentChatService', () => {
     await expect(
       service.ask({ channel: 'web', message: 'XXYY Pro 有哪些权益？' }),
     ).resolves.toMatchObject({
-      agentRoute: 'clarify',
-      citations: [],
-      intent: 'unknown',
+      agentRoute: 'product_answer',
+      answer: expect.stringContaining('XXYY Pro 提供更多权益'),
+      citations: [
+        expect.objectContaining({
+          file: 'docs/product-features/pro.md',
+        }),
+      ],
+      intent: 'product_qa',
     });
   });
 
-  it('does not leak partial provider deltas when the streaming composer fails', async () => {
+  it('replaces partial provider deltas with retrieved evidence when streaming fails', async () => {
     const stream = vi.fn<NonNullable<AnswerProvider['stream']>>(async function* () {
       yield { type: 'answer_delta', delta: 'unsupported partial provider output' };
       await Promise.resolve();
@@ -841,8 +867,12 @@ describe('createCustomerAgentChatService', () => {
       .map((event) => event.delta)
       .join('');
     expect(answer).not.toContain('unsupported partial provider output');
-    expect(answer).toContain('暂时不可用');
-    expect(events.at(-1)).toMatchObject({ agentRoute: 'clarify', type: 'metadata' });
+    expect(answer).toContain('XXYY Pro 提供更多权益');
+    expect(events.at(-1)).toMatchObject({
+      agentRoute: 'product_answer',
+      citations: [expect.objectContaining({ file: 'docs/product-features/pro.md' })],
+      type: 'metadata',
+    });
   });
 });
 

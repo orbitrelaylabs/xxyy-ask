@@ -45,7 +45,9 @@ describe('knowledge admin authentication', () => {
     const admin = { displayName: 'A', id: 'admin', role: 'admin' as const };
 
     expect(hasKnowledgeAdminPermission(reviewer, 'candidate:review')).toBe(true);
+    expect(hasKnowledgeAdminPermission(reviewer, 'support:manage')).toBe(true);
     expect(hasKnowledgeAdminPermission(reviewer, 'publication:request')).toBe(false);
+    expect(hasKnowledgeAdminPermission({ ...reviewer, role: 'viewer' }, 'support:read')).toBe(true);
     expect(hasKnowledgeAdminPermission(publisher, 'publication:request')).toBe(true);
     expect(hasKnowledgeAdminPermission(publisher, 'trusted_author:manage')).toBe(false);
     expect(hasKnowledgeAdminPermission(admin, 'trusted_author:manage')).toBe(true);

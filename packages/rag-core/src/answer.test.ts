@@ -7,6 +7,7 @@ import {
   createGroundedAnswer,
   createSupportConclusionFromEvidence,
   selectGroundingChunks,
+  shouldUseDeterministicSupportAnswer,
 } from './answer.js';
 import { retrieve, type RetrievedChunk } from './retrieve.js';
 import { createFixtureIndex } from './test-fixtures.js';
@@ -425,6 +426,191 @@ describe('createGroundedAnswer', () => {
       'airdrop-page',
       'trade-points-page',
     ]);
+  });
+
+  it('keeps broad capability overviews anchored in authoritative docs with at most one X update', () => {
+    const selected = selectGroundingChunks('支持哪些功能', [
+      createRetrievedChunk({
+        id: 'x-bsc-upgrade',
+        rank: 1,
+        sourceType: 'x_updates',
+        status: 'current',
+        text: 'BSC 大升级，支持快捷交易和挂单。',
+        title: 'X Post 1',
+      }),
+      createRetrievedChunk({
+        id: 'x-year-summary',
+        rank: 2,
+        sourceType: 'x_updates',
+        status: 'current',
+        text: '今年新增趋势、钱包监控和多链交易。',
+        title: 'X Post 2',
+      }),
+      createRetrievedChunk({
+        id: 'official-trading',
+        rank: 3,
+        text: 'XXYY 交易功能包括 Swap、挂单和自动交易。',
+        title: '交易代币',
+      }),
+      createRetrievedChunk({
+        id: 'official-monitoring',
+        rank: 4,
+        text: '钱包监控支持关注钱包、分组管理和 Telegram 通知。',
+        title: '监控管理',
+      }),
+    ]);
+
+    expect(selected.map((chunk) => chunk.id)).toEqual([
+      'official-trading',
+      'official-monitoring',
+      'x-bsc-upgrade',
+    ]);
+    expect(selected.filter((chunk) => chunk.metadata.sourceType === 'x_updates')).toHaveLength(1);
+  });
+
+  it('does not present several X updates as a complete capability overview without docs', () => {
+    const selected = selectGroundingChunks('支持哪些功能', [
+      createRetrievedChunk({
+        id: 'x-bsc-upgrade',
+        rank: 1,
+        sourceType: 'x_updates',
+        status: 'current',
+        text: 'BSC 大升级，支持快捷交易和挂单。',
+        title: 'X Post 1',
+      }),
+      createRetrievedChunk({
+        id: 'x-year-summary',
+        rank: 2,
+        sourceType: 'x_updates',
+        status: 'current',
+        text: '今年新增趋势、钱包监控和多链交易。',
+        title: 'X Post 2',
+      }),
+    ]);
+
+    expect(selected.map((chunk) => chunk.id)).toEqual(['x-bsc-upgrade']);
+  });
+
+  it('uses the authoritative capability catalog standard answer without marketing additions', () => {
+    const response = createGroundedAnswer('支持哪些功能', productClassification, [
+      createRetrievedChunk({
+        id: 'capability-catalog',
+        rank: 1,
+        text: '标准客服回答：XXYY 当前功能主要包括：1. Swap 和挂单；2. 数据分析；3. 钱包监控；4. 移动端登录。',
+        title: 'XXYY 当前支持的产品功能总览',
+      }),
+      createRetrievedChunk({
+        id: 'x-promotion',
+        rank: 2,
+        sourceType: 'x_updates',
+        status: 'current',
+        text: '欢迎在评论区反馈，祝大家今年发大财。',
+        title: 'X Post promotion',
+      }),
+    ]);
+
+    expect(response.answer).toContain('Swap 和挂单');
+    expect(response.answer).toContain('钱包监控');
+    expect(response.answer).not.toContain('评论区');
+    expect(response.answer).not.toContain('发大财');
+    expect(response.citations.map((citation) => citation.file)).toEqual([
+      'docs/capability-catalog.md',
+    ]);
+  });
+
+  it('keeps sibling chunks from one comparison document in deterministic fallback answers', () => {
+    const response = createGroundedAnswer(
+      '永久 PRO 比普通 Pro 额外多什么？',
+      productClassification,
+      [
+        createRetrievedChunk({
+          documentId: 'permanent-pro',
+          id: 'permanent-pro-benefits',
+          rank: 1,
+          text: '支持定制化功能开发。一次升级长期有效，无需再次兑换。专属客服随时答疑。',
+          title: '永久PRO',
+        }),
+        createRetrievedChunk({
+          documentId: 'permanent-pro',
+          id: 'permanent-pro-duration',
+          rank: 2,
+          text: '根据交易积分兑换后长期有效。',
+          title: '永久PRO',
+        }),
+      ],
+    );
+
+    expect(response.answer).toContain('定制化功能开发');
+    expect(response.answer).toContain('专属客服');
+    expect(response.answer).toContain('长期有效');
+  });
+
+  it('prefers exact setup evidence over a generic settings chunk in fallback answers', () => {
+    const response = createGroundedAnswer(
+      '我的钱包怎么设置止盈止损？',
+      { ...productClassification, intent: 'how_to' },
+      [
+        createRetrievedChunk({
+          id: 'newer-summary',
+          rank: 1,
+          sourceType: 'x_updates',
+          text: '跟单优化，可独立开启自动止盈止损和最大跟单次数设置；钱包监控支持批量修改通知条件。',
+          title: '功能更新汇总',
+        }),
+        createRetrievedChunk({
+          id: 'generic-wallet-settings',
+          rank: 2,
+          text: '钱包设置支持名称、分组和推送金额。',
+          title: '关注钱包设置',
+        }),
+        createRetrievedChunk({
+          id: 'automatic-stop-loss',
+          rank: 3,
+          sourceType: 'x_updates',
+          text: '提前设置条件并勾选自动止盈止损，每笔交易会自动创建挂单执行。',
+          title: '自动止盈止损上线',
+        }),
+      ],
+    );
+
+    expect(response.answer).toContain('自动止盈止损');
+    expect(response.answer).toContain('创建挂单');
+    expect(response.answer).toContain('只能给出部分步骤');
+    expect(response.answerStatus).toBe('partial');
+    expect(response.citations[0]?.title).toBe('自动止盈止损上线');
+  });
+
+  it('keeps the top matching setup document ahead of a procedural distractor', () => {
+    const response = createGroundedAnswer(
+      '如何设置挂单买入或卖出？',
+      { ...productClassification, intent: 'how_to' },
+      [
+        createRetrievedChunk({
+          documentId: 'limit-order',
+          id: 'limit-order-intro',
+          rank: 1,
+          text: '挂单交易支持买入或卖出。',
+          title: '挂单交易',
+        }),
+        createRetrievedChunk({
+          documentId: 'limit-order',
+          id: 'limit-order-fields',
+          rank: 2,
+          text: '挂单条件包括价格上涨、价格下跌和有效时间。',
+          title: '挂单交易',
+        }),
+        createRetrievedChunk({
+          id: 'quick-trade',
+          rank: 3,
+          text: '点击设置按钮，选择默认金额后保存快捷交易设置。',
+          title: '快捷交易',
+        }),
+      ],
+    );
+
+    expect(response.answer).toContain('价格上涨');
+    expect(response.answer).toContain('有效时间');
+    expect(response.citations[0]?.title).toBe('挂单交易');
   });
 
   it('uses only the direct X post chunk for tweet source questions', () => {
@@ -877,6 +1063,45 @@ describe('createGroundedAnswer', () => {
     ]);
   });
 
+  it('uses a complete document overview without diluting page-section evidence', () => {
+    const overview = createRetrievedChunk({
+      documentId: 'scan-page',
+      id: 'scan-overview',
+      rank: 1,
+      text: [
+        '### 交易设置',
+        '可选择交易钱包。',
+        '### 新交易对',
+        '新交易对是指新发射项目。',
+        '### 即将打满',
+        '按进度倒序排列。',
+        '### 已经发射',
+        '展示已经发射的项目。',
+        '### 包含的子功能',
+        '该页面是扫链页面的功能目录页，具体说明见其他页面。',
+      ].join('\n'),
+      title: '扫链页面',
+    });
+    overview.metadata.headingPath = ['扫链页面', 'Document overview / 页面概览'];
+    const sibling = createRetrievedChunk({
+      documentId: 'scan-page',
+      id: 'scan-launched',
+      rank: 2,
+      text: '已经发射是指已迁移到交易池的项目。',
+      title: '扫链页面',
+    });
+
+    const response = createGroundedAnswer('扫链页面有哪些区域？', productClassification, [
+      overview,
+      sibling,
+    ]);
+
+    expect(response.answer).toContain('新交易对');
+    expect(response.answer).toContain('即将打满');
+    expect(response.answer).toContain('已经发射');
+    expect(response.citations[0]?.file).toBe('docs/scan-overview.md');
+  });
+
   it('matches short support entities as exact tokens instead of substrings', () => {
     expect(
       createSupportConclusionFromEvidence('XXYY 支持 OP 吗？', ['XXYY 支持 Copy Trading。']),
@@ -1037,5 +1262,27 @@ describe('createBoundaryAnswer', () => {
     expect(response.answer).toContain('退款、赔偿');
     expect(response.answer).toContain('可以继续问我开通或升级的操作步骤');
     expect(response.answer).not.toMatch(/人工接管|工单|转人工|人工客服/u);
+  });
+});
+
+describe('shouldUseDeterministicSupportAnswer', () => {
+  it.each([
+    'Tag Holder 持仓量小于1表示什么？',
+    '平均买入成本线怎么计算？',
+    '如何在 iPhone 上选择 Add to Home Screen？',
+    '手机上怎么用',
+    'How does the Avg. Price Line work?',
+    'Swap 交易可以设置哪些内容？',
+    '交易设置里能设置哪些参数？',
+    '扫链页面有哪些区域？',
+  ])(
+    'uses deterministic evidence rendering for definition and configuration lists: %s',
+    (question) => {
+      expect(shouldUseDeterministicSupportAnswer(question)).toBe(true);
+    },
+  );
+
+  it('keeps open-ended synthesis questions on the answer model path', () => {
+    expect(shouldUseDeterministicSupportAnswer('介绍一下 XXYY 的整体产品能力')).toBe(false);
   });
 });

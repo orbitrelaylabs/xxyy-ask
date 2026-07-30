@@ -2,10 +2,15 @@ import {
   knowledgeSourceCatalog,
   type ChatRequest,
   type ChatResponse,
+  type ChatHistoryMessage,
   type ChatStreamEvent,
   type KnowledgeRefreshStatus,
 } from '@xxyy/shared';
-import { filterQuestionRelevantAttachments, type ChatService } from '@xxyy/rag-core';
+import {
+  filterQuestionRelevantAttachments,
+  redactSensitiveSupportText,
+  type ChatService,
+} from '@xxyy/rag-core';
 
 export interface TelegramBotConfig {
   autoLearningContextMessages: number;
@@ -19,6 +24,7 @@ export interface TelegramBotConfig {
 
 export interface TelegramUpdate {
   update_id: number;
+  edited_message?: TelegramMessage;
   message?: TelegramMessage;
 }
 
@@ -33,6 +39,7 @@ export interface TelegramMessage {
     is_bot?: boolean;
   };
   message_id: number;
+  message_thread_id?: number;
   reply_to_message?: TelegramMessage;
   sender_chat?: {
     id: number;
@@ -116,7 +123,7 @@ export interface CreateTelegramBotOptions {
 }
 
 export interface TelegramKnowledgeAutomation {
-  captureReply(message: TelegramMessage): Promise<boolean>;
+  captureReply(message: TelegramMessage, options?: { edited?: boolean }): Promise<boolean>;
   getLearningStatus(chatId: number): Promise<TelegramKnowledgeLearningStatus>;
   setLearningEnabled(input: {
     chatId: number;
@@ -246,7 +253,8 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
   let botIdentityRequest: Promise<TelegramBotIdentity | undefined> | undefined;
 
   async function handleUpdate(update: TelegramUpdate): Promise<void> {
-    const message = update.message;
+    const edited = update.edited_message !== undefined;
+    const message = update.message ?? update.edited_message;
     if (message === undefined) {
       return;
     }
@@ -295,7 +303,10 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
 
     if (options.knowledgeAutomation !== undefined && isGroupChat(message)) {
       try {
-        if (await options.knowledgeAutomation.captureReply(message)) {
+        const captured = edited
+          ? await options.knowledgeAutomation.captureReply(message, { edited: true })
+          : await options.knowledgeAutomation.captureReply(message);
+        if (captured) {
           options.logger?.info(
             `Telegram knowledge reply ${message.chat.id}:${message.message_id} was processed.`,
           );
@@ -308,12 +319,18 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
       }
     }
 
+    if (edited) {
+      return;
+    }
+
     let customerQuestion = text;
+    let requestBotIdentity: TelegramBotIdentity | undefined;
     if (isGroupChat(message)) {
       const identity = await readBotIdentity();
       if (identity === undefined || !isGroupCustomerRequest(message, text, identity)) {
         return;
       }
+      requestBotIdentity = identity;
       if (customerQuestion !== undefined && customerQuestion.length > 0) {
         customerQuestion = stripTelegramBotMention(customerQuestion, identity.username);
       }
@@ -328,7 +345,7 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
       return;
     }
 
-    const request = createTelegramChatRequest(message, customerQuestion);
+    const request = createTelegramChatRequest(message, customerQuestion, requestBotIdentity);
     await withTelegramTyping(options.api, chatId, async () => {
       if (canStreamToDraft(message, options)) {
         const streamed = await trySendStreamingChatResponse({
@@ -450,14 +467,102 @@ function escapeRegularExpression(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
-function createTelegramChatRequest(message: TelegramMessage, text: string): ChatRequest {
+function createTelegramChatRequest(
+  message: TelegramMessage,
+  text: string,
+  botIdentity?: TelegramBotIdentity,
+): ChatRequest {
+  const replyHistory = createTelegramReplyHistory(message, botIdentity);
   return {
     channel: 'telegram',
+    ...(replyHistory.length === 0 ? {} : { history: replyHistory }),
     message: text,
     requestId: `telegram:${message.chat.id}:${message.message_id}`,
-    sessionId: `telegram:${message.chat.id}`,
+    sessionId: createTelegramSessionId(message),
     ...(message.from?.id === undefined ? {} : { userId: `telegram:${message.from.id}` }),
   };
+}
+
+const TELEGRAM_REPLY_HISTORY_LIMIT = 6;
+const TELEGRAM_REPLY_HISTORY_TEXT_LIMIT = 2_000;
+
+function createTelegramReplyHistory(
+  message: TelegramMessage,
+  botIdentity: TelegramBotIdentity | undefined,
+): ChatHistoryMessage[] {
+  const chain: TelegramMessage[] = [];
+  const seenMessageIds = new Set<number>();
+  let current = message.reply_to_message;
+  while (
+    current !== undefined &&
+    chain.length < TELEGRAM_REPLY_HISTORY_LIMIT &&
+    !seenMessageIds.has(current.message_id)
+  ) {
+    seenMessageIds.add(current.message_id);
+    chain.push(current);
+    current = current.reply_to_message;
+  }
+  if (chain.length === 0) {
+    return [];
+  }
+
+  const currentUserId = message.from?.id;
+  if (
+    isGroupChat(message) &&
+    (currentUserId === undefined ||
+      !chain.some((candidate) => candidate.from?.id === currentUserId) ||
+      chain.some(
+        (candidate) =>
+          candidate.from?.is_bot !== true &&
+          candidate.from?.id !== undefined &&
+          candidate.from.id !== currentUserId,
+      ))
+  ) {
+    return [];
+  }
+
+  return chain.reverse().flatMap<ChatHistoryMessage>((candidate) => {
+    const content = sanitizeTelegramReplyHistoryText(candidate.text);
+    if (content === undefined) {
+      return [];
+    }
+    if (
+      candidate.from?.is_bot === true &&
+      (botIdentity === undefined || candidate.from.id === botIdentity.id)
+    ) {
+      return [{ content, role: 'assistant' as const }];
+    }
+    if (currentUserId !== undefined && candidate.from?.id === currentUserId) {
+      return [{ content, role: 'user' as const }];
+    }
+    return [];
+  });
+}
+
+function sanitizeTelegramReplyHistoryText(text: string | undefined): string | undefined {
+  if (text === undefined) {
+    return undefined;
+  }
+  const sanitized = redactSensitiveSupportText(text.trim()).slice(
+    0,
+    TELEGRAM_REPLY_HISTORY_TEXT_LIMIT,
+  );
+  return sanitized.length === 0 ? undefined : sanitized;
+}
+
+function createTelegramSessionId(message: TelegramMessage): string {
+  if (!isGroupChat(message)) {
+    return `telegram:${message.chat.id}`;
+  }
+
+  const topic = message.message_thread_id ?? 'main';
+  const participant =
+    message.from?.id !== undefined
+      ? `user:${message.from.id}`
+      : message.sender_chat?.id !== undefined
+        ? `sender-chat:${message.sender_chat.id}`
+        : 'unknown';
+  return `telegram:${message.chat.id}:topic:${topic}:${participant}`;
 }
 
 function canStreamToDraft(message: TelegramMessage, options: CreateTelegramBotOptions): boolean {

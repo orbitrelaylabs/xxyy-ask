@@ -19,6 +19,9 @@
       "path": "./packages/agent-core"
     },
     {
+      "path": "./packages/agent-sdk"
+    },
+    {
       "path": "./packages/chain-analysis-mcp"
     },
     {

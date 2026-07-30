@@ -32,6 +32,39 @@ class FakeTransactionClient extends FakePgClient {
 }
 
 describe('createPgKnowledgeCandidateStore', () => {
+  it('retracts unpublished candidates when a Telegram source message is edited', async () => {
+    const client = new FakePgClient();
+    client.queuedRows = [
+      [
+        { id: 'candidate_pending', previous_status: 'pending' },
+        { id: 'candidate_published', previous_status: 'published' },
+      ],
+    ];
+    const store = createPgKnowledgeCandidateStore({ client });
+
+    await expect(
+      store.retractTelegramSource?.({
+        actor: 'system:telegram-edit',
+        messageId: '22',
+        sourceChatId: '-100123',
+      }),
+    ).resolves.toEqual({
+      publishedCandidateIds: ['candidate_published'],
+      retractedCandidateIds: ['candidate_pending', 'candidate_published'],
+    });
+    expect(client.queries[0]?.sql).toContain("'telegram_source_retracted'");
+    expect(client.queries[0]?.sql).toContain(
+      "matched.status in ('pending', 'approved', 'published')",
+    );
+    expect(client.queries[0]?.sql).toContain('insert into knowledge_source_tombstones');
+    expect(client.queries[0]?.values).toEqual([
+      '-100123',
+      '22',
+      'system:telegram-edit',
+      'source_edited',
+    ]);
+  });
+
   it('creates an import batch atomically when given a pool', async () => {
     const transaction = new FakeTransactionClient();
     transaction.queuedRows = [[candidateRow()]];

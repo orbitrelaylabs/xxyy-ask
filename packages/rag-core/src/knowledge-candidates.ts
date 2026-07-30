@@ -186,6 +186,12 @@ export interface PgKnowledgeCandidateStore {
   migrate(): Promise<void>;
   revise(input: ReviseKnowledgeCandidateInput): Promise<KnowledgeCandidate>;
   review(input: ReviewKnowledgeCandidateInput): Promise<KnowledgeCandidate>;
+  retractTelegramSource?(input: {
+    actor: string;
+    messageId: string;
+    sourceChatId: string;
+    reason?: 'source_deleted' | 'source_edited';
+  }): Promise<{ publishedCandidateIds: string[]; retractedCandidateIds: string[] }>;
 }
 
 export interface PgKnowledgeCandidateStoreOptions {
@@ -434,6 +440,83 @@ export function createPgKnowledgeCandidateStore(
       }
 
       return { created, duplicateCount };
+    },
+
+    async retractTelegramSource(input) {
+      const sourceChatId = normalizeRequiredText(input.sourceChatId, 'sourceChatId');
+      const messageId = normalizeRequiredText(input.messageId, 'messageId');
+      const actor = normalizeRequiredText(input.actor, 'actor');
+      const reason = input.reason ?? 'source_edited';
+      const response = await queryDatabase<{
+        id: string;
+        published_document_id: string | null;
+        previous_status: KnowledgeCandidateStatus;
+      }>(
+        options.client,
+        `
+        with matched as (
+          select id, status, published_document_id
+          from knowledge_candidates
+          where
+            source_channel = 'telegram'
+            and source_chat_id = $1
+            and source_answer_message_id = $2
+          for update
+        ), retracted as (
+          update knowledge_candidates candidates
+          set
+            status = 'rejected',
+            review_note = case
+              when $4 = 'source_deleted'
+                then 'Telegram source message was deleted; candidate retracted.'
+              else 'Telegram source message was edited; candidate retracted before re-evaluation.'
+            end,
+            reviewed_at = now(),
+            reviewed_by = $3,
+            updated_at = now()
+          from matched
+          where
+            candidates.id = matched.id
+            and matched.status in ('pending', 'approved', 'published')
+          returning
+            candidates.id,
+            matched.status as previous_status,
+            matched.published_document_id
+        ), tombstoned as (
+          insert into knowledge_source_tombstones (
+            document_id, source_channel, source_chat_id, source_message_id, reason, actor
+          )
+          select
+            published_document_id, 'telegram', $1, $2, $4, $3
+          from retracted
+          where previous_status = 'published' and published_document_id is not null
+          on conflict (document_id) do update
+          set reason = excluded.reason, actor = excluded.actor, created_at = now()
+        ), audited as (
+          insert into knowledge_governance_audit_events (
+            entity_type, entity_id, event_type, actor, details
+          )
+          select
+            'candidate', id, 'telegram_source_retracted', $3,
+            jsonb_build_object(
+              'sourceChatId', $1,
+              'sourceAnswerMessageId', $2,
+              'reason', $4,
+              'previousStatus', previous_status
+            )
+          from retracted
+        )
+        select id, previous_status, published_document_id
+        from retracted
+        `,
+        [sourceChatId, messageId, actor, reason],
+      );
+      return {
+        publishedCandidateIds: response.rows
+          .filter((row) => row.previous_status === 'published')
+          .map((row) => row.id),
+        retractedCandidateIds: response.rows.map((row) => row.id),
+      };
     },
 
     async get(id: string): Promise<KnowledgeCandidate | undefined> {
@@ -805,6 +888,27 @@ export async function migrateKnowledgeCandidates(client: PgClientLike): Promise<
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
     )
+    `,
+  );
+  await queryDatabase(
+    client,
+    `
+    create table if not exists knowledge_source_tombstones (
+      document_id text primary key,
+      source_channel text not null check (source_channel in ('telegram', 'telegram_export')),
+      source_chat_id text not null,
+      source_message_id text not null,
+      reason text not null check (reason in ('source_deleted', 'source_edited')),
+      actor text not null,
+      created_at timestamptz not null default now()
+    )
+    `,
+  );
+  await queryDatabase(
+    client,
+    `
+    create index if not exists knowledge_source_tombstones_source_idx
+      on knowledge_source_tombstones (source_channel, source_chat_id, source_message_id)
     `,
   );
   await queryDatabase(

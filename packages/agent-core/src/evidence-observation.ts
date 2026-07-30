@@ -1,25 +1,52 @@
+import type { SourceType } from '@xxyy/shared';
+import {
+  classifyQuestion,
+  understandProductQuestion,
+  type ProductQuestionKind,
+} from '@xxyy/rag-core';
+
 export interface SearchEvidenceAttempt {
   chunkIds: readonly string[];
   citationKeys: readonly string[];
+  citationSourceTypes?: readonly (SourceType | undefined)[];
+  currentEvidenceCount?: number;
   evidenceTexts: readonly string[];
+  historicalEvidenceCount?: number;
   query: string;
 }
 
 export type EvidenceObservationStopReason = 'max_steps' | 'no_new_evidence' | 'sufficient';
 
 export interface EvidenceObservation {
+  authoritativeCitationCount: number;
+  authoritativeOverviewCitationCount: number;
   complexity: 'multi_part' | 'single_part';
+  conflicts: Array<{
+    evidenceIds: string[];
+    subject: string;
+    values: string[];
+  }>;
+  coverage: number;
   coveredFacets: string[];
+  currentEvidenceCount: number;
   distinctCitationCount: number;
   distinctEvidenceCount: number;
+  historicalEvidenceCount: number;
   latestNewEvidenceCount: number;
   missingFacets: string[];
+  nextAction: 'answer' | 'clarify' | 'continue_search' | 'partial_answer';
+  questionKind: ProductQuestionKind;
   requiredFacets: string[];
   shouldContinue: boolean;
+  sourceTypes: SourceType[];
   stopReason?: EvidenceObservationStopReason;
   sufficient: boolean;
   suggestedQuery?: string;
+  version: '1';
+  xCitationCount: number;
 }
+
+export type ProductEvidenceReport = EvidenceObservation;
 
 const MULTI_PART_SIGNAL = /比较|对比|区别|分别|同时|以及|与|\bcompare\b|\bversus\b|\bvs\.?\b/iu;
 const MULTI_CATEGORY_SIGNAL =
@@ -49,6 +76,7 @@ export function observeProductEvidence(
   attempts: readonly SearchEvidenceAttempt[],
   maxSteps: number,
 ): EvidenceObservation {
+  const questionKind = understandProductQuestion(question, classifyQuestion(question)).kind;
   const requiredFacets = extractEvidenceFacets(question);
   const multiPart = requiresMultiPartEvidence(question);
   const allEvidenceTexts = attempts.flatMap((attempt) => attempt.evidenceTexts);
@@ -57,12 +85,44 @@ export function observeProductEvidence(
   );
   const missingFacets = requiredFacets.filter((facet) => !coveredFacets.includes(facet));
   const citationKeys = new Set(attempts.flatMap((attempt) => attempt.citationKeys));
+  const citationSources = distinctCitationSources(attempts);
+  const authoritativeCitationCount = [...citationSources.values()].filter(
+    (sourceType) => sourceType === 'admin_verified' || sourceType === 'official_docs',
+  ).length;
+  const authoritativeOverviewCitationCount = countAuthoritativeOverviewCitations(attempts);
+  const xCitationCount = [...citationSources.values()].filter(
+    (sourceType) => sourceType === 'x_updates',
+  ).length;
   const evidenceKeys = distinctEvidenceKeys(attempts);
   const latestNewEvidenceCount = countLatestNewEvidence(attempts);
+  const currentEvidenceCount = attempts.reduce(
+    (sum, attempt) => sum + (attempt.currentEvidenceCount ?? 0),
+    0,
+  );
+  const historicalEvidenceCount = attempts.reduce(
+    (sum, attempt) => sum + (attempt.historicalEvidenceCount ?? 0),
+    0,
+  );
+  const sourceTypes = [
+    ...new Set(
+      [...citationSources.values()].filter(
+        (sourceType): sourceType is SourceType => sourceType !== undefined,
+      ),
+    ),
+  ];
+  const coverage =
+    requiredFacets.length === 0
+      ? citationKeys.size > 0
+        ? 1
+        : 0
+      : coveredFacets.length / requiredFacets.length;
   const sufficient = determineSufficiency({
+    authoritativeCitationCount,
+    authoritativeOverviewCitationCount,
     coveredFacetCount: coveredFacets.length,
     distinctCitationCount: citationKeys.size,
     multiPart,
+    questionKind,
     requiredFacetCount: requiredFacets.length,
   });
 
@@ -79,23 +139,45 @@ export function observeProductEvidence(
     sufficient || stopReason !== undefined
       ? undefined
       : createSuggestedQuery(question, missingFacets[0]);
+  const nextAction = sufficient
+    ? 'answer'
+    : stopReason === undefined
+      ? 'continue_search'
+      : citationKeys.size > 0
+        ? 'partial_answer'
+        : 'clarify';
 
   return {
+    authoritativeCitationCount,
+    authoritativeOverviewCitationCount,
     complexity: multiPart ? 'multi_part' : 'single_part',
+    conflicts: [],
+    coverage,
     coveredFacets,
+    currentEvidenceCount,
     distinctCitationCount: citationKeys.size,
     distinctEvidenceCount: evidenceKeys.size,
+    historicalEvidenceCount,
     latestNewEvidenceCount,
     missingFacets,
+    nextAction,
+    questionKind,
     requiredFacets,
     shouldContinue: !sufficient && stopReason === undefined,
+    sourceTypes,
     ...(stopReason === undefined ? {} : { stopReason }),
     sufficient,
     ...(suggestedQuery === undefined ? {} : { suggestedQuery }),
+    version: '1',
+    xCitationCount,
   };
 }
 
 export function extractEvidenceFacets(question: string): string[] {
+  if (isCapabilityOverview(question)) {
+    return ['交易', '钱包', '监控', '移动端'];
+  }
+
   if (!requiresMultiPartEvidence(question)) {
     return [];
   }
@@ -115,7 +197,11 @@ export function extractEvidenceFacets(question: string): string[] {
 
 export function requiresMultiPartEvidence(question: string): boolean {
   const normalized = question.normalize('NFKC');
-  return MULTI_PART_SIGNAL.test(normalized) || MULTI_CATEGORY_SIGNAL.test(normalized);
+  return (
+    isCapabilityOverview(question) ||
+    MULTI_PART_SIGNAL.test(normalized) ||
+    MULTI_CATEGORY_SIGNAL.test(normalized)
+  );
 }
 
 export function queryTargetsMissingFacet(query: string, missingFacets: readonly string[]): boolean {
@@ -149,13 +235,25 @@ export function isAllowedSearchQueryRewrite(
 }
 
 function determineSufficiency(input: {
+  authoritativeCitationCount: number;
+  authoritativeOverviewCitationCount: number;
   coveredFacetCount: number;
   distinctCitationCount: number;
   multiPart: boolean;
+  questionKind: ProductQuestionKind;
   requiredFacetCount: number;
 }): boolean {
   if (input.distinctCitationCount === 0) {
     return false;
+  }
+
+  if (input.questionKind === 'capability_overview') {
+    return (
+      input.requiredFacetCount > 0 &&
+      input.coveredFacetCount === input.requiredFacetCount &&
+      (input.authoritativeOverviewCitationCount > 0 ||
+        (input.authoritativeCitationCount > 0 && input.distinctCitationCount >= 2))
+    );
   }
 
   if (!input.multiPart) {
@@ -167,6 +265,41 @@ function determineSufficiency(input: {
   }
 
   return input.distinctCitationCount >= 2;
+}
+
+function countAuthoritativeOverviewCitations(attempts: readonly SearchEvidenceAttempt[]): number {
+  const matchingKeys = new Set<string>();
+  for (const attempt of attempts) {
+    attempt.citationKeys.forEach((key, index) => {
+      const sourceType = attempt.citationSourceTypes?.[index];
+      const evidenceText = attempt.evidenceTexts[index] ?? '';
+      if (
+        (sourceType === 'admin_verified' || sourceType === 'official_docs') &&
+        /(?:当前支持的产品功能总览|当前功能总览|产品功能目录)/u.test(evidenceText)
+      ) {
+        matchingKeys.add(key);
+      }
+    });
+  }
+  return matchingKeys.size;
+}
+
+function distinctCitationSources(
+  attempts: readonly SearchEvidenceAttempt[],
+): Map<string, SourceType | undefined> {
+  const sources = new Map<string, SourceType | undefined>();
+  for (const attempt of attempts) {
+    attempt.citationKeys.forEach((key, index) => {
+      sources.set(key, attempt.citationSourceTypes?.[index]);
+    });
+  }
+  return sources;
+}
+
+function isCapabilityOverview(question: string): boolean {
+  return (
+    understandProductQuestion(question, classifyQuestion(question)).kind === 'capability_overview'
+  );
 }
 
 function cleanFacet(value: string): string {

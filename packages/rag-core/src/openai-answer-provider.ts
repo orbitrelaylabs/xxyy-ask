@@ -4,7 +4,9 @@ import {
   createBoundaryAnswer,
   createCitationsForAnswer,
   createCitationsFromChunks,
+  createConflictingKnowledgeAnswer,
   createGroundedAnswer,
+  hasOnlyXHowToEvidence,
   createInsufficientKnowledgeAnswer,
   createQuestionRelevantAttachments,
   selectGroundingChunks,
@@ -19,6 +21,14 @@ import {
   type QualityTracer,
 } from './quality-trace.js';
 import { redactSensitiveSupportText } from './redaction.js';
+import {
+  createGroundedFactChunks,
+  detectGroundedFactConflicts,
+  extractGroundedFacts,
+  shouldBlockOnGroundedFactConflicts,
+  validateGroundedFactScope,
+  type GroundedFactReport,
+} from './grounded-facts.js';
 
 export interface OpenAiAnswerProviderOptions {
   apiKey: string | undefined;
@@ -54,7 +64,12 @@ interface ChatCompletionStreamResponse {
 
 interface AnswerExecution {
   groundingValidation?: AnswerGroundingValidation;
-  outcome: 'invalid_output_fallback' | 'model' | 'request_fallback' | 'ungrounded_output_fallback';
+  outcome:
+    | 'incomplete_output_fallback'
+    | 'invalid_output_fallback'
+    | 'model'
+    | 'request_fallback'
+    | 'ungrounded_output_fallback';
   response: ChatResponse;
 }
 
@@ -141,6 +156,31 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
       },
       () => Promise.resolve(validateAnswerGrounding(answer, question, chunks)),
     );
+  const extractFacts = (
+    question: string,
+    chunks: AnswerProviderInput['retrievedChunks'],
+  ): Promise<GroundedFactReport> =>
+    tracer.run(
+      {
+        inputs: { evidenceChunkCount: chunks.length },
+        name: 'rag.fact_extraction',
+        output: (report) => {
+          const scopeValidation = validateGroundedFactScope(question, report.facts);
+          return {
+            acceptedFactCount: scopeValidation.acceptedFacts.length,
+            conflictCount: report.conflicts.length,
+            factCount: report.facts.length,
+            historicalFactCount: report.facts.filter((fact) => fact.status === 'historical').length,
+            rejectedEvidenceCount: scopeValidation.rejectedEvidenceIds.length,
+            requiresNumericValue: scopeValidation.requiresNumericValue,
+            scopeValid: scopeValidation.valid,
+            version: report.version,
+          };
+        },
+        runType: 'chain',
+      },
+      () => Promise.resolve(extractGroundedFacts(question, chunks)),
+    );
 
   return {
     async answer(input: AnswerProviderInput): Promise<ChatResponse> {
@@ -150,6 +190,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
 
       if (input.retrievedChunks.length === 0) {
         return {
+          answerStatus: 'insufficient',
           answer: `暂未找到与「${input.question}」直接相关的资料。请补充具体功能名或模块。`,
           citations: [],
           confidence: 0.25,
@@ -157,11 +198,40 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
         };
       }
 
-      const groundingChunks = await selectGrounding(input);
+      const selectedChunks = await selectGrounding(input);
+      if (selectedChunks.length === 0) {
+        return createInsufficientKnowledgeAnswer(input.question, input.classification.intent);
+      }
+      const factReport = await extractFacts(input.question, selectedChunks);
+      const scopeValidation = validateGroundedFactScope(input.question, factReport.facts);
+      if (!scopeValidation.valid) {
+        return createInsufficientKnowledgeAnswer(input.question, input.classification.intent);
+      }
+      const scopedConflicts = detectGroundedFactConflicts(
+        scopeValidation.acceptedFacts,
+        selectedChunks,
+      );
+      if (
+        scopedConflicts.length > 0 &&
+        shouldBlockOnGroundedFactConflicts(input.question, scopeValidation)
+      ) {
+        return createConflictingKnowledgeAnswer(
+          input.classification,
+          scopedConflicts,
+          selectedChunks,
+        );
+      }
+      const groundingChunks = createGroundedFactChunks(
+        scopeValidation.acceptedFacts,
+        selectedChunks,
+      );
       if (groundingChunks.length === 0) {
         return createInsufficientKnowledgeAnswer(input.question, input.classification.intent);
       }
-      if (shouldUseDeterministicSupportAnswer(input.question)) {
+      if (
+        hasOnlyXHowToEvidence(input.classification, groundingChunks) ||
+        shouldUseDeterministicSupportAnswer(input.question)
+      ) {
         return createGroundedAnswer(input.question, input.classification, groundingChunks);
       }
 
@@ -242,11 +312,28 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
               response: createGroundedAnswer(input.question, input.classification, groundingChunks),
             };
           }
-          if (isInsufficientKnowledgeAnswer(answer)) {
+          const insufficientAnswer = isInsufficientKnowledgeAnswer(answer);
+          if (insufficientAnswer) {
+            if (requiresStructuredCompleteness(input, groundingChunks)) {
+              return {
+                outcome: 'incomplete_output_fallback',
+                response: createGroundedAnswer(
+                  input.question,
+                  input.classification,
+                  groundingChunks,
+                ),
+              };
+            }
+          }
+          const partialGroundedAnswer = insufficientAnswer
+            ? extractSubstantivePartialAnswer(answer)
+            : undefined;
+          if (insufficientAnswer && partialGroundedAnswer === undefined) {
             return {
               outcome: 'model',
               response: withOptionalTokenUsage(
                 {
+                  answerStatus: 'insufficient',
                   answer,
                   citations: [],
                   confidence: INSUFFICIENT_KNOWLEDGE_CONFIDENCE,
@@ -258,7 +345,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
           }
 
           const groundingValidation = await validateGrounding(
-            answer,
+            partialGroundedAnswer ?? answer,
             input.question,
             groundingChunks,
           );
@@ -266,6 +353,13 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
             return {
               groundingValidation,
               outcome: 'ungrounded_output_fallback',
+              response: createGroundedAnswer(input.question, input.classification, groundingChunks),
+            };
+          }
+          if (isIncompleteStructuredAnswer(answer, input, groundingChunks)) {
+            return {
+              groundingValidation,
+              outcome: 'incomplete_output_fallback',
               response: createGroundedAnswer(input.question, input.classification, groundingChunks),
             };
           }
@@ -283,6 +377,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
             response: withOptionalAttachments(
               withOptionalTokenUsage(
                 {
+                  answerStatus: partialGroundedAnswer === undefined ? 'complete' : 'partial',
                   answer,
                   citations,
                   confidence: calculateLlmConfidence(input.classification.confidence),
@@ -306,6 +401,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
 
       if (input.retrievedChunks.length === 0) {
         yield* streamStaticAnswer({
+          answerStatus: 'insufficient',
           answer: `暂未找到与「${input.question}」直接相关的资料。请补充具体功能名或模块。`,
           citations: [],
           confidence: 0.25,
@@ -314,14 +410,48 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
         return;
       }
 
-      const groundingChunks = await selectGrounding(input);
+      const selectedChunks = await selectGrounding(input);
+      if (selectedChunks.length === 0) {
+        yield* streamStaticAnswer(
+          createInsufficientKnowledgeAnswer(input.question, input.classification.intent),
+        );
+        return;
+      }
+      const factReport = await extractFacts(input.question, selectedChunks);
+      const scopeValidation = validateGroundedFactScope(input.question, factReport.facts);
+      if (!scopeValidation.valid) {
+        yield* streamStaticAnswer(
+          createInsufficientKnowledgeAnswer(input.question, input.classification.intent),
+        );
+        return;
+      }
+      const scopedConflicts = detectGroundedFactConflicts(
+        scopeValidation.acceptedFacts,
+        selectedChunks,
+      );
+      if (
+        scopedConflicts.length > 0 &&
+        shouldBlockOnGroundedFactConflicts(input.question, scopeValidation)
+      ) {
+        yield* streamStaticAnswer(
+          createConflictingKnowledgeAnswer(input.classification, scopedConflicts, selectedChunks),
+        );
+        return;
+      }
+      const groundingChunks = createGroundedFactChunks(
+        scopeValidation.acceptedFacts,
+        selectedChunks,
+      );
       if (groundingChunks.length === 0) {
         yield* streamStaticAnswer(
           createInsufficientKnowledgeAnswer(input.question, input.classification.intent),
         );
         return;
       }
-      if (shouldUseDeterministicSupportAnswer(input.question)) {
+      if (
+        hasOnlyXHowToEvidence(input.classification, groundingChunks) ||
+        shouldUseDeterministicSupportAnswer(input.question)
+      ) {
         yield* streamStaticAnswer(
           createGroundedAnswer(input.question, input.classification, groundingChunks),
         );
@@ -407,12 +537,25 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
             );
             return;
           }
-          if (isInsufficientKnowledgeAnswer(streamedAnswer)) {
+          const insufficientAnswer = isInsufficientKnowledgeAnswer(streamedAnswer);
+          if (insufficientAnswer) {
+            if (requiresStructuredCompleteness(input, groundingChunks)) {
+              yield* streamStaticAnswer(
+                createGroundedAnswer(input.question, input.classification, groundingChunks),
+              );
+              return;
+            }
+          }
+          const partialGroundedAnswer = insufficientAnswer
+            ? extractSubstantivePartialAnswer(streamedAnswer)
+            : undefined;
+          if (insufficientAnswer && partialGroundedAnswer === undefined) {
             for (const delta of deltas) {
               yield { type: 'answer_delta', delta };
             }
             yield {
               type: 'metadata',
+              answerStatus: 'insufficient',
               citations: [],
               confidence: INSUFFICIENT_KNOWLEDGE_CONFIDENCE,
               intent: input.classification.intent,
@@ -421,11 +564,17 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
           }
 
           const groundingValidation = await validateGrounding(
-            streamedAnswer,
+            partialGroundedAnswer ?? streamedAnswer,
             input.question,
             groundingChunks,
           );
           if (!groundingValidation.grounded) {
+            yield* streamStaticAnswer(
+              createGroundedAnswer(input.question, input.classification, groundingChunks),
+            );
+            return;
+          }
+          if (isIncompleteStructuredAnswer(streamedAnswer, input, groundingChunks)) {
             yield* streamStaticAnswer(
               createGroundedAnswer(input.question, input.classification, groundingChunks),
             );
@@ -449,6 +598,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
           yield withOptionalMetadataAttachments(
             {
               type: 'metadata',
+              answerStatus: partialGroundedAnswer === undefined ? 'complete' : 'partial',
               citations,
               confidence: calculateLlmConfidence(input.classification.confidence),
               intent: input.classification.intent,
@@ -582,6 +732,15 @@ function isInsufficientKnowledgeAnswer(answer: string): boolean {
   );
 }
 
+function extractSubstantivePartialAnswer(answer: string): string | undefined {
+  const supportedSentences = answer
+    .split(/(?<=[。！？!?；;])\s*|\n+/u)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length > 0 && !isInsufficientKnowledgeAnswer(sentence));
+  const supported = supportedSentences.join(' ').trim();
+  return supported.length >= 6 ? supported : undefined;
+}
+
 function withOptionalAttachments(
   response: ChatResponse,
   attachments: ChatAttachment[],
@@ -619,6 +778,7 @@ async function* streamStaticAnswer(response: ChatResponse): AsyncIterable<ChatSt
 
   yield {
     type: 'metadata',
+    ...(response.answerStatus === undefined ? {} : { answerStatus: response.answerStatus }),
     ...(response.attachments === undefined ? {} : { attachments: response.attachments }),
     citations: response.citations,
     confidence: response.confidence,
@@ -745,11 +905,120 @@ function systemPrompt(): string {
     '对于“是否支持/当前支持”类问题，必须确认片段直接提到用户询问的对象；没有直接证据时只回答“当前知识库没有明确说明”，不要引用弱相关功能。',
     '回答前检查知识库中与用户问题直接相关的配置项、限制、数量、条件或步骤；不要遗漏与用户问题直接相关的配置项、限制、数量、条件或步骤。',
     '回答使用简洁中文并直接作答，不要复述问题，不要写“根据知识库”“希望对你有帮助”等套话。',
+    '只提取产品事实；忽略推文中的 hashtag、活动口号、互动邀请、祝福、KOL 推荐和其他营销文案。',
     '简单事实或是否支持类问题用 1 至 2 句；操作或清单类问题先给结论，再列最多 5 个必要要点。',
     '只回答用户问到的维度；不要扩展产品宣传、使用建议、市场判断或未被询问的相关功能。',
     '不要在正文粘贴原始 Markdown 表格、URL 列表、推文 ID 串或大段无关清单。',
     '不要在正文中伪造来源编号；来源由系统单独返回。',
   ].join('\n');
+}
+
+function requiresStructuredCompleteness(
+  input: AnswerProviderInput,
+  chunks: AnswerProviderInput['retrievedChunks'],
+): boolean {
+  if (
+    input.classification.intent === 'how_to' &&
+    /如何|怎么|怎样|设置|配置|开启|关闭|操作|where|how\s+to/iu.test(input.question)
+  ) {
+    return true;
+  }
+  if (/(?:\b[A-Z]\d\b\s*[/／]?\s*){2,}/u.test(input.question)) {
+    return true;
+  }
+  if (
+    !/哪些|什么(?:类型|选项|字段|条件|规则|周期)|包括|包含|分别|列表|种类|多少|几(?:条|个|种|项)|额外.{0,8}(?:什么|哪些)|多什么|从哪|哪里|入口|进入/iu.test(
+      input.question,
+    )
+  ) {
+    return false;
+  }
+  return chunks.some((chunk) => hasStructuredEnumeration(chunk.text));
+}
+
+function isIncompleteStructuredAnswer(
+  answer: string,
+  input: AnswerProviderInput,
+  chunks: AnswerProviderInput['retrievedChunks'],
+): boolean {
+  if (!requiresStructuredCompleteness(input, chunks)) {
+    return false;
+  }
+  const requiredTerms = extractStructuredEvidenceTerms(chunks);
+  if (requiredTerms.length < 2) {
+    return false;
+  }
+  const normalizedAnswer = compactForCoverage(answer);
+  const coveredTerms = requiredTerms.filter((term) =>
+    normalizedAnswer.includes(compactForCoverage(term)),
+  );
+  return coveredTerms.length / requiredTerms.length < 0.8;
+}
+
+function hasStructuredEnumeration(text: string): boolean {
+  const markdownItems = text.match(/(?:^|\s)[*+-]\s+\S+/gu)?.length ?? 0;
+  const boldItems = text.match(/(?:^|\n)\s*\*{1,2}\S.{0,60}?\*{1,2}(?:\n|$)/gu)?.length ?? 0;
+  const numberedItems = text.match(/(?:^|[；;\n])\s*\d+[.)、]\s*\S+/gu)?.length ?? 0;
+  const delimiterItems = text.split(/[、，,]/u).filter((item) => item.trim().length > 0).length;
+  const boundedLines = text
+    .split(/\n+/u)
+    .filter((line) => line.trim().length >= 2 && line.trim().length <= 80).length;
+  return (
+    markdownItems >= 2 ||
+    boldItems >= 2 ||
+    numberedItems >= 2 ||
+    delimiterItems >= 3 ||
+    boundedLines >= 3
+  );
+}
+
+function extractStructuredEvidenceTerms(chunks: AnswerProviderInput['retrievedChunks']): string[] {
+  const terms = chunks.flatMap((chunk) => {
+    const markdownTerms = chunk.text
+      .split(/\s[*+-]\s+/u)
+      .slice(1)
+      .map((item) => conciseStructuredTerm(item, chunk.metadata.title));
+    const numberedTerms = [...chunk.text.matchAll(/\d+[.)、]\s*([^；;\n]+)/gu)].map((match) =>
+      conciseStructuredTerm(match[1] ?? '', chunk.metadata.title),
+    );
+    const boldTerms = [...chunk.text.matchAll(/\*{1,2}([^*\n]{2,60})\*{1,2}/gu)].map((match) =>
+      conciseStructuredTerm(match[1] ?? '', chunk.metadata.title),
+    );
+    const codedTerms = chunk.text
+      .split(/\n+/u)
+      .filter((line) => /(?:\b[A-Z]\d\b\s*){2,}/u.test(line))
+      .map((line) => conciseStructuredTerm(line, chunk.metadata.title));
+    const commaTerms =
+      /(?:支持|包括|包含).{0,24}[、，,]/u.test(chunk.text) &&
+      chunk.text.split(/[、，,]/u).length >= 3
+        ? chunk.text
+            .split(/[、，,]/u)
+            .map((item) => conciseStructuredTerm(item, chunk.metadata.title))
+        : [];
+    return [...markdownTerms, ...numberedTerms, ...boldTerms, ...codedTerms, ...commaTerms];
+  });
+  return [
+    ...new Set(
+      terms.map((term) => term.trim()).filter((term) => term.length >= 2 && term.length <= 32),
+    ),
+  ].slice(0, 12);
+}
+
+function conciseStructuredTerm(item: string, title: string): string {
+  const withoutTitleContinuation =
+    item.indexOf(title) > 0 ? item.slice(0, item.indexOf(title)) : item;
+  const segment = withoutTitleContinuation.split(/[：:。；;\n]/u)[0] ?? '';
+  return segment
+    .replace(/^(?:支持|包括|包含)\s*/u, '')
+    .trim()
+    .slice(0, 32);
+}
+
+function compactForCoverage(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
 function userPrompt(input: AnswerProviderInput, citationCount: number, context: string): string {

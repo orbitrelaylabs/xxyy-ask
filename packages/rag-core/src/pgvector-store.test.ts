@@ -139,6 +139,7 @@ describe('createPgVectorStore', () => {
 
     await store.recordFeedback({
       answer: '根据知识库，XXYY Pro 提供更多权益。',
+      answerStatus: 'partial',
       channel: 'web',
       citationCount: 2,
       comment: '没有讲清楚监控数量上限',
@@ -146,6 +147,7 @@ describe('createPgVectorStore', () => {
       question: 'XXYY Pro 有哪些权益？',
       rating: 'negative',
       sessionId: 'session-1',
+      sourceTypes: ['official_docs', 'x_updates', 'official_docs'],
     });
 
     expect(client.queries[0]?.sql).toContain('insert into rag_feedback');
@@ -158,6 +160,8 @@ describe('createPgVectorStore', () => {
       'product_qa',
       2,
       '没有讲清楚监控数量上限',
+      'partial',
+      ['official_docs', 'x_updates'],
     ]);
   });
 
@@ -200,6 +204,7 @@ describe('createPgVectorStore', () => {
       [
         {
           answer: '根据知识库，XXYY Pro 提供更多权益。',
+          answer_status: 'partial',
           channel: 'web',
           citation_count: 2,
           comment: '没有讲清楚监控数量上限',
@@ -208,6 +213,7 @@ describe('createPgVectorStore', () => {
           question: 'XXYY Pro 有哪些权益？',
           rating: 'negative',
           session_id: 'session-1',
+          source_types: ['official_docs'],
         },
       ],
     ];
@@ -222,6 +228,7 @@ describe('createPgVectorStore', () => {
       latest: [
         {
           answer: '根据知识库，XXYY Pro 提供更多权益。',
+          answerStatus: 'partial',
           channel: 'web',
           citationCount: 2,
           comment: '没有讲清楚监控数量上限',
@@ -230,6 +237,7 @@ describe('createPgVectorStore', () => {
           question: 'XXYY Pro 有哪些权益？',
           rating: 'negative',
           sessionId: 'session-1',
+          sourceTypes: ['official_docs'],
         },
       ],
       negativeCount: 1,
@@ -611,6 +619,7 @@ describe('createPgVectorStore', () => {
     expect(embeddedTexts).toEqual([['XXYY Pro 支持什么？\nXXYY Pro 权益 会员权益']]);
     expect(client.queries.at(-1)?.sql).toContain('embedding <=> $1::vector');
     expect(client.queries.at(-1)?.sql).toContain('active_supersedes');
+    expect(client.queries.at(-1)?.sql).toContain('knowledge_source_tombstones');
     expect(client.queries.at(-1)?.values[5]).toBe(false);
     expect(results[0]).toMatchObject({
       id: 'official_docs:pro:chunk:0001',
@@ -649,6 +658,49 @@ describe('createPgVectorStore', () => {
     await store.retrieve('以前钱包监控支持多少地址？', { topK: 1 });
 
     expect(client.queries.at(-1)?.values[5]).toBe(true);
+  });
+
+  it('selects and pins governed anchor documents outside ordinary relevance candidates', async () => {
+    const client = new FakePgClient();
+    client.rows = [
+      createKnowledgeRow({
+        content: '钱包监控支持 Telegram 通知。',
+        document_id: 'official_docs:wallet-monitor',
+        id: 'official_docs:wallet-monitor:chunk:0001',
+        tokens: ['钱包', '监控', 'telegram', '通知'],
+      }),
+      createKnowledgeRow({
+        content: '经治理的当前产品能力目录。',
+        document_id: 'official_docs:capability-overview',
+        embedding_distance: 2,
+        id: 'official_docs:capability-overview:chunk:0001',
+        title: '当前功能目录',
+        tokens: ['能力目录'],
+      }),
+    ];
+    const store = createPgVectorStore({
+      client,
+      embeddingProvider: {
+        embedTexts: () => Promise.resolve([embedding1536({ 0: 0.1 })]),
+      },
+    });
+
+    const results = await store.retrieve('钱包监控 Telegram 通知', {
+      policy: {
+        anchorDocumentIds: ['official_docs:capability-overview'],
+        diversity: 'balanced',
+        preferredSourceTypes: ['official_docs'],
+        temporalScope: 'current',
+        version: '1',
+      },
+      topK: 1,
+    });
+
+    expect(client.queries.at(-1)?.sql).toContain('anchor_candidates');
+    expect(client.queries.at(-1)?.values[11]).toEqual(['official_docs:capability-overview']);
+    expect(results.map((chunk) => chunk.id)).toEqual([
+      'official_docs:capability-overview:chunk:0001',
+    ]);
   });
 
   it('filters API reference rows unless the question explicitly asks about the API', async () => {

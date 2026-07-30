@@ -3,10 +3,13 @@ import { Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 
 import type {
+  FeedbackRecord,
   KnowledgeCandidate,
   KnowledgeGovernanceService,
   KnowledgePublicationJob,
+  PgFeedbackStore,
   PgKnowledgePublicationJobStore,
+  PgSupportOperationsStore,
 } from '@xxyy/rag-core';
 
 import {
@@ -73,6 +76,195 @@ describe('handleKnowledgeAdminApi', () => {
     expect(readResponse.json).toMatchObject({ candidates: [{ id: 'knowledge_candidate_1' }] });
     expect(listCandidates).toHaveBeenCalledWith({ limit: 20, status: 'pending' });
     expect(writeResponse.statusCode).toBe(403);
+  });
+
+  it('exposes the support queue to viewers and restricts ticket updates to reviewers', async () => {
+    const ticket = supportTicket();
+    const listTickets = vi.fn(() => Promise.resolve([ticket]));
+    const updateTicket = vi.fn(() =>
+      Promise.resolve({
+        ...ticket,
+        assignedTo: 'admin:alice',
+        status: 'in_progress' as const,
+      }),
+    );
+    const services = knowledgeAdminServices({
+      supportOperations: supportOperationsStore({ listTickets, updateTicket }),
+    });
+    const readResponse = await callAdmin({
+      authenticator: authenticator('viewer'),
+      getServices: () => Promise.resolve(services),
+      method: 'GET',
+      token: TOKEN,
+      url: '/admin/api/support/tickets?status=open&limit=20',
+    });
+    const forbidden = await callAdmin({
+      authenticator: authenticator('viewer'),
+      body: { assignedTo: 'admin:alice', status: 'in_progress' },
+      getServices: () => Promise.resolve(services),
+      method: 'PATCH',
+      token: TOKEN,
+      url: '/admin/api/support/tickets/support_ticket_1',
+    });
+    const accepted = await callAdmin({
+      authenticator: authenticator('reviewer'),
+      body: { assignedTo: 'admin:alice', status: 'in_progress' },
+      getServices: () => Promise.resolve(services),
+      method: 'PATCH',
+      token: TOKEN,
+      url: '/admin/api/support/tickets/support_ticket_1',
+    });
+
+    expect(readResponse.statusCode).toBe(200);
+    expect(readResponse.json).toMatchObject({ tickets: [{ id: 'support_ticket_1' }] });
+    expect(listTickets).toHaveBeenCalledWith({ limit: 20, status: 'open' });
+    expect(forbidden.statusCode).toBe(403);
+    expect(accepted.statusCode).toBe(200);
+    expect(updateTicket).toHaveBeenCalledWith({
+      actor: 'admin:alice',
+      assignedTo: 'admin:alice',
+      id: 'support_ticket_1',
+      status: 'in_progress',
+    });
+  });
+
+  it('exposes feedback-derived knowledge gaps without publishing them', async () => {
+    const getFeedbackStats = vi.fn(() =>
+      Promise.resolve({
+        latest: [
+          {
+            answer: '当前知识库存在冲突。',
+            answerStatus: 'conflict' as const,
+            channel: 'telegram' as const,
+            citationCount: 2,
+            comment: 'automatic_evidence_conflict',
+            createdAt: '2026-07-29T01:00:00.000Z',
+            intent: 'product_qa' as const,
+            question: '钱包监控上限是多少？',
+            rating: 'negative' as const,
+            sourceTypes: ['official_docs', 'x_updates'] satisfies NonNullable<
+              FeedbackRecord['sourceTypes']
+            >,
+          },
+          {
+            answer: '暂时无法确认。',
+            channel: 'web' as const,
+            citationCount: 0,
+            comment: 'automatic_low_evidence',
+            createdAt: '2026-07-29T00:00:00.000Z',
+            intent: 'product_qa' as const,
+            question: '新功能怎么使用？',
+            rating: 'negative' as const,
+          },
+        ],
+        negativeCount: 2,
+        positiveCount: 0,
+        totalCount: 2,
+      }),
+    );
+    const response = await callAdmin({
+      authenticator: authenticator('viewer'),
+      getServices: () =>
+        Promise.resolve(
+          knowledgeAdminServices({
+            feedback: feedbackStore({ getFeedbackStats }),
+          }),
+        ),
+      method: 'GET',
+      token: TOKEN,
+      url: '/admin/api/support/knowledge-gaps',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json).toMatchObject({
+      gaps: [
+        {
+          diagnosis: {
+            category: 'knowledge',
+            knowledgeCandidateEligible: false,
+          },
+          quality: {
+            evidence: {
+              answerStatus: 'conflict',
+              conflictCount: 1,
+              observedSourceTypes: ['official_docs', 'x_updates'],
+              sourceObservation: 'available',
+              stopReason: 'evidence_conflict',
+            },
+            queryPlan: { version: '1' },
+            understanding: { kind: 'limit_or_quota', version: '1' },
+            version: '1',
+          },
+          question: '钱包监控上限是多少？',
+        },
+        {
+          diagnosis: {
+            category: 'retrieval',
+            knowledgeCandidateEligible: false,
+          },
+          quality: {
+            evidence: {
+              answerStatus: 'insufficient',
+              coverageState: 'none',
+            },
+            retrievalPolicy: {
+              preferredSourceTypes: ['official_docs', 'admin_verified', 'x_updates'],
+            },
+            understanding: { kind: 'how_to' },
+          },
+          question: '新功能怎么使用？',
+        },
+      ],
+      metrics: { negativeCount: 2, totalCount: 2 },
+      trend: {
+        answerStatusCounts: {
+          complete: 0,
+          conflict: 1,
+          insufficient: 1,
+          partial: 0,
+        },
+        categoryCounts: {
+          boundary: 0,
+          classification: 0,
+          generation: 0,
+          knowledge: 1,
+          retrieval: 1,
+        },
+        sampleSize: 2,
+        version: '1',
+      },
+    });
+    expect(getFeedbackStats).toHaveBeenCalledWith({ limit: 100 });
+  });
+
+  it('lets reviewers tombstone a confirmed deleted Telegram source', async () => {
+    const retractTelegramSource = vi.fn(() =>
+      Promise.resolve({
+        publishedCandidateIds: ['candidate_published'],
+        retractedCandidateIds: ['candidate_published'],
+      }),
+    );
+    const response = await callAdmin({
+      authenticator: authenticator('reviewer'),
+      body: { messageId: '22', sourceChatId: '-100123' },
+      getServices: () =>
+        Promise.resolve(
+          knowledgeAdminServices({
+            governance: governance({ retractTelegramSource }),
+          }),
+        ),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/support/telegram-sources/retract',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(retractTelegramSource).toHaveBeenCalledWith({
+      actor: 'admin:alice',
+      messageId: '22',
+      reason: 'source_deleted',
+      sourceChatId: '-100123',
+    });
   });
 
   it('uses the authenticated reviewer identity instead of accepting an actor from the body', async () => {
@@ -433,6 +625,7 @@ function governance(
     listTrustedAuthors: () => Promise.resolve([]),
     migrate: () => Promise.resolve(),
     reject: () => Promise.reject(new Error('not used')),
+    retractTelegramSource: () => Promise.reject(new Error('not used')),
     revise: () => Promise.reject(new Error('not used')),
     trustAuthor: () => Promise.reject(new Error('not used')),
     ...overrides,
@@ -460,9 +653,50 @@ function knowledgeAdminServices(
   overrides: Partial<KnowledgeAdminServices> = {},
 ): KnowledgeAdminServices {
   return {
+    feedback: feedbackStore(),
     governance: governance(),
     importTelegram: () => Promise.reject(new Error('not used')),
     publicationJobs: publicationStore(),
+    supportOperations: supportOperationsStore(),
+    ...overrides,
+  };
+}
+
+function feedbackStore(overrides: Partial<PgFeedbackStore> = {}): PgFeedbackStore {
+  return {
+    getFeedbackStats: () =>
+      Promise.resolve({
+        latest: [],
+        negativeCount: 0,
+        positiveCount: 0,
+        totalCount: 0,
+      }),
+    recordFeedback: () => Promise.resolve(),
+    ...overrides,
+  };
+}
+
+function supportOperationsStore(
+  overrides: Partial<PgSupportOperationsStore> = {},
+): PgSupportOperationsStore {
+  return {
+    appendMessage: () => Promise.reject(new Error('not used')),
+    createTicket: () => Promise.reject(new Error('not used')),
+    ensureConversation: () => Promise.reject(new Error('not used')),
+    getConversation: () => Promise.resolve(undefined),
+    getConversationByExternalSessionId: () => Promise.resolve(undefined),
+    getMetrics: () =>
+      Promise.resolve({
+        activeConversationCount: 0,
+        openTicketCount: 0,
+        unassignedTicketCount: 0,
+        waitingUserTicketCount: 0,
+      }),
+    getRecentMessages: () => Promise.resolve([]),
+    getTicket: () => Promise.resolve(undefined),
+    listTickets: () => Promise.resolve([]),
+    migrate: () => Promise.resolve(),
+    updateTicket: () => Promise.reject(new Error('not used')),
     ...overrides,
   };
 }
@@ -479,6 +713,19 @@ function candidate(overrides: Partial<KnowledgeCandidate> = {}): KnowledgeCandid
     status: 'pending' as const,
     updatedAt: '2026-07-21T00:00:00.000Z',
     ...overrides,
+  };
+}
+
+function supportTicket() {
+  return {
+    conversationId: 'support_conversation_1',
+    createdAt: '2026-07-29T00:00:00.000Z',
+    id: 'support_ticket_1',
+    priority: 'normal' as const,
+    reason: 'explicit_human_request' as const,
+    status: 'open' as const,
+    subject: '需要人工协助',
+    updatedAt: '2026-07-29T00:00:00.000Z',
   };
 }
 

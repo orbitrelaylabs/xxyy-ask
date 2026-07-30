@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 
 import type { BatchEmbeddingProvider, PreparedKnowledgeChunk } from '@xxyy/knowledge';
 import type {
+  AnswerStatus,
   ChatChannel,
   ChatAttachment,
   ChunkMetadata,
@@ -20,6 +21,7 @@ import {
   isExternalDeveloperDocument,
   isHistoricalOrTweetQuestion,
   isLegalDocumentationQuestion,
+  pinRetrievalPolicyAnchors,
   shouldIncludeEnglishDocumentation,
   shouldIncludeApiReferenceDocumentation,
   shouldIncludeExternalDeveloperDocumentation,
@@ -35,6 +37,7 @@ import {
 import { extractSupportEntityTokens, supportEntityEvidenceBoost } from './support-entity.js';
 import { migrateKnowledgePublicationJobs } from './knowledge-publication-jobs.js';
 import { reciprocalRankFusionScore } from './hybrid-rank.js';
+import { migrateSupportOperations } from './support-operations.js';
 
 export interface PgClientLike {
   connect?(): Promise<PgTransactionClientLike>;
@@ -142,16 +145,18 @@ export interface RecordFeedbackInput {
   intent: Intent;
   question: string;
   rating: FeedbackRating;
+  answerStatus?: AnswerStatus;
   comment?: string;
   sessionId?: string;
+  sourceTypes?: SourceType[];
 }
 
-interface GetFeedbackStatsOptions {
+export interface GetFeedbackStatsOptions {
   limit?: number;
   rating?: FeedbackRating;
 }
 
-interface FeedbackStats {
+export interface FeedbackStats {
   totalCount: number;
   positiveCount: number;
   negativeCount: number;
@@ -166,8 +171,10 @@ export interface FeedbackRecord {
   intent: Intent;
   question: string;
   rating: FeedbackRating;
+  answerStatus?: AnswerStatus;
   comment?: string;
   sessionId?: string;
+  sourceTypes?: SourceType[];
 }
 
 interface KnowledgeSourceStats {
@@ -226,6 +233,7 @@ interface FeedbackStatsRow {
 
 interface FeedbackRecordRow {
   answer: string;
+  answer_status: AnswerStatus | null;
   channel: ChatChannel;
   citation_count: number;
   comment: string | null;
@@ -234,6 +242,7 @@ interface FeedbackRecordRow {
   question: string;
   rating: FeedbackRating;
   session_id: string | null;
+  source_types: SourceType[] | null;
 }
 
 const DEFAULT_PGVECTOR_EMBEDDING_DIMENSION = 1536;
@@ -535,9 +544,36 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
             )
           ),
           citation_count integer not null check (citation_count >= 0),
+          answer_status text check (
+            answer_status in ('complete', 'partial', 'insufficient', 'conflict')
+          ),
+          source_types jsonb,
           comment text,
           created_at timestamptz not null default now()
         )
+      `,
+      );
+      await queryDatabase(
+        options.client,
+        `
+        alter table rag_feedback
+          add column if not exists answer_status text
+            check (answer_status in ('complete', 'partial', 'insufficient', 'conflict')),
+          add column if not exists source_types jsonb
+      `,
+      );
+      await queryDatabase(
+        options.client,
+        `
+        alter table rag_feedback
+          drop constraint if exists rag_feedback_source_types_check,
+          add constraint rag_feedback_source_types_check check (
+            source_types is null
+            or (
+              jsonb_typeof(source_types) = 'array'
+              and source_types <@ '["admin_verified", "official_docs", "x_updates"]'::jsonb
+            )
+          )
       `,
       );
       await queryDatabase(
@@ -587,6 +623,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
         `,
       );
       await migrateKnowledgePublicationJobs(options.client);
+      await migrateSupportOperations(options.client);
     },
 
     async recordFeedback(input: RecordFeedbackInput): Promise<void> {
@@ -648,12 +685,14 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
       const entityPrefixPatterns = supportEntities
         .filter((entity) => entity.length >= 6)
         .map((entity) => `%${entity.slice(0, 6)}%`);
+      const anchorDocumentIds = retrieveOptions.policy?.anchorDocumentIds ?? [];
       const candidateLimit = Math.max(topK * 4, topK);
       return tracer.run(
         {
           inputs: {
             candidateLimit,
             entityCount: supportEntities.length,
+            anchorDocumentCount: anchorDocumentIds.length,
             queryTokenCount: lexicalQueryTokens.length,
             topK,
           },
@@ -668,13 +707,25 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
         with active_supersedes as (
           select distinct jsonb_array_elements_text(supersedes) as knowledge_id
           from knowledge_chunks
-          where status = 'current' and jsonb_array_length(supersedes) > 0
+          where
+            status = 'current'
+            and jsonb_array_length(supersedes) > 0
+            and not exists (
+              select 1
+              from knowledge_source_tombstones
+              where knowledge_source_tombstones.document_id = knowledge_chunks.document_id
+            )
         ),
         eligible_knowledge_chunks as (
           select knowledge_chunks.*
           from knowledge_chunks
           where
-            (
+            not exists (
+              select 1
+              from knowledge_source_tombstones
+              where knowledge_source_tombstones.document_id = knowledge_chunks.document_id
+            )
+            and (
               $6::boolean
               or not exists (
                 select 1
@@ -796,12 +847,31 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
           order by token_overlap desc, embedding_distance asc
           limit $2
         ),
+        anchor_candidates as (
+          select
+            id, document_id, title, module, source_type, source_url, file,
+            heading_path, order_index, retrieved_at::text as retrieved_at,
+            effective_at::text as effective_at, status, supersedes, attachments, content, tokens,
+            embedding <=> $1::vector as embedding_distance,
+            0::integer as token_overlap,
+            null::integer as vector_rank,
+            null::integer as lexical_rank,
+            null::integer as entity_rank
+          from eligible_knowledge_chunks
+          where
+            cardinality($12::text[]) > 0
+            and document_id = any($12::text[])
+          order by document_id, order_index nulls last, id
+          limit $2
+        ),
         combined_candidates as (
           select * from vector_candidates
           union all
           select * from lexical_candidates
           union all
           select * from entity_candidates
+          union all
+          select * from anchor_candidates
         )
         select distinct on (id)
           id, document_id, title, module, source_type, source_url, file,
@@ -826,10 +896,11 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
               isLegalQuestion,
               includeEnglishDocs,
               includeExternalDeveloperDocs,
+              anchorDocumentIds,
             ],
           );
 
-          return response.rows
+          const ranked = response.rows
             .filter((row) =>
               isDocumentationScopeEligible(question, {
                 module: row.module,
@@ -838,10 +909,15 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
               }),
             )
             .map((row) => mapRow(row, question, lexicalQueryTokens, supportEntities))
-            .filter(hasMinimumRetrievalEvidence)
-            .sort(compareRetrievedChunks)
-            .slice(0, topK)
-            .map((chunk, index) => ({ ...chunk, rank: index + 1 }));
+            .filter(
+              (chunk) =>
+                anchorDocumentIds.includes(chunk.documentId) || hasMinimumRetrievalEvidence(chunk),
+            )
+            .sort(compareRetrievedChunks);
+          return pinRetrievalPolicyAnchors(ranked, anchorDocumentIds, topK).map((chunk, index) => ({
+            ...chunk,
+            rank: index + 1,
+          }));
         },
       );
     },
@@ -906,6 +982,7 @@ async function getLatestFeedback(
     `
     select
       answer,
+      answer_status,
       channel,
       citation_count,
       comment,
@@ -913,7 +990,8 @@ async function getLatestFeedback(
       intent,
       question,
       rating,
-      session_id
+      session_id,
+      source_types
     from rag_feedback
     ${whereClause}
     order by created_at desc
@@ -924,6 +1002,9 @@ async function getLatestFeedback(
 
   return response.rows.map((row) => ({
     answer: row.answer,
+    ...(row.answer_status === null || row.answer_status === undefined
+      ? {}
+      : { answerStatus: row.answer_status }),
     channel: row.channel,
     citationCount: row.citation_count,
     createdAt: row.created_at,
@@ -932,6 +1013,9 @@ async function getLatestFeedback(
     rating: row.rating,
     ...(row.comment === null ? {} : { comment: row.comment }),
     ...(row.session_id === null ? {} : { sessionId: row.session_id }),
+    ...(row.source_types === null || row.source_types === undefined
+      ? {}
+      : { sourceTypes: row.source_types }),
   }));
 }
 
@@ -944,9 +1028,10 @@ async function recordFeedback(client: PgClientLike, input: RecordFeedbackInput):
     client,
     `
     insert into rag_feedback (
-      channel, session_id, rating, question, answer, intent, citation_count, comment
+      channel, session_id, rating, question, answer, intent, citation_count, comment,
+      answer_status, source_types
     )
-    values ($1, $2, $3, $4, $5, $6, $7, $8)
+    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     `,
     [
       input.channel,
@@ -957,6 +1042,8 @@ async function recordFeedback(client: PgClientLike, input: RecordFeedbackInput):
       input.intent,
       input.citationCount,
       comment,
+      input.answerStatus ?? null,
+      input.sourceTypes === undefined ? null : [...new Set(input.sourceTypes)],
     ],
   );
 }
@@ -1026,6 +1113,11 @@ async function getKnowledgeTotals(client: PgClientLike): Promise<KnowledgeStatsR
       (count(distinct source_url) filter (where source_url is not null))::integer as source_url_count,
       max(updated_at)::text as latest_chunk_updated_at
     from knowledge_chunks
+    where not exists (
+      select 1
+      from knowledge_source_tombstones
+      where knowledge_source_tombstones.document_id = knowledge_chunks.document_id
+    )
     `,
   );
 
@@ -1048,6 +1140,11 @@ async function getKnowledgeSourceStats(client: PgClientLike): Promise<KnowledgeS
       count(distinct document_id)::integer as document_count,
       count(*)::integer as chunk_count
     from knowledge_chunks
+    where not exists (
+      select 1
+      from knowledge_source_tombstones
+      where knowledge_source_tombstones.document_id = knowledge_chunks.document_id
+    )
     group by source_type
     order by source_type
     `,

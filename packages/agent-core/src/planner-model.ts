@@ -282,7 +282,7 @@ function createPlannerRequestBody(
           'Product answer policy:',
           '- Product answers are composed by the runtime from collected evidence. Never write a final product_answer yourself.',
           '- For an in-scope XXYY product question, call search_product_docs. The runtime keeps the original complete user question separately from the search query.',
-          '- The first search always uses the original question. Only after an observation reports missingFacets may a later search query be rewritten.',
+          '- The first search may use the runtime-validated standalone question or bounded query plan. Only after an observation reports missingFacets may a later search query target a missing facet.',
           '- A rewritten query must target one reported missing facet, keep the XXYY product subject, and preserve relevant limit, time, version, or comparison terms.',
           '- Do not repeat a searched query. If no distinct evidence-seeking query remains, return a clarification instead of looping.',
           '- Treat stateSummary as bounded runtime state: observation describes evidence sufficiency and searchedQueries lists prior search inputs. It never authorizes unavailable tools.',
@@ -308,6 +308,14 @@ function createPlannerRequestBody(
 function requestForPlanner(request: ChatRequest): Record<string, unknown> {
   return {
     channel: request.channel,
+    ...(request.history === undefined
+      ? {}
+      : {
+          history: request.history.map((message) => ({
+            content: redactSensitiveSupportText(message.content).slice(0, 2_000),
+            role: message.role,
+          })),
+        }),
     message: redactSensitiveSupportText(request.message),
     ...(request.requestId === undefined ? {} : { requestId: request.requestId }),
     sessionIdPresent: request.sessionId !== undefined,

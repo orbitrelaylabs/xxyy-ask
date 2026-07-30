@@ -9,14 +9,22 @@ import type {
   CandidateStatus,
   KnowledgeCandidate,
   KnowledgeCurationMode,
+  KnowledgeGapRecord,
   PublicationJob,
   PublicationStatus,
+  QualityTrend,
+  SupportConversation,
+  SupportConversationMessage,
+  SupportOperationsMetrics,
+  SupportTicket,
+  SupportTicketPriority,
+  SupportTicketStatus,
   TelegramImportResult,
   TrustedAuthor,
 } from './admin-types.js';
 
 const ADMIN_TOKEN_STORAGE_KEY = 'xxyy.knowledgeAdmin.token';
-type AdminTab = 'authors' | 'candidates' | 'imports' | 'publications';
+type AdminTab = 'authors' | 'candidates' | 'imports' | 'publications' | 'support';
 
 export function AdminApp(): ReactElement {
   const initialToken = readStoredToken();
@@ -96,10 +104,506 @@ export function AdminApp(): ReactElement {
           {activeTab === 'imports' ? (
             <TelegramImportPanel permissions={permissions} token={token} />
           ) : undefined}
+          {activeTab === 'support' ? (
+            <SupportPanel permissions={permissions} token={token} />
+          ) : undefined}
         </div>
       </section>
     </main>
   );
+}
+
+function SupportPanel({
+  permissions,
+  token,
+}: {
+  permissions: ReadonlySet<AdminPermission>;
+  token: string;
+}): ReactElement {
+  const [metrics, setMetrics] = useState<SupportOperationsMetrics>();
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [knowledgeGaps, setKnowledgeGaps] = useState<KnowledgeGapRecord[]>([]);
+  const [qualityTrend, setQualityTrend] = useState<QualityTrend>();
+  const [selectedId, setSelectedId] = useState<string>();
+  const [conversation, setConversation] = useState<SupportConversation>();
+  const [messages, setMessages] = useState<SupportConversationMessage[]>([]);
+  const [statusFilter, setStatusFilter] = useState<SupportTicketStatus | ''>('');
+  const [assignedTo, setAssignedTo] = useState('');
+  const [priority, setPriority] = useState<SupportTicketPriority>('normal');
+  const [ticketStatus, setTicketStatus] = useState<SupportTicketStatus>('open');
+  const [resolution, setResolution] = useState('');
+  const [reply, setReply] = useState('');
+  const [deletedSourceChatId, setDeletedSourceChatId] = useState('');
+  const [deletedSourceMessageId, setDeletedSourceMessageId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ kind: 'error' | 'success'; text: string }>();
+  const selected = tickets.find((ticket) => ticket.id === selectedId);
+
+  const loadQueue = useCallback(async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const query = statusFilter === '' ? '' : `?status=${statusFilter}`;
+      const [metricsResult, ticketResult, gapResult] = await Promise.all([
+        knowledgeAdminRequest<{ metrics: SupportOperationsMetrics }>(token, '/support/metrics'),
+        knowledgeAdminRequest<{ tickets: SupportTicket[] }>(token, `/support/tickets${query}`),
+        knowledgeAdminRequest<{ gaps: KnowledgeGapRecord[]; trend: QualityTrend }>(
+          token,
+          '/support/knowledge-gaps',
+        ),
+      ]);
+      setMetrics(metricsResult.metrics);
+      setTickets(ticketResult.tickets);
+      setKnowledgeGaps(gapResult.gaps);
+      setQualityTrend(gapResult.trend);
+      setSelectedId((current) =>
+        current !== undefined && ticketResult.tickets.some((ticket) => ticket.id === current)
+          ? current
+          : ticketResult.tickets[0]?.id,
+      );
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  }, [statusFilter, token]);
+
+  const loadConversation = useCallback(async (): Promise<void> => {
+    if (selected === undefined) {
+      setConversation(undefined);
+      setMessages([]);
+      return;
+    }
+    try {
+      const result = await knowledgeAdminRequest<{
+        conversation: SupportConversation;
+        messages: SupportConversationMessage[];
+      }>(
+        token,
+        `/support/conversations/${encodeURIComponent(selected.conversationId)}/messages?limit=50`,
+      );
+      setConversation(result.conversation);
+      setMessages(result.messages);
+      setAssignedTo(selected.assignedTo ?? '');
+      setPriority(selected.priority);
+      setTicketStatus(selected.status);
+      setResolution(selected.resolution ?? '');
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    }
+  }, [selected, token]);
+
+  useEffect(() => {
+    void loadQueue();
+  }, [loadQueue]);
+  useEffect(() => {
+    void loadConversation();
+  }, [loadConversation]);
+
+  const save = async (): Promise<void> => {
+    if (selected === undefined || !permissions.has('support:manage')) return;
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      await knowledgeAdminRequest<{ ticket: SupportTicket }>(
+        token,
+        `/support/tickets/${encodeURIComponent(selected.id)}`,
+        {
+          body: {
+            assignedTo: assignedTo.trim() === '' ? null : assignedTo.trim(),
+            priority,
+            resolution: resolution.trim(),
+            status: ticketStatus,
+          },
+          method: 'PATCH',
+        },
+      );
+      await loadQueue();
+      setNotice({ kind: 'success', text: '工单已更新，并写入审计记录。' });
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendReply = async (): Promise<void> => {
+    if (selected === undefined || reply.trim().length === 0 || !permissions.has('support:manage')) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await knowledgeAdminRequest<{ message: SupportConversationMessage }>(
+        token,
+        `/support/conversations/${encodeURIComponent(selected.conversationId)}/messages`,
+        { body: { content: reply.trim() }, method: 'POST' },
+      );
+      setReply('');
+      await loadConversation();
+      setNotice({ kind: 'success', text: '人工回复已写入会话，Web 用户将自动收到。' });
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const retractDeletedTelegramSource = async (): Promise<void> => {
+    if (
+      !permissions.has('candidate:review') ||
+      deletedSourceChatId.trim().length === 0 ||
+      deletedSourceMessageId.trim().length === 0
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await knowledgeAdminRequest<{
+        publishedCandidateIds: string[];
+        retractedCandidateIds: string[];
+      }>(token, '/support/telegram-sources/retract', {
+        body: {
+          messageId: deletedSourceMessageId.trim(),
+          sourceChatId: deletedSourceChatId.trim(),
+        },
+        method: 'POST',
+      });
+      setDeletedSourceMessageId('');
+      setNotice({
+        kind: 'success',
+        text: `已撤回 ${result.retractedCandidateIds.length} 个候选；其中 ${result.publishedCandidateIds.length} 个已发布文档已写 tombstone。`,
+      });
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="admin-stack">
+      <section className="admin-panel">
+        <div className="admin-panel-header">
+          <div>
+            <h2>客服运营概览</h2>
+            <span>仅展示已脱敏的持久化会话与工单</span>
+          </div>
+          <button
+            className="admin-secondary-button"
+            disabled={busy}
+            onClick={() => void loadQueue()}
+            type="button"
+          >
+            刷新
+          </button>
+        </div>
+        <div className="metric-grid support-metrics">
+          <Metric label="活跃会话" value={metrics?.activeConversationCount ?? 0} />
+          <Metric label="待处理工单" value={metrics?.openTicketCount ?? 0} />
+          <Metric label="未分配" value={metrics?.unassignedTicketCount ?? 0} />
+          <Metric label="等待用户" value={metrics?.waitingUserTicketCount ?? 0} />
+        </div>
+      </section>
+      {notice === undefined ? undefined : (
+        <div className={`admin-alert ${notice.kind}`}>{notice.text}</div>
+      )}
+
+      <section className="admin-panel">
+        <div className="admin-panel-header">
+          <div>
+            <h2>知识缺口信号</h2>
+            <span>差评或无引用回答，仅进入检查队列，不会直接写入正式知识库</span>
+          </div>
+          <span>{knowledgeGaps.length} 条</span>
+        </div>
+        <div className="knowledge-gap-list">
+          <div className="metric-grid support-metrics">
+            <Metric label="诊断样本" value={qualityTrend?.sampleSize ?? 0} />
+            <Metric label="检索问题" value={qualityTrend?.categoryCounts.retrieval ?? 0} />
+            <Metric label="知识冲突" value={qualityTrend?.answerStatusCounts.conflict ?? 0} />
+            <Metric label="证据不足" value={qualityTrend?.answerStatusCounts.insufficient ?? 0} />
+          </div>
+          {knowledgeGaps.slice(0, 12).map((gap) => (
+            <article key={`${gap.createdAt}:${gap.sessionId ?? ''}:${gap.question}`}>
+              <div>
+                <StatusBadge status={gap.rating} />
+                <span>
+                  {qualityCategoryLabel(gap.diagnosis.category)} · {gap.citationCount} 个引用 ·{' '}
+                  {formatDate(gap.createdAt)}
+                </span>
+              </div>
+              <strong>{gap.question}</strong>
+              <p>{gap.answer}</p>
+              <small>
+                {gap.diagnosis.reason}；建议：{gap.diagnosis.recommendedAction}
+              </small>
+              <details>
+                <summary>查看诊断路径</summary>
+                <dl>
+                  <dt>问题理解</dt>
+                  <dd>
+                    {gap.quality.understanding.kind} · {gap.quality.understanding.subject} ·{' '}
+                    {gap.quality.understanding.temporalScope}
+                  </dd>
+                  <dt>证据状态</dt>
+                  <dd>
+                    {gap.quality.evidence.answerStatus} · 覆盖 {gap.quality.evidence.coverageState}{' '}
+                    · 停止原因 {gap.quality.evidence.stopReason}
+                  </dd>
+                  <dt>来源策略</dt>
+                  <dd>{gap.quality.retrievalPolicy.preferredSourceTypes.join(' → ')}</dd>
+                  <dt>Query Plan</dt>
+                  <dd>
+                    <ol>
+                      {gap.quality.queryPlan.queries.map((query) => (
+                        <li key={`${query.facet ?? 'query'}:${query.query}`}>
+                          {query.facet === undefined ? '' : `${query.facet}：`}
+                          {query.query}
+                        </li>
+                      ))}
+                    </ol>
+                  </dd>
+                  <dt>实际来源</dt>
+                  <dd>
+                    {gap.quality.evidence.sourceObservation === 'unavailable'
+                      ? '旧反馈未持久化来源明细'
+                      : gap.quality.evidence.observedSourceTypes.join('、')}
+                  </dd>
+                </dl>
+              </details>
+            </article>
+          ))}
+          {knowledgeGaps.length === 0 ? <p>当前没有待检查的知识缺口信号。</p> : undefined}
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <SectionHeading
+          description="Telegram Bot API 不提供普通群消息删除事件；管理员确认来源已删除后，可按群 ID 和消息 ID 安全撤回。"
+          title="Telegram 删除对账"
+        />
+        <div className="admin-form-grid">
+          <label>
+            群 ID
+            <input
+              disabled={!permissions.has('candidate:review')}
+              onChange={(event) => setDeletedSourceChatId(event.target.value)}
+              placeholder="-1001234567890"
+              value={deletedSourceChatId}
+            />
+          </label>
+          <label>
+            被删除的答案消息 ID
+            <input
+              disabled={!permissions.has('candidate:review')}
+              onChange={(event) => setDeletedSourceMessageId(event.target.value)}
+              placeholder="12345"
+              value={deletedSourceMessageId}
+            />
+          </label>
+        </div>
+        <div className="admin-actions">
+          <button
+            className="admin-danger-button"
+            disabled={
+              busy ||
+              !permissions.has('candidate:review') ||
+              deletedSourceChatId.trim().length === 0 ||
+              deletedSourceMessageId.trim().length === 0
+            }
+            onClick={() => void retractDeletedTelegramSource()}
+            type="button"
+          >
+            确认来源已删除并撤回
+          </button>
+        </div>
+      </section>
+
+      <div className="candidate-layout support-layout">
+        <section className="admin-panel candidate-list-panel">
+          <div className="admin-panel-header">
+            <div>
+              <h2>工单队列</h2>
+              <span>{tickets.length} 条</span>
+            </div>
+            <select
+              aria-label="工单状态"
+              onChange={(event) => setStatusFilter(event.target.value as SupportTicketStatus | '')}
+              value={statusFilter}
+            >
+              <option value="">全部状态</option>
+              <option value="open">待处理</option>
+              <option value="in_progress">处理中</option>
+              <option value="waiting_user">等待用户</option>
+              <option value="resolved">已解决</option>
+              <option value="closed">已关闭</option>
+            </select>
+          </div>
+          <div className="candidate-list">
+            {tickets.map((ticket) => (
+              <button
+                className={ticket.id === selectedId ? 'candidate-card selected' : 'candidate-card'}
+                key={ticket.id}
+                onClick={() => setSelectedId(ticket.id)}
+                type="button"
+              >
+                <div className="candidate-card-topline">
+                  <StatusBadge status={ticket.status} />
+                  <span>{ticket.priority}</span>
+                </div>
+                <strong>{ticket.subject}</strong>
+                <div className="candidate-card-meta">
+                  <span>{ticket.assignedTo ?? '未分配'}</span>
+                  <span>{formatDate(ticket.createdAt)}</span>
+                </div>
+              </button>
+            ))}
+            {!busy && tickets.length === 0 ? (
+              <p className="admin-empty">当前筛选条件下没有工单。</p>
+            ) : undefined}
+          </div>
+        </section>
+
+        <div className="admin-stack">
+          {selected === undefined ? (
+            <section className="admin-panel">
+              <p>选择一条工单查看对话并进行处理。</p>
+            </section>
+          ) : (
+            <>
+              <section className="admin-panel">
+                <SectionHeading
+                  description={`${selected.reason} · ${conversation?.channel ?? 'unknown'} · ${selected.id}`}
+                  title={selected.subject}
+                />
+                <div className="support-transcript">
+                  {messages.map((message) => (
+                    <article className={`support-message role-${message.role}`} key={message.id}>
+                      <div>
+                        <strong>{supportRoleLabel(message.role)}</strong>
+                        <span>{formatDate(message.createdAt)}</span>
+                      </div>
+                      <p>{message.content}</p>
+                    </article>
+                  ))}
+                  {messages.length === 0 ? <p>暂无可展示的会话消息。</p> : undefined}
+                </div>
+                <div className="support-reply-composer">
+                  <textarea
+                    disabled={!permissions.has('support:manage')}
+                    onChange={(event) => setReply(event.target.value)}
+                    placeholder="输入给用户的人工回复"
+                    value={reply}
+                  />
+                  <button
+                    className="admin-primary-button"
+                    disabled={
+                      busy || reply.trim().length === 0 || !permissions.has('support:manage')
+                    }
+                    onClick={() => void sendReply()}
+                    type="button"
+                  >
+                    发送人工回复
+                  </button>
+                </div>
+              </section>
+              <section className="admin-panel">
+                <SectionHeading
+                  description="状态变更、指派与处理结论会写入工单审计日志"
+                  title="处理工单"
+                />
+                <div className="admin-form-grid">
+                  <label>
+                    指派给
+                    <input
+                      disabled={!permissions.has('support:manage')}
+                      onChange={(event) => setAssignedTo(event.target.value)}
+                      placeholder="客服账号或团队"
+                      value={assignedTo}
+                    />
+                  </label>
+                  <label>
+                    优先级
+                    <select
+                      disabled={!permissions.has('support:manage')}
+                      onChange={(event) => setPriority(event.target.value as SupportTicketPriority)}
+                      value={priority}
+                    >
+                      <option value="low">低</option>
+                      <option value="normal">普通</option>
+                      <option value="high">高</option>
+                      <option value="urgent">紧急</option>
+                    </select>
+                  </label>
+                  <label>
+                    状态
+                    <select
+                      disabled={!permissions.has('support:manage')}
+                      onChange={(event) =>
+                        setTicketStatus(event.target.value as SupportTicketStatus)
+                      }
+                      value={ticketStatus}
+                    >
+                      <option value="open">待处理</option>
+                      <option value="in_progress">处理中</option>
+                      <option value="waiting_user">等待用户</option>
+                      <option value="resolved">已解决</option>
+                      <option value="closed">已关闭</option>
+                    </select>
+                  </label>
+                  <label className="span-2">
+                    处理结论
+                    <textarea
+                      disabled={!permissions.has('support:manage')}
+                      onChange={(event) => setResolution(event.target.value)}
+                      value={resolution}
+                    />
+                  </label>
+                </div>
+                <div className="admin-actions">
+                  <button
+                    className="admin-primary-button"
+                    disabled={busy || !permissions.has('support:manage')}
+                    onClick={() => void save()}
+                    type="button"
+                  >
+                    保存处理结果
+                  </button>
+                </div>
+              </section>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function qualityCategoryLabel(category: KnowledgeGapRecord['diagnosis']['category']): string {
+  switch (category) {
+    case 'boundary':
+      return '边界';
+    case 'classification':
+      return '分类';
+    case 'generation':
+      return '生成';
+    case 'knowledge':
+      return '知识';
+    case 'retrieval':
+      return '检索';
+  }
+}
+
+function supportRoleLabel(role: SupportConversationMessage['role']): string {
+  switch (role) {
+    case 'assistant':
+      return 'Agent';
+    case 'support_agent':
+      return '人工客服';
+    case 'system':
+      return '系统';
+    case 'user':
+      return '用户';
+  }
 }
 
 function AdminLogin({
@@ -159,6 +663,7 @@ function AdminSidebar({
   session: AdminSession;
 }): ReactElement {
   const tabs: Array<{ id: AdminTab; label: string; meta: string }> = [
+    { id: 'support', label: '客服工作台', meta: '会话、工单与人工接管' },
     { id: 'candidates', label: '知识候选', meta: '自动决策与冲突观察' },
     { id: 'publications', label: '发布任务', meta: '自动队列与故障观察' },
     { id: 'authors', label: '可信作者', meta: 'Telegram 角色有效期' },
@@ -1299,6 +1804,8 @@ function tabTitle(tab: AdminTab): string {
       return 'Telegram 知识导入';
     case 'publications':
       return '发布任务与恢复';
+    case 'support':
+      return '客服会话与工单';
   }
 }
 

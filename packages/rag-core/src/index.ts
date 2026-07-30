@@ -20,6 +20,22 @@ export type { AnswerProvider } from './answer-provider.js';
 export { createChatService } from './chat-service.js';
 export type { ChatService } from './chat-service.js';
 export { classifyQuestion, hasProductDomainSignal } from './classify.js';
+export {
+  createInitialProductSearchQuery,
+  createProductQueryPlan,
+  createProductRetrievalPolicy,
+  createStandaloneProductQuestion,
+  isCapabilityOverviewQuestion,
+  productQuestionKinds,
+  selectNextProductQuery,
+  understandProductQuestion,
+} from './product-question.js';
+export type {
+  ProductQueryPlan,
+  ProductQuestionKind,
+  ProductQuestionUnderstanding,
+  ProductRetrievalPolicy,
+} from './product-question.js';
 export { loadRagConfig } from './config.js';
 export type { RagConfig, RagEnv } from './config.js';
 export { loadWorkspaceEnv, resolveWorkspaceCwd } from './env.js';
@@ -31,6 +47,20 @@ export type {
   KnowledgeContextPackingStats,
   PackedKnowledgeContext,
 } from './context-packer.js';
+export {
+  createGroundedFactChunks,
+  detectGroundedFactConflicts,
+  extractGroundedFacts,
+  formatGroundedFactsForPrompt,
+  shouldBlockOnGroundedFactConflicts,
+  validateGroundedFactScope,
+} from './grounded-facts.js';
+export type {
+  GroundedFact,
+  GroundedFactConflict,
+  GroundedFactReport,
+  GroundedFactScopeValidation,
+} from './grounded-facts.js';
 export { formatEvaluationFailureJsonl } from './evaluation-failures.js';
 export { validateAnswerGrounding } from './grounding-validation.js';
 export type { AnswerGroundingValidation, GroundingClaimResult } from './grounding-validation.js';
@@ -146,8 +176,11 @@ export type {
   EmbeddedKnowledgeChunk,
   FeedbackRating,
   FeedbackRecord,
+  FeedbackStats,
+  GetFeedbackStatsOptions,
   KnowledgeStats,
   PgClientLike,
+  PgFeedbackStore,
   RecordFeedbackInput,
   ReplaceChunksOptions,
 } from './pgvector-store.js';
@@ -202,3 +235,22 @@ export type {
   TrustedAuthorVerificationSource,
   TrustAuthorInput,
 } from './trusted-authors.js';
+export {
+  createPgSupportOperationsStore,
+  migrateSupportOperations,
+  SupportConversationNotFoundError,
+  SupportTicketNotFoundError,
+} from './support-operations.js';
+export type {
+  ListSupportTicketsOptions,
+  PgSupportOperationsStore,
+  SupportConversation,
+  SupportConversationMessage,
+  SupportConversationStatus,
+  SupportEscalationReason,
+  SupportMessageRole,
+  SupportOperationsMetrics,
+  SupportTicket,
+  SupportTicketPriority,
+  SupportTicketStatus,
+} from './support-operations.js';

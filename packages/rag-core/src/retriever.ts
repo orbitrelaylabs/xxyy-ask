@@ -9,6 +9,7 @@ import {
   type RetrieveOptions,
   type RetrievedChunk,
 } from './retrieve.js';
+import type { ProductRetrievalPolicy } from './product-question.js';
 import { isSupportQuestionText } from './support-entity.js';
 import {
   noopQualityTracer,
@@ -117,18 +118,113 @@ export function createRerankingRetriever(
       const tracer = options.tracer ?? noopQualityTracer;
       return tracer.run(
         {
-          inputs: { candidates: summarizeRetrievedChunks(candidates), topK },
+          inputs: {
+            candidates: summarizeRetrievedChunks(candidates),
+            ...(retrieveOptions.policy === undefined
+              ? {}
+              : {
+                  retrievalPolicy: {
+                    anchorDocumentCount: retrieveOptions.policy.anchorDocumentIds.length,
+                    diversity: retrieveOptions.policy.diversity,
+                    preferredSourceTypes: retrieveOptions.policy.preferredSourceTypes,
+                    temporalScope: retrieveOptions.policy.temporalScope,
+                    version: retrieveOptions.policy.version,
+                  },
+                }),
+            topK,
+          },
           name: 'rag.metadata_rerank',
           output: (chunks) => ({ chunks: summarizeRetrievedChunks(chunks) }),
           runType: 'retriever',
         },
         async () => {
           const reranked = await reranker.rerank({ chunks: candidates, question, topK });
-          return reranked.slice(0, topK).map((chunk, index) => ({ ...chunk, rank: index + 1 }));
+          return applyProductRetrievalPolicy(reranked, retrieveOptions.policy, topK).map(
+            (chunk, index) => ({ ...chunk, rank: index + 1 }),
+          );
         },
       );
     },
   };
+}
+
+export function applyProductRetrievalPolicy(
+  chunks: readonly RetrievedChunk[],
+  policy: ProductRetrievalPolicy | undefined,
+  topK: number,
+): RetrievedChunk[] {
+  if (policy === undefined) {
+    return chunks.slice(0, topK);
+  }
+
+  const remaining = chunks.map((chunk, index) => ({ chunk, relevanceRank: index }));
+  const selected: RetrievedChunk[] = [];
+  while (selected.length < topK && remaining.length > 0) {
+    remaining.sort((left, right) => {
+      const scoreDelta =
+        productPolicyScore(right.chunk, right.relevanceRank, selected, policy) -
+        productPolicyScore(left.chunk, left.relevanceRank, selected, policy);
+      return scoreDelta === 0 ? left.chunk.id.localeCompare(right.chunk.id) : scoreDelta;
+    });
+    const next = remaining.shift();
+    if (next !== undefined) {
+      selected.push(next.chunk);
+    }
+  }
+  return selected;
+}
+
+function productPolicyScore(
+  chunk: RetrievedChunk,
+  relevanceRank: number,
+  selected: readonly RetrievedChunk[],
+  policy: ProductRetrievalPolicy,
+): number {
+  const anchorBoost = policy.anchorDocumentIds.includes(chunk.documentId) ? 100 : 0;
+  const sourceIndex = policy.preferredSourceTypes.indexOf(chunk.metadata.sourceType);
+  const sourceBoost =
+    sourceIndex < 0 ? 0 : (policy.preferredSourceTypes.length - sourceIndex) * 0.35;
+  const temporalBoost = temporalPolicyBoost(chunk, policy.temporalScope);
+  if (policy.diversity === 'none') {
+    return -relevanceRank * 0.5 + anchorBoost + sourceBoost + temporalBoost;
+  }
+
+  const repeatedDocumentCount = selected.filter(
+    (selectedChunk) => selectedChunk.documentId === chunk.documentId,
+  ).length;
+  const repeatedModuleCount = selected.filter(
+    (selectedChunk) => selectedChunk.metadata.module === chunk.metadata.module,
+  ).length;
+  const repeatedSourceCount = selected.filter(
+    (selectedChunk) => selectedChunk.metadata.sourceType === chunk.metadata.sourceType,
+  ).length;
+  return (
+    -relevanceRank * 0.5 +
+    anchorBoost +
+    sourceBoost +
+    temporalBoost -
+    repeatedDocumentCount * 1.25 -
+    repeatedModuleCount * 0.4 -
+    repeatedSourceCount * 0.15
+  );
+}
+
+function temporalPolicyBoost(
+  chunk: RetrievedChunk,
+  temporalScope: ProductRetrievalPolicy['temporalScope'],
+): number {
+  const status =
+    chunk.metadata.status ?? (chunk.metadata.sourceType === 'x_updates' ? 'historical' : 'current');
+  if (status === 'deprecated') {
+    return -20;
+  }
+  if (temporalScope === 'historical') {
+    return status === 'historical' ? 1.5 : 0;
+  }
+  if (temporalScope === 'current') {
+    return status === 'current' ? 1.5 : -4;
+  }
+  return 0;
 }
 
 export function createMetadataReranker(): Reranker {

@@ -6,6 +6,8 @@ export type KnowledgeAdminPermission =
   | 'candidate:review'
   | 'import:telegram'
   | 'publication:request'
+  | 'support:manage'
+  | 'support:read'
   | 'trusted_author:manage';
 
 export interface KnowledgeAdminPrincipal {
@@ -35,6 +37,8 @@ const PERMISSION_LEVEL: Record<KnowledgeAdminPermission, number> = {
   'candidate:review': ROLE_LEVEL.reviewer,
   'import:telegram': ROLE_LEVEL.reviewer,
   'publication:request': ROLE_LEVEL.publisher,
+  'support:manage': ROLE_LEVEL.reviewer,
+  'support:read': ROLE_LEVEL.viewer,
   'trusted_author:manage': ROLE_LEVEL.admin,
 };
 

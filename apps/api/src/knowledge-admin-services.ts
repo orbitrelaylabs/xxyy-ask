@@ -2,10 +2,12 @@ import {
   createKnowledgeAutomationController,
   createKnowledgeGovernanceService,
   createOpenAiKnowledgeCuratorModel,
+  createPgFeedbackStore,
   createPgKnowledgeCandidateStore,
   createPgKnowledgeGovernanceReferenceStore,
   createPgKnowledgeMatchInspector,
   createPgKnowledgePublicationJobStore,
+  createPgSupportOperationsStore,
   createPgPool,
   createPgTrustedAuthorStore,
   fetchTelegramCurrentAdministratorIds,
@@ -41,7 +43,9 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
 
     const pool = createPgPool(options.config.databaseUrl);
     const candidateStore = createPgKnowledgeCandidateStore({ client: pool });
+    const feedback = createPgFeedbackStore({ client: pool });
     const publicationJobs = createPgKnowledgePublicationJobStore({ client: pool });
+    const supportOperations = createPgSupportOperationsStore({ client: pool });
     const trustedAuthorStore = createPgTrustedAuthorStore({ client: pool });
     const curatorModel =
       options.config.openAiApiKey === undefined || options.config.openAiModel === undefined
@@ -64,8 +68,10 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
       ...(curatorModel === undefined ? {} : { curatorModel }),
     });
     cached = {
+      feedback,
       governance,
       publicationJobs,
+      supportOperations,
       async importTelegram(input) {
         const telegramExport = readTelegramKnowledgeExport(input.rawExport);
         let currentAdministratorUserIds: ReadonlySet<string> | undefined;

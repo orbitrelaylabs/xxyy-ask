@@ -48,6 +48,33 @@ export type { CapabilityRegistry, CreateCapabilityRegistryOptions } from './capa
 export { createCustomerAgentChatService } from './customer-agent-chat-service.js';
 export type { CreateCustomerAgentChatServiceOptions } from './customer-agent-chat-service.js';
 export {
+  AnswerQualityRolloutConfigurationError,
+  createAnswerQualityRolloutRuntime,
+  loadAnswerQualityRolloutConfig,
+} from './answer-quality-rollout.js';
+export {
+  evaluateAnswerQualityRolloutGate,
+  parseAnswerQualityRolloutGateInput,
+  parseAnswerQualityRolloutObservation,
+} from './answer-quality-rollout-gate.js';
+export type {
+  AnswerQualityRolloutBillingEvidence,
+  AnswerQualityRolloutChannelMetrics,
+  AnswerQualityRolloutGateInput,
+  AnswerQualityRolloutGatePolicy,
+  AnswerQualityRolloutGateReport,
+  AnswerQualityRolloutReviewEvidence,
+} from './answer-quality-rollout-gate.js';
+export type {
+  AnswerQualityChannelRollout,
+  AnswerQualityMode,
+  AnswerQualityRolloutConfig,
+  AnswerQualityRolloutEnv,
+  AnswerQualityRolloutObservation,
+  AnswerQualityRolloutObserver,
+} from './answer-quality-rollout.js';
+export type { AnswerQualityVariant } from './langgraph-customer-runtime.js';
+export {
   PRODUCT_SEARCH_MCP_CAPABILITY_ID,
   PRODUCT_SEARCH_SKILL_CAPABILITY_ID,
   createProductSupportCapabilityRegistry,
@@ -93,3 +120,9 @@ export type {
   ToolDefinition,
   ToolRegistry,
 } from './tool-registry.js';
+export { observeProductEvidence } from './evidence-observation.js';
+export type {
+  EvidenceObservation,
+  ProductEvidenceReport,
+  SearchEvidenceAttempt,
+} from './evidence-observation.js';

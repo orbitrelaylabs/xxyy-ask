@@ -6,6 +6,52 @@ import { evaluateCases } from './evaluate.js';
 import { createFixtureIndex } from './test-fixtures.js';
 
 describe('evaluateCases', () => {
+  it('enforces structured intent, source, facet, standalone, search, and answer-state gates', async () => {
+    const service: ChatService = {
+      ask: () =>
+        Promise.resolve({
+          answer: 'XXYY 当前支持交易、钱包、监控和移动端登录。',
+          answerStatus: 'complete',
+          citations: [
+            {
+              excerpt: '交易、钱包、监控、移动端。',
+              file: 'docs/overview.md',
+              sourceType: 'official_docs',
+              title: '当前功能总览',
+            },
+          ],
+          confidence: 0.9,
+          intent: 'product_qa',
+        }),
+      async *stream() {},
+    };
+
+    const report = await evaluateCases(
+      [
+        {
+          expectedAnswerStatus: 'complete',
+          expectedClarification: false,
+          expectedFineGrainedIntent: 'capability_overview',
+          expectedIntent: 'product_qa',
+          expectedPartialAnswer: false,
+          expectedSearchCountRange: [1, 2],
+          expectedStandaloneQuestionTerms: ['支持', '功能'],
+          expectedSubject: 'xxyy_product',
+          maximumXSourceCount: 0,
+          minimumFacetCoverage: 1,
+          name: 'overview quality contract',
+          request: { channel: 'web', message: '支持哪些功能' },
+          requiredFacets: ['交易', '钱包', '监控', '移动端'],
+          requiredSourceTypes: ['official_docs'],
+        },
+      ],
+      service,
+      { observe: () => ({ searchCount: 1 }) },
+    );
+
+    expect(report.passed).toBe(1);
+  });
+
   it('ignores presentational whitespace and Markdown punctuation in required facts', async () => {
     const service: ChatService = {
       ask: () =>

@@ -1,19 +1,30 @@
 import { z } from 'zod';
 
 import {
+  classifyQuestion,
+  createProductQueryPlan,
+  createProductRetrievalPolicy,
   InvalidKnowledgeCandidateStateError,
   InvalidKnowledgePublicationJobStateError,
   KnowledgePublicationJobNotFoundError,
+  SupportConversationNotFoundError,
+  SupportTicketNotFoundError,
   UnverifiedTelegramKnowledgeAuthorError,
+  understandProductQuestion,
   VectorStoreConfigurationError,
   VectorStoreUnavailableError,
 } from '@xxyy/rag-core';
 import type {
   ImportTelegramKnowledgeResult,
+  FeedbackRecord,
   KnowledgeCurationMode,
   KnowledgeGovernanceService,
   KnowledgePublicationJobStatus,
+  PgFeedbackStore,
   PgKnowledgePublicationJobStore,
+  PgSupportOperationsStore,
+  SupportTicketPriority,
+  SupportTicketStatus,
 } from '@xxyy/rag-core';
 
 import type { ApiRequestLike, ApiResponseLike } from './index.js';
@@ -25,8 +36,10 @@ import {
 } from './knowledge-admin-auth.js';
 
 export interface KnowledgeAdminServices {
+  feedback: PgFeedbackStore;
   governance: KnowledgeGovernanceService;
   publicationJobs: PgKnowledgePublicationJobStore;
+  supportOperations: PgSupportOperationsStore;
   importTelegram(input: {
     curationMode: KnowledgeCurationMode;
     rawExport: unknown;
@@ -44,6 +57,35 @@ export interface HandleKnowledgeAdminApiOptions {
 
 const candidateStatusSchema = z.enum(['approved', 'pending', 'published', 'rejected']);
 const publicationStatusSchema = z.enum(['failed', 'queued', 'running', 'succeeded']);
+const supportTicketStatusSchema = z.enum([
+  'open',
+  'in_progress',
+  'waiting_user',
+  'resolved',
+  'closed',
+]);
+const supportTicketPrioritySchema = z.enum(['low', 'normal', 'high', 'urgent']);
+const updateSupportTicketSchema = z
+  .object({
+    assignedTo: z.string().trim().min(1).max(200).nullable().optional(),
+    priority: supportTicketPrioritySchema.optional(),
+    resolution: z.string().trim().min(1).max(8_000).optional(),
+    status: supportTicketStatusSchema.optional(),
+  })
+  .refine((value) => Object.values(value).some((item) => item !== undefined), {
+    message: 'At least one support ticket field must be provided.',
+  });
+const supportReplySchema = z
+  .object({
+    content: z.string().trim().min(1).max(16_000),
+  })
+  .strict();
+const telegramSourceRetractionSchema = z
+  .object({
+    messageId: z.string().trim().min(1).max(160),
+    sourceChatId: z.string().trim().min(1).max(160),
+  })
+  .strict();
 
 const reviseCandidateSchema = z
   .object({
@@ -179,6 +221,11 @@ async function routeKnowledgeAdminRequest(
 
   if (segments[0] === 'publications') {
     await routePublicationRequest(options, services, principal, method, segments.slice(1));
+    return;
+  }
+
+  if (segments[0] === 'support') {
+    await routeSupportRequest(options, services, principal, method, segments.slice(1));
     return;
   }
 
@@ -382,9 +429,299 @@ function knowledgeAdminPermissions(principal: KnowledgeAdminPrincipal): Knowledg
     'candidate:review',
     'import:telegram',
     'publication:request',
+    'support:manage',
+    'support:read',
     'trusted_author:manage',
   ];
   return permissions.filter((permission) => hasKnowledgeAdminPermission(principal, permission));
+}
+
+async function routeSupportRequest(
+  options: HandleKnowledgeAdminApiOptions,
+  services: KnowledgeAdminServices,
+  principal: KnowledgeAdminPrincipal,
+  method: string,
+  segments: string[],
+): Promise<void> {
+  requirePermission(principal, 'support:read');
+  if (method === 'GET' && segments.length === 1 && segments[0] === 'metrics') {
+    sendJson(options.response, 200, {
+      metrics: await services.supportOperations.getMetrics(),
+    });
+    return;
+  }
+  if (method === 'GET' && segments.length === 1 && segments[0] === 'knowledge-gaps') {
+    const feedback = await services.feedback.getFeedbackStats({ limit: 100 });
+    const gaps = feedback.latest
+      .filter((record) => record.rating === 'negative' || record.citationCount === 0)
+      .map((record) => ({
+        ...record,
+        diagnosis: diagnoseQualityIssue(record),
+        quality: createQualityDiagnosticSnapshot(record),
+      }));
+    sendJson(options.response, 200, {
+      gaps,
+      metrics: {
+        negativeCount: feedback.negativeCount,
+        positiveCount: feedback.positiveCount,
+        totalCount: feedback.totalCount,
+      },
+      trend: summarizeQualityTrend(gaps),
+    });
+    return;
+  }
+  if (segments[0] === 'tickets') {
+    if (segments.length === 1) {
+      requireMethod(method, 'GET');
+      const rawStatus = options.requestUrl.searchParams.get('status');
+      const status =
+        rawStatus === null
+          ? undefined
+          : (supportTicketStatusSchema.parse(rawStatus) as SupportTicketStatus);
+      const assignee = options.requestUrl.searchParams.get('assignee') ?? undefined;
+      const tickets = await services.supportOperations.listTickets({
+        limit: parseLimit(options.requestUrl.searchParams.get('limit')),
+        ...(status === undefined ? {} : { status }),
+        ...(assignee === undefined ? {} : { assignee }),
+      });
+      sendJson(options.response, 200, { tickets });
+      return;
+    }
+    const ticketId = requiredPathSegment(segments[1], 'support ticket id');
+    if (segments.length === 2 && method === 'GET') {
+      const ticket = await services.supportOperations.getTicket(ticketId);
+      if (ticket === undefined) {
+        sendNotFound(options.response, 'Support ticket was not found.');
+        return;
+      }
+      sendJson(options.response, 200, { ticket });
+      return;
+    }
+    if (segments.length === 2 && method === 'PATCH') {
+      requirePermission(principal, 'support:manage');
+      const payload = updateSupportTicketSchema.parse(
+        await readJsonBody(options.request, options.maxBodyBytes),
+      );
+      const ticket = await services.supportOperations.updateTicket({
+        actor: adminActor(principal),
+        id: ticketId,
+        ...(payload.assignedTo === undefined ? {} : { assignedTo: payload.assignedTo }),
+        ...(payload.priority === undefined
+          ? {}
+          : { priority: payload.priority as SupportTicketPriority }),
+        ...(payload.resolution === undefined ? {} : { resolution: payload.resolution }),
+        ...(payload.status === undefined ? {} : { status: payload.status as SupportTicketStatus }),
+      });
+      sendJson(options.response, 200, { ticket });
+      return;
+    }
+  }
+  if (segments[0] === 'telegram-sources' && segments[1] === 'retract' && segments.length === 2) {
+    requirePermission(principal, 'candidate:review');
+    requireMethod(method, 'POST');
+    const payload = telegramSourceRetractionSchema.parse(
+      await readJsonBody(options.request, options.maxBodyBytes),
+    );
+    const result = await services.governance.retractTelegramSource({
+      actor: adminActor(principal),
+      messageId: payload.messageId,
+      reason: 'source_deleted',
+      sourceChatId: payload.sourceChatId,
+    });
+    sendJson(options.response, 200, result);
+    return;
+  }
+  if (segments[0] === 'conversations' && segments.length === 3 && segments[2] === 'messages') {
+    const conversationId = requiredPathSegment(segments[1], 'support conversation id');
+    const conversation = await services.supportOperations.getConversation(conversationId);
+    if (conversation === undefined) {
+      sendNotFound(options.response, 'Support conversation was not found.');
+      return;
+    }
+    if (method === 'GET') {
+      const messages = await services.supportOperations.getRecentMessages(conversationId, {
+        limit: Math.min(parseLimit(options.requestUrl.searchParams.get('limit')), 50),
+      });
+      sendJson(options.response, 200, { conversation, messages });
+      return;
+    }
+    requirePermission(principal, 'support:manage');
+    requireMethod(method, 'POST');
+    const payload = supportReplySchema.parse(
+      await readJsonBody(options.request, options.maxBodyBytes),
+    );
+    const message = await services.supportOperations.appendMessage({
+      content: payload.content,
+      conversationId,
+      role: 'support_agent',
+      requestId: `admin:${principal.id}`,
+    });
+    sendJson(options.response, 201, { message });
+    return;
+  }
+  sendNotFound(options.response);
+}
+
+function createQualityDiagnosticSnapshot(record: FeedbackRecord) {
+  const classification = classifyQuestion(record.question);
+  const understanding = understandProductQuestion(record.question, classification);
+  const queryPlan = createProductQueryPlan(record.question, record.question, understanding);
+  const retrievalPolicy = createProductRetrievalPolicy(understanding);
+  return {
+    evidence: {
+      answerStatus: record.answerStatus ?? answerStatusFromFeedback(record),
+      citationCount: record.citationCount,
+      conflictCount: record.comment === 'automatic_evidence_conflict' ? 1 : 0,
+      coverageState:
+        record.comment === 'automatic_partial_answer'
+          ? 'partial'
+          : record.comment === 'automatic_low_evidence' || record.citationCount === 0
+            ? 'none'
+            : 'unknown',
+      observedSourceTypes: record.sourceTypes ?? [],
+      sourceObservation: record.sourceTypes === undefined ? 'unavailable' : 'available',
+      stopReason:
+        record.comment === 'automatic_evidence_conflict'
+          ? 'evidence_conflict'
+          : record.comment === 'automatic_partial_answer'
+            ? 'partial_answer'
+            : record.comment === 'automatic_low_evidence' || record.citationCount === 0
+              ? 'insufficient_evidence'
+              : 'answer_completed',
+    },
+    queryPlan: {
+      maxSearches: queryPlan.maxSearches,
+      queries: queryPlan.queries,
+      requiredFacets: queryPlan.requiredFacets,
+      strategy: queryPlan.strategy,
+      version: queryPlan.version,
+    },
+    retrievalPolicy,
+    understanding: {
+      ambiguity: understanding.ambiguity,
+      confidence: understanding.confidence,
+      kind: understanding.kind,
+      subject: understanding.subject,
+      temporalScope: understanding.temporalScope,
+      version: understanding.version,
+    },
+    version: '1' as const,
+  };
+}
+
+function answerStatusFromFeedback(
+  record: FeedbackRecord,
+): 'complete' | 'conflict' | 'insufficient' | 'partial' {
+  if (record.comment === 'automatic_evidence_conflict') {
+    return 'conflict';
+  }
+  if (record.comment === 'automatic_partial_answer') {
+    return 'partial';
+  }
+  if (record.comment === 'automatic_low_evidence' || record.citationCount === 0) {
+    return 'insufficient';
+  }
+  return 'complete';
+}
+
+function summarizeQualityTrend(
+  gaps: Array<{
+    createdAt: string;
+    diagnosis: ReturnType<typeof diagnoseQualityIssue>;
+    quality: ReturnType<typeof createQualityDiagnosticSnapshot>;
+  }>,
+) {
+  const categoryCounts = {
+    boundary: 0,
+    classification: 0,
+    generation: 0,
+    knowledge: 0,
+    retrieval: 0,
+  };
+  const answerStatusCounts = {
+    complete: 0,
+    conflict: 0,
+    insufficient: 0,
+    partial: 0,
+  };
+  for (const gap of gaps) {
+    categoryCounts[gap.diagnosis.category] += 1;
+    answerStatusCounts[gap.quality.evidence.answerStatus] += 1;
+  }
+  const timestamps = gaps
+    .map((gap) => Date.parse(gap.createdAt))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  return {
+    answerStatusCounts,
+    categoryCounts,
+    ...(timestamps.length === 0
+      ? {}
+      : {
+          newestAt: new Date(timestamps.at(-1) as number).toISOString(),
+          oldestAt: new Date(timestamps[0] as number).toISOString(),
+        }),
+    sampleSize: gaps.length,
+    version: '1' as const,
+  };
+}
+
+function diagnoseQualityIssue(record: FeedbackRecord): {
+  category: 'boundary' | 'classification' | 'generation' | 'knowledge' | 'retrieval';
+  knowledgeCandidateEligible: false;
+  reason: string;
+  recommendedAction: string;
+} {
+  if (record.comment === 'automatic_evidence_conflict') {
+    return {
+      category: 'knowledge',
+      knowledgeCandidateEligible: false,
+      reason: '同范围当前证据存在冲突',
+      recommendedAction: '先核对正式来源、有效时间和 supersedes，再决定是否修订知识',
+    };
+  }
+  if (record.comment === 'automatic_partial_answer') {
+    return {
+      category: 'retrieval',
+      knowledgeCandidateEligible: false,
+      reason: '检索达到停止条件但只覆盖部分条件',
+      recommendedAction: '检查缺失 facet 的 Query、召回和来源覆盖，再判断是否为知识缺口',
+    };
+  }
+  if (record.comment === 'automatic_low_evidence' || record.citationCount === 0) {
+    return {
+      category: 'retrieval',
+      knowledgeCandidateEligible: false,
+      reason: '产品回答没有可引用证据',
+      recommendedAction: '先检查分类与检索；确认正式来源确实缺失后才能创建知识候选',
+    };
+  }
+  if (
+    record.intent === 'investment_advice' ||
+    record.intent === 'realtime_account_query' ||
+    record.intent === 'unknown'
+  ) {
+    return {
+      category: 'boundary',
+      knowledgeCandidateEligible: false,
+      reason: '边界或澄清回答收到负反馈',
+      recommendedAction: '检查安全边界是否正确，不要通过补知识绕过边界',
+    };
+  }
+  if (record.comment?.includes('classification') === true) {
+    return {
+      category: 'classification',
+      knowledgeCandidateEligible: false,
+      reason: '反馈明确指向意图或主体识别',
+      recommendedAction: '加入脱敏评测样本并修正分类或问题理解',
+    };
+  }
+  return {
+    category: 'generation',
+    knowledgeCandidateEligible: false,
+    reason: '已有引用的回答仍收到负反馈',
+    recommendedAction: '检查事实选择、结构、范围和 claim grounding',
+  };
 }
 
 function requirePermission(
@@ -510,6 +847,13 @@ function sendKnowledgeAdminError(response: ApiResponseLike, error: unknown): voi
     return;
   }
   if (error instanceof KnowledgePublicationJobNotFoundError) {
+    sendJson(response, 404, { error: 'not_found', message: error.message });
+    return;
+  }
+  if (
+    error instanceof SupportConversationNotFoundError ||
+    error instanceof SupportTicketNotFoundError
+  ) {
     sendJson(response, 404, { error: 'not_found', message: error.message });
     return;
   }

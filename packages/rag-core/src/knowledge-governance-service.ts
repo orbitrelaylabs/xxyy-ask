@@ -94,6 +94,12 @@ export interface KnowledgeGovernanceService {
   listTrustedAuthors(options?: ListTrustedAuthorsOptions): Promise<TrustedAuthor[]>;
   migrate(): Promise<void>;
   reject(input: { id: string; reviewedBy: string; note?: string }): Promise<KnowledgeCandidate>;
+  retractTelegramSource(input: {
+    actor: string;
+    messageId: string;
+    sourceChatId: string;
+    reason: 'source_deleted' | 'source_edited';
+  }): Promise<{ publishedCandidateIds: string[]; retractedCandidateIds: string[] }>;
   revise(input: ReviseKnowledgeCandidateInput): Promise<KnowledgeCandidate>;
   trustAuthor(input: TrustAuthorInput): Promise<TrustedAuthor>;
 }
@@ -231,6 +237,13 @@ export function createKnowledgeGovernanceService(
         reviewedBy: input.reviewedBy,
         ...(input.note === undefined ? {} : { note: input.note }),
       });
+    },
+
+    retractTelegramSource(input) {
+      if (options.candidateStore.retractTelegramSource === undefined) {
+        throw new Error('Telegram source retraction is not supported by this candidate store.');
+      }
+      return options.candidateStore.retractTelegramSource(input);
     },
 
     revise(input) {

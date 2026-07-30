@@ -39,6 +39,10 @@ export function App(): ReactElement {
   const [knowledgeRefreshResult, setKnowledgeRefreshResult] = useState<
     KnowledgeRefreshStatusResult | undefined
   >();
+  const [supportRequest, setSupportRequest] = useState<
+    { kind: 'error' | 'success'; message: string } | undefined
+  >();
+  const [supportRequestBusy, setSupportRequestBusy] = useState(false);
   const [sessionId, setSessionId] = useState(() => getSessionId());
   const messagesRef = useRef<HTMLDivElement>(null);
 
@@ -59,6 +63,58 @@ export function App(): ReactElement {
       window.clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (supportRequest?.kind !== 'success') return;
+    let active = true;
+    const poll = async (): Promise<void> => {
+      try {
+        const response = await fetch(
+          `/api/support/status?sessionId=${encodeURIComponent(sessionId)}`,
+        );
+        if (!response.ok) return;
+        const payload = (await response.json()) as {
+          conversation?: { status?: string };
+          messages?: Array<{ content: string; createdAt: string; id: string }>;
+        };
+        if (!active) return;
+        setMessages((current) => {
+          const ids = new Set(current.map((message) => message.id));
+          const supportMessages = (payload.messages ?? [])
+            .filter((message) => !ids.has(`support:${message.id}`))
+            .map(
+              (message): ChatMessage => ({
+                attachments: [],
+                citations: [],
+                id: `support:${message.id}`,
+                meta: `人工客服 · ${formatSupportReplyTime(message.createdAt)}`,
+                rawAnswer: message.content,
+                role: 'assistant',
+                text: message.content,
+              }),
+            );
+          return supportMessages.length === 0 ? current : [...current, ...supportMessages];
+        });
+        if (
+          payload.conversation?.status === 'resolved' ||
+          payload.conversation?.status === 'closed'
+        ) {
+          setSupportRequest({
+            kind: 'success',
+            message: `人工客服工单已${payload.conversation.status === 'resolved' ? '解决' : '关闭'}。`,
+          });
+        }
+      } catch {
+        // Polling is best-effort; the existing ticket remains durable.
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 10_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [sessionId, supportRequest?.kind]);
 
   const scrollMessagesToBottom = (): void => {
     window.requestAnimationFrame(() => {
@@ -181,6 +237,54 @@ export function App(): ReactElement {
     setSessionId(nextSessionId);
     setMessages([]);
     setInput('');
+    setSupportRequest(undefined);
+  };
+
+  const escalateToSupport = async (): Promise<void> => {
+    if (supportRequestBusy) return;
+    const lastQuestion = [...messages].reverse().find((message) => message.role === 'user')?.text;
+    setSupportRequestBusy(true);
+    setSupportRequest(undefined);
+    try {
+      const response = await fetch('/api/support/escalate', {
+        body: JSON.stringify({
+          channel: 'web',
+          priority: 'normal',
+          reason: 'explicit_human_request',
+          sessionId,
+          subject:
+            lastQuestion === undefined
+              ? '用户请求人工客服'
+              : `用户请求人工客服：${lastQuestion.slice(0, 160)}`,
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        message?: unknown;
+        ticket?: { id?: unknown };
+      };
+      if (!response.ok) {
+        throw new Error(
+          typeof payload.message === 'string' ? payload.message : '人工客服请求提交失败。',
+        );
+      }
+      const ticketId = typeof payload.ticket?.id === 'string' ? payload.ticket.id : undefined;
+      setSupportRequest({
+        kind: 'success',
+        message:
+          ticketId === undefined
+            ? '已提交人工客服请求。'
+            : `已提交人工客服请求，工单号：${ticketId}`,
+      });
+    } catch (error) {
+      setSupportRequest({
+        kind: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setSupportRequestBusy(false);
+    }
   };
 
   const submitFeedback = async (
@@ -248,8 +352,18 @@ export function App(): ReactElement {
         <ChatHeader
           knowledgeRefreshResult={knowledgeRefreshResult}
           onClear={clearChat}
+          onEscalate={escalateToSupport}
           onModelTest={openModelTest}
+          supportRequestBusy={supportRequestBusy}
         />
+        {supportRequest === undefined ? undefined : (
+          <div
+            className={`support-request-notice is-${supportRequest.kind}`}
+            role={supportRequest.kind === 'error' ? 'alert' : 'status'}
+          >
+            {supportRequest.message}
+          </div>
+        )}
         <MessageList messages={messages} messagesRef={messagesRef} onFeedback={submitFeedback} />
         <form className="composer-wrap" id="chat-form" onSubmit={onSubmit}>
           <div className="composer">
@@ -352,11 +466,15 @@ function Sidebar({
 function ChatHeader({
   knowledgeRefreshResult,
   onClear,
+  onEscalate,
   onModelTest,
+  supportRequestBusy,
 }: {
   knowledgeRefreshResult: KnowledgeRefreshStatusResult | undefined;
   onClear: () => void;
+  onEscalate: () => Promise<void>;
   onModelTest: () => void;
+  supportRequestBusy: boolean;
 }): ReactElement {
   return (
     <header className="chat-header">
@@ -368,6 +486,14 @@ function ChatHeader({
         <KnowledgeRefreshBadge result={knowledgeRefreshResult} />
         <button className="model-test-button" onClick={onModelTest} type="button">
           模型测试
+        </button>
+        <button
+          className="support-request-button"
+          disabled={supportRequestBusy}
+          onClick={() => void onEscalate()}
+          type="button"
+        >
+          {supportRequestBusy ? '提交中…' : '转人工'}
         </button>
         <button className="clear-button" onClick={onClear} type="button">
           新对话
@@ -486,6 +612,11 @@ function formatLastKnowledgeRefresh(status: KnowledgeRefreshStatus): string | un
   } catch {
     return `最近刷新 ${status.lastRun.finishedAt}`;
   }
+}
+
+function formatSupportReplyTime(value: string): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString('zh-CN', { hour12: false });
 }
 
 function ModelTestPanel({

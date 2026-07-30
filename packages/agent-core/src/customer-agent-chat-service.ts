@@ -18,6 +18,12 @@ import {
   createLangGraphCustomerRuntime,
   type CustomerAgentRuntime,
 } from './langgraph-customer-runtime.js';
+import {
+  createAnswerQualityRolloutRuntime,
+  loadAnswerQualityRolloutConfig,
+  type AnswerQualityRolloutConfig,
+  type AnswerQualityRolloutObserver,
+} from './answer-quality-rollout.js';
 import { createOpenAiCompatiblePlannerModel, type PlannerModel } from './planner-model.js';
 import {
   createPublicChainAnalysisCapabilityRegistry,
@@ -33,6 +39,8 @@ import { createAgentTools } from './tools/agent-tools.js';
 import { createToolRegistry } from './tool-registry.js';
 
 export interface CreateCustomerAgentChatServiceOptions {
+  answerQualityRollout?: AnswerQualityRolloutConfig;
+  answerQualityRolloutObserver?: AnswerQualityRolloutObserver;
   answerProvider: AnswerProvider;
   config?: Partial<RagConfig>;
   index?: RagIndex;
@@ -106,10 +114,38 @@ export function createCustomerAgentChatService(
     );
   }
 
-  return createLangGraphCustomerRuntime({
+  const planner = options.planner ?? createDefaultPlannerModel(options.config, options.tracer);
+  const optimized = createLangGraphCustomerRuntime({
+    answerQualityVariant: 'optimized',
     answerProvider: options.answerProvider,
-    planner: options.planner ?? createDefaultPlannerModel(options.config, options.tracer),
+    planner,
     registry,
+    ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
+  });
+  if (
+    (options.answerQualityRollout === undefined ||
+      Object.values(options.answerQualityRollout.channels).every(
+        (channel) => channel.mode === 'optimized',
+      )) &&
+    options.answerQualityRolloutObserver === undefined
+  ) {
+    return optimized;
+  }
+
+  const legacy = createLangGraphCustomerRuntime({
+    answerQualityVariant: 'legacy',
+    answerProvider: options.answerProvider,
+    planner,
+    registry,
+    ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
+  });
+  return createAnswerQualityRolloutRuntime({
+    config: options.answerQualityRollout ?? loadAnswerQualityRolloutConfig({}),
+    legacy,
+    ...(options.answerQualityRolloutObserver === undefined
+      ? {}
+      : { observer: options.answerQualityRolloutObserver }),
+    optimized,
     ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
   });
 }

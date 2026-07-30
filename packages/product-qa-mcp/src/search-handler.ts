@@ -1,13 +1,16 @@
 import type { RagIndex } from '@xxyy/shared';
 import {
   createCitationsFromChunks,
+  classifyQuestion,
   createLocalRetriever,
   createMetadataReranker,
+  createProductRetrievalPolicy,
   createQuestionRelevantAttachments,
   createRerankingRetriever,
   loadRagConfig,
   sanitizeRetrievedKnowledgeChunk,
   selectGroundingChunks,
+  understandProductQuestion,
   type QualityTracer,
   type RagConfig,
   type RetrievedChunk,
@@ -43,11 +46,14 @@ export function createProductSearchHandler(
   return {
     async searchProductDocs(input, requestOptions = {}) {
       requestOptions.signal?.throwIfAborted();
+      const question = input.question ?? input.query;
+      const understanding = understandProductQuestion(question, classifyQuestion(question));
       const chunks = await retriever.retrieve(input.query, {
+        policy: createProductRetrievalPolicy(understanding),
         topK: normalizeTopK(input.topK ?? config.topK),
       });
       requestOptions.signal?.throwIfAborted();
-      return toProductSearchOutput(input.question ?? input.query, chunks);
+      return toProductSearchOutput(question, chunks);
     },
   };
 }

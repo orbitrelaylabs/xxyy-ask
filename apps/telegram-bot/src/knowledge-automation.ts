@@ -125,7 +125,7 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
 
   return {
     automation: {
-      async captureReply(message): Promise<boolean> {
+      async captureReply(message, captureOptions): Promise<boolean> {
         const chatId = String(message.chat.id);
         const learningSetting = await readLearningSetting(chatId);
         if (!learningSetting.enabled) {
@@ -140,6 +140,13 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
         );
         if (rawExport === undefined) {
           return false;
+        }
+        if (captureOptions?.edited === true && candidateStore.retractTelegramSource !== undefined) {
+          await candidateStore.retractTelegramSource({
+            actor: 'system:telegram-edit',
+            messageId: String(message.message_id),
+            sourceChatId: chatId,
+          });
         }
         const administratorSnapshot = await readAdministratorSnapshot(chatId, checkedAt);
         try {

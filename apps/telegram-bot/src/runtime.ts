@@ -1,20 +1,36 @@
-import { createCustomerAgentChatService } from '@xxyy/agent-core';
+import {
+  createCustomerAgentChatService,
+  type AnswerQualityRolloutConfig,
+  type AnswerQualityRolloutObserver,
+} from '@xxyy/agent-core';
 import type { ChainAnalysisMcpClient } from '@xxyy/chain-analysis-mcp';
 import { createOpenAiEmbeddingProvider } from '@xxyy/knowledge';
-import type { ChatRequest, ChatResponse, ChatStreamEvent } from '@xxyy/shared';
+import type {
+  ChatHistoryMessage,
+  ChatRequest,
+  ChatResponse,
+  ChatStreamEvent,
+  SourceType,
+} from '@xxyy/shared';
 import {
   createLazyRetriever,
   createOpenAiAnswerProvider,
   createPgFeedbackStore,
   createPgPool,
+  createPgSupportOperationsStore,
   createPgVectorStore,
   noopQualityTracer,
+  redactSensitiveSupportText,
   type AnswerProvider,
   type ChatService,
+  type PgSupportOperationsStore,
   type RagConfig,
   type QualityTracer,
   type RecordFeedbackInput,
+  type SupportMessageRole,
 } from '@xxyy/rag-core';
+
+const TELEGRAM_HISTORY_MESSAGE_LIMIT = 12;
 
 export interface TelegramChatRuntime {
   close(): Promise<void>;
@@ -24,10 +40,17 @@ export interface TelegramChatRuntime {
 export function createTelegramChatRuntime(
   config: RagConfig,
   tracer: QualityTracer = noopQualityTracer,
-  options: { publicChainMcpClient?: ChainAnalysisMcpClient } = {},
+  options: {
+    answerQualityRollout?: AnswerQualityRolloutConfig;
+    answerQualityRolloutObserver?: AnswerQualityRolloutObserver;
+    publicChainMcpClient?: ChainAnalysisMcpClient;
+    supportOperationsStore?: PgSupportOperationsStore;
+  } = {},
 ): TelegramChatRuntime {
   let vectorPool: ReturnType<typeof createPgPool> | undefined;
   let feedbackPool: ReturnType<typeof createPgPool> | undefined;
+  let supportPool: ReturnType<typeof createPgPool> | undefined;
+  let supportStore = options.supportOperationsStore;
 
   const retriever = createLazyRetriever(async () => {
     const nextPool = createPgPool(config.databaseUrl);
@@ -54,6 +77,12 @@ export function createTelegramChatRuntime(
   });
 
   const service = createCustomerAgentChatService({
+    ...(options.answerQualityRollout === undefined
+      ? {}
+      : { answerQualityRollout: options.answerQualityRollout }),
+    ...(options.answerQualityRolloutObserver === undefined
+      ? {}
+      : { answerQualityRolloutObserver: options.answerQualityRolloutObserver }),
     answerProvider: createLazyAnswerProvider(config, tracer),
     config,
     productCapabilityCaller: {
@@ -76,6 +105,14 @@ export function createTelegramChatRuntime(
     feedbackPool ??= createPgPool(config.databaseUrl);
     await createPgFeedbackStore({ client: feedbackPool }).recordFeedback(input);
   };
+  const getSupportOperationsStore = async (): Promise<PgSupportOperationsStore> => {
+    if (supportStore !== undefined) {
+      return supportStore;
+    }
+    supportPool ??= createPgPool(config.databaseUrl);
+    supportStore = createPgSupportOperationsStore({ client: supportPool });
+    return supportStore;
+  };
 
   return {
     async close() {
@@ -83,17 +120,205 @@ export function createTelegramChatRuntime(
       vectorPool = undefined;
       const currentFeedbackPool = feedbackPool;
       feedbackPool = undefined;
+      const currentSupportPool = supportPool;
+      supportPool = undefined;
+      supportStore = options.supportOperationsStore;
       await Promise.all([
         pool?.end(),
         currentFeedbackPool?.end(),
+        currentSupportPool?.end(),
         options.publicChainMcpClient?.close(),
       ]);
     },
-    service: withLowEvidenceFeedback(service, recordFeedback),
+    service: withLowEvidenceFeedback(
+      withPersistentTelegramHistory(service, getSupportOperationsStore, tracer),
+      recordFeedback,
+    ),
   };
 }
 
-function withLowEvidenceFeedback(
+export function withPersistentTelegramHistory(
+  service: ChatService,
+  getStore: () => Promise<PgSupportOperationsStore>,
+  tracer: QualityTracer = noopQualityTracer,
+): ChatService {
+  return {
+    async ask(request) {
+      const prepared = await prepareTelegramHistory(request, getStore, tracer);
+      const response = await service.ask(prepared.request);
+      await persistTelegramExchange(prepared, response, getStore, tracer);
+      return response;
+    },
+    async *stream(request) {
+      const prepared = await prepareTelegramHistory(request, getStore, tracer);
+      let answer = '';
+      let metadata: Extract<ChatStreamEvent, { type: 'metadata' }> | undefined;
+
+      for await (const event of service.stream(prepared.request)) {
+        if (event.type === 'answer_delta') {
+          answer += event.delta;
+        } else if (event.type === 'metadata') {
+          metadata = event;
+        }
+        yield event;
+      }
+
+      if (metadata !== undefined) {
+        await persistTelegramExchange(
+          prepared,
+          {
+            answer,
+            ...(metadata.answerStatus === undefined ? {} : { answerStatus: metadata.answerStatus }),
+            citations: metadata.citations,
+            confidence: metadata.confidence,
+            intent: metadata.intent,
+            ...(metadata.agentRoute === undefined ? {} : { agentRoute: metadata.agentRoute }),
+            ...(metadata.attachments === undefined ? {} : { attachments: metadata.attachments }),
+            ...(metadata.tokenUsage === undefined ? {} : { tokenUsage: metadata.tokenUsage }),
+          },
+          getStore,
+          tracer,
+        );
+      }
+    },
+  };
+}
+
+interface PreparedTelegramHistory {
+  request: ChatRequest;
+  conversationId?: string;
+}
+
+async function prepareTelegramHistory(
+  request: ChatRequest,
+  getStore: () => Promise<PgSupportOperationsStore>,
+  tracer: QualityTracer,
+): Promise<PreparedTelegramHistory> {
+  if (request.sessionId === undefined) {
+    return { request };
+  }
+
+  try {
+    return await tracer.run(
+      {
+        inputs: {
+          channel: request.channel,
+          hasSession: true,
+          historyLimit: TELEGRAM_HISTORY_MESSAGE_LIMIT,
+        },
+        name: 'telegram.history.load',
+        output: (prepared) => ({
+          historyCount: prepared.request.history?.length ?? 0,
+          loaded: prepared.conversationId !== undefined,
+        }),
+        runType: 'tool',
+      },
+      async () => {
+        const store = await getStore();
+        const conversation = await store.ensureConversation({
+          channel: request.channel,
+          externalSessionId: request.sessionId as string,
+          ...(request.userId === undefined ? {} : { userId: request.userId }),
+        });
+        const messages = await store.getRecentMessages(conversation.id, {
+          limit: TELEGRAM_HISTORY_MESSAGE_LIMIT,
+        });
+        const storedHistory = messages.flatMap((message) => {
+          const historyMessage = toChatHistoryMessage(message.content, message.role);
+          return historyMessage === undefined ? [] : [historyMessage];
+        });
+        return {
+          conversationId: conversation.id,
+          request: {
+            ...request,
+            history: mergeTelegramHistory(storedHistory, request.history ?? []),
+          },
+        };
+      },
+    );
+  } catch {
+    return { request };
+  }
+}
+
+function mergeTelegramHistory(
+  storedHistory: readonly ChatHistoryMessage[],
+  replyHistory: readonly ChatHistoryMessage[],
+): ChatHistoryMessage[] {
+  const merged: ChatHistoryMessage[] = [];
+  const seen = new Set<string>();
+  for (const message of [...storedHistory, ...replyHistory]) {
+    const content = redactSensitiveSupportText(message.content.trim()).slice(0, 2_000);
+    if (content.length === 0) {
+      continue;
+    }
+    const key = `${message.role}\u0000${content}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    merged.push({ content, role: message.role });
+  }
+  return merged.slice(-TELEGRAM_HISTORY_MESSAGE_LIMIT);
+}
+
+async function persistTelegramExchange(
+  prepared: PreparedTelegramHistory,
+  response: ChatResponse,
+  getStore: () => Promise<PgSupportOperationsStore>,
+  tracer: QualityTracer,
+): Promise<void> {
+  if (prepared.conversationId === undefined) {
+    return;
+  }
+
+  await tracer
+    .run(
+      {
+        inputs: {
+          citationCount: response.citations.length,
+          hasConversation: true,
+          intent: response.intent,
+        },
+        name: 'telegram.history.persist',
+        output: () => ({ persistedMessageCount: 2 }),
+        runType: 'tool',
+      },
+      async () => {
+        const store = await getStore();
+        await store.appendMessage({
+          content: prepared.request.message,
+          conversationId: prepared.conversationId as string,
+          role: 'user',
+          ...(prepared.request.requestId === undefined
+            ? {}
+            : { requestId: prepared.request.requestId }),
+        });
+        await store.appendMessage({
+          citationCount: response.citations.length,
+          content: response.answer,
+          conversationId: prepared.conversationId as string,
+          intent: response.intent,
+          role: 'assistant',
+          ...(prepared.request.requestId === undefined
+            ? {}
+            : { requestId: prepared.request.requestId }),
+        });
+      },
+    )
+    .catch(() => undefined);
+}
+
+function toChatHistoryMessage(
+  content: string,
+  role: SupportMessageRole,
+): ChatHistoryMessage | undefined {
+  return role === 'assistant' || role === 'support_agent' || role === 'user'
+    ? { content, role }
+    : undefined;
+}
+
+export function withLowEvidenceFeedback(
   service: ChatService,
   recordFeedback: (input: RecordFeedbackInput) => Promise<void>,
 ): ChatService {
@@ -117,6 +342,7 @@ function withLowEvidenceFeedback(
       if (metadata !== undefined) {
         await recordTelegramLowEvidence(recordFeedback, request, {
           answer,
+          ...(metadata.answerStatus === undefined ? {} : { answerStatus: metadata.answerStatus }),
           citations: metadata.citations,
           confidence: metadata.confidence,
           intent: metadata.intent,
@@ -134,23 +360,43 @@ async function recordTelegramLowEvidence(
   request: ChatRequest,
   response: ChatResponse,
 ): Promise<void> {
+  const comment =
+    response.answerStatus === 'conflict'
+      ? 'automatic_evidence_conflict'
+      : response.answerStatus === 'partial'
+        ? 'automatic_partial_answer'
+        : 'automatic_low_evidence';
   if (
     (response.intent !== 'product_qa' && response.intent !== 'how_to') ||
-    response.citations.length > 0
+    (response.citations.length > 0 &&
+      response.answerStatus !== 'conflict' &&
+      response.answerStatus !== 'partial')
   ) {
     return;
   }
 
   await recordFeedback({
     answer: response.answer,
+    ...(response.answerStatus === undefined ? {} : { answerStatus: response.answerStatus }),
     channel: 'telegram',
-    citationCount: 0,
-    comment: 'automatic_low_evidence',
+    citationCount: response.citations.length,
+    comment,
     intent: response.intent,
     question: request.message,
     rating: 'negative',
+    sourceTypes: telegramFeedbackSourceTypes(response),
     ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
   }).catch(() => undefined);
+}
+
+function telegramFeedbackSourceTypes(response: ChatResponse): SourceType[] {
+  return [
+    ...new Set(
+      response.citations.flatMap((citation) =>
+        citation.sourceType === undefined ? [] : [citation.sourceType],
+      ),
+    ),
+  ];
 }
 
 function createLazyAnswerProvider(config: RagConfig, tracer: QualityTracer): AnswerProvider {

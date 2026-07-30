@@ -1,10 +1,18 @@
-import { createHash } from 'node:crypto';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createCustomerAgentChatService } from '@xxyy/agent-core';
+import {
+  createCustomerAgentChatService,
+  evaluateAnswerQualityRolloutGate,
+  loadAnswerQualityRolloutConfig,
+  parseAnswerQualityRolloutGateInput,
+  parseAnswerQualityRolloutObservation,
+  type AnswerQualityRolloutGateReport,
+  type AnswerQualityRolloutEnv,
+} from '@xxyy/agent-core';
 import {
   EmbeddingConfigurationError,
   createLocalHashEmbedding,
@@ -27,6 +35,8 @@ import {
   createOpenAiAnswerQualityJudge,
   createOpenAiAnswerProvider,
   createOpenAiKnowledgeCuratorModel,
+  createProductQueryPlan,
+  createProductRetrievalPolicy,
   createPgFeedbackStore,
   createPgKnowledgeCandidateStore,
   createPgPool,
@@ -49,6 +59,7 @@ import {
   noopQualityTracer,
   readTelegramKnowledgeExport,
   resolveWorkspaceCwd,
+  understandProductQuestion,
 } from '@xxyy/rag-core';
 import type {
   AnswerProvider,
@@ -87,6 +98,7 @@ import {
 export { resolveWorkspaceCwd } from '@xxyy/rag-core';
 
 type CliEnv = RagEnv &
+  AnswerQualityRolloutEnv &
   Partial<
     Record<'EVAL_JUDGE_MODEL' | 'INIT_CWD' | 'TELEGRAM_API_BASE_URL' | 'TELEGRAM_BOT_TOKEN', string>
   >;
@@ -95,12 +107,23 @@ type CliCommand =
   | { command: 'ask'; debugRetrieve: boolean; question: string }
   | {
       command: 'evaluate';
+      baseline?: string;
+      caseNames?: string[];
       failuresOut?: string;
       judge: boolean;
       providerBacked: boolean;
+      reportOut?: string;
       retrievalOnly: boolean;
     }
   | { command: 'feedback:backlog' }
+  | { command: 'feedback:promote'; file: string; reviewer: string }
+  | {
+      command: 'rollout:evidence';
+      controlFile: string;
+      observationsFile: string;
+      out: string;
+    }
+  | { command: 'rollout:gate'; file: string; reportOut?: string }
   | { command: 'ingest'; rebuildEmbeddingSchema: boolean }
   | {
       adminUserIds: string[];
@@ -240,8 +263,11 @@ const HELP_TEXT = [
   '  pnpm rag:sync:x',
   '  pnpm rag:migrate',
   '  pnpm rag:stats',
-  '  pnpm rag:evaluate [--provider] [--retrieval-only] [--judge] [--failures-out .rag/failures.jsonl]',
+  '  pnpm rag:evaluate [--provider] [--retrieval-only] [--judge] [--case <golden-name>] [--failures-out .rag/failures.jsonl] [--report-out .rag/quality-report.json] [--baseline .rag/quality-baseline.json]',
   '  pnpm rag:feedback:backlog',
+  '  pnpm rag:feedback:promote -- .rag/reviewed-feedback.jsonl --reviewer <id>',
+  '  pnpm rag:rollout:evidence -- .rag/rollout-control.json .rag/rollout-observations.jsonl --out .rag/answer-quality-rollout-evidence.json',
+  '  pnpm rag:rollout:gate -- .rag/answer-quality-rollout-evidence.json [--report-out .rag/answer-quality-rollout-report.json]',
   '  pnpm rag:knowledge:import:telegram -- export.json [--admin-id 123456789] [--curation-mode auto|deterministic|required]',
   '  pnpm rag:knowledge:author:trust -- --chat-id <id> --user-id <id> --role <role> --valid-from <date> --reviewer <id>',
   '  pnpm rag:knowledge:author:list -- [--chat-id <id>] [--active-at <date>] [--limit 100]',
@@ -258,6 +284,7 @@ const HELP_TEXT = [
 ].join('\n');
 
 const EMBEDDING_BATCH_SIZE = 64;
+const MAX_ROLLOUT_OBSERVATIONS_BYTES = 50 * 1024 * 1024;
 
 export function parseCliArgs(args: readonly string[]): CliCommand {
   const [command, ...rawRest] = args;
@@ -277,6 +304,18 @@ export function parseCliArgs(args: readonly string[]): CliCommand {
       return parseEvaluateArgs(rawRest);
     }
     return { command };
+  }
+
+  if (command === 'feedback:promote') {
+    return parseFeedbackPromoteArgs(rawRest);
+  }
+
+  if (command === 'rollout:gate') {
+    return parseRolloutGateArgs(rawRest);
+  }
+
+  if (command === 'rollout:evidence') {
+    return parseRolloutEvidenceArgs(rawRest);
   }
 
   if (command === 'ingest') {
@@ -738,9 +777,12 @@ function isKnowledgeCandidateStatus(value: string | undefined): value is Knowled
 
 function parseEvaluateArgs(rawArgs: readonly string[]): CliCommand {
   const args = rawArgs[0] === '--' ? rawArgs.slice(1) : rawArgs;
+  let baseline: string | undefined;
+  const caseNames: string[] = [];
   let failuresOut: string | undefined;
   let judge = false;
   let providerBacked = false;
+  let reportOut: string | undefined;
   let retrievalOnly = false;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -757,6 +799,20 @@ function parseEvaluateArgs(rawArgs: readonly string[]): CliCommand {
       retrievalOnly = true;
       continue;
     }
+    if (arg === '--case') {
+      const value = args[index + 1]?.trim();
+      if (value === undefined || value.length === 0 || value.startsWith('--')) {
+        return { command: 'help', error: 'Missing Golden QA name for --case.' };
+      }
+      if (value.length > 160 || /[\r\n\0]/u.test(value)) {
+        return { command: 'help', error: '--case must be a valid Golden QA name.' };
+      }
+      if (!caseNames.includes(value)) {
+        caseNames.push(value);
+      }
+      index += 1;
+      continue;
+    }
     if (arg === '--failures-out') {
       const value = args[index + 1];
       if (value === undefined || value.startsWith('--')) {
@@ -766,6 +822,22 @@ function parseEvaluateArgs(rawArgs: readonly string[]): CliCommand {
         return { command: 'help', error: '--failures-out must be a file under .rag/.' };
       }
       failuresOut = value;
+      index += 1;
+      continue;
+    }
+    if (arg === '--report-out' || arg === '--baseline') {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith('--')) {
+        return { command: 'help', error: `Missing path for ${arg}.` };
+      }
+      if (!isSafeEvaluationOutputPath(value)) {
+        return { command: 'help', error: `${arg} must be a file under .rag/.` };
+      }
+      if (arg === '--report-out') {
+        reportOut = value;
+      } else {
+        baseline = value;
+      }
       index += 1;
       continue;
     }
@@ -781,12 +853,18 @@ function parseEvaluateArgs(rawArgs: readonly string[]): CliCommand {
   if (retrievalOnly && judge) {
     return { command: 'help', error: '--judge cannot be used with --retrieval-only.' };
   }
+  if (baseline !== undefined && caseNames.length > 0) {
+    return { command: 'help', error: '--baseline cannot be combined with --case.' };
+  }
 
   return {
+    ...(baseline === undefined ? {} : { baseline }),
+    ...(caseNames.length === 0 ? {} : { caseNames }),
     command: 'evaluate',
     ...(failuresOut === undefined ? {} : { failuresOut }),
     judge,
     providerBacked,
+    ...(reportOut === undefined ? {} : { reportOut }),
     retrievalOnly,
   };
 }
@@ -797,6 +875,104 @@ function isSafeEvaluationOutputPath(value: string): boolean {
   }
   const normalized = path.normalize(value);
   return normalized.startsWith(`.rag${path.sep}`) && path.basename(normalized).length > 0;
+}
+
+function parseFeedbackPromoteArgs(rawArgs: readonly string[]): CliCommand {
+  const args = stripPnpmSeparator(rawArgs);
+  const file = args[0];
+  let reviewer: string | undefined;
+  if (file === undefined || file.startsWith('--')) {
+    return { command: 'help', error: 'Missing reviewed feedback JSONL path.' };
+  }
+  if (!isSafeEvaluationOutputPath(file)) {
+    return { command: 'help', error: 'Reviewed feedback file must be under .rag/.' };
+  }
+  for (let index = 1; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg !== '--reviewer') {
+      return { command: 'help', error: `Unknown feedback:promote option: ${arg}` };
+    }
+    const value = args[index + 1]?.trim();
+    if (value === undefined || value.length === 0 || value.startsWith('--')) {
+      return { command: 'help', error: 'Missing value for --reviewer.' };
+    }
+    reviewer = value;
+    index += 1;
+  }
+  if (reviewer === undefined) {
+    return { command: 'help', error: '--reviewer is required.' };
+  }
+  return { command: 'feedback:promote', file, reviewer };
+}
+
+function parseRolloutGateArgs(rawArgs: readonly string[]): CliCommand {
+  const args = stripPnpmSeparator(rawArgs);
+  const file = args[0];
+  let reportOut: string | undefined;
+  if (file === undefined || file.startsWith('--')) {
+    return { command: 'help', error: 'Missing answer-quality rollout evidence JSON path.' };
+  }
+  if (!isSafeEvaluationOutputPath(file)) {
+    return { command: 'help', error: 'Rollout evidence file must be under .rag/.' };
+  }
+  for (let index = 1; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg !== '--report-out') {
+      return { command: 'help', error: `Unknown rollout:gate option: ${arg}` };
+    }
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith('--')) {
+      return { command: 'help', error: 'Missing path for --report-out.' };
+    }
+    if (!isSafeEvaluationOutputPath(value)) {
+      return { command: 'help', error: '--report-out must be a file under .rag/.' };
+    }
+    reportOut = value;
+    index += 1;
+  }
+  return {
+    command: 'rollout:gate',
+    file,
+    ...(reportOut === undefined ? {} : { reportOut }),
+  };
+}
+
+function parseRolloutEvidenceArgs(rawArgs: readonly string[]): CliCommand {
+  const args = stripPnpmSeparator(rawArgs);
+  const controlFile = args[0];
+  const observationsFile = args[1];
+  let out: string | undefined;
+  if (controlFile === undefined || controlFile.startsWith('--')) {
+    return { command: 'help', error: 'Missing rollout control JSON path.' };
+  }
+  if (observationsFile === undefined || observationsFile.startsWith('--')) {
+    return { command: 'help', error: 'Missing rollout observations JSONL path.' };
+  }
+  if (!isSafeEvaluationOutputPath(controlFile)) {
+    return { command: 'help', error: 'Rollout control file must be under .rag/.' };
+  }
+  if (!isSafeEvaluationOutputPath(observationsFile)) {
+    return { command: 'help', error: 'Rollout observations file must be under .rag/.' };
+  }
+  for (let index = 2; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg !== '--out') {
+      return { command: 'help', error: `Unknown rollout:evidence option: ${arg}` };
+    }
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith('--')) {
+      return { command: 'help', error: 'Missing path for --out.' };
+    }
+    if (!isSafeEvaluationOutputPath(value)) {
+      return { command: 'help', error: '--out must be a file under .rag/.' };
+    }
+    out = value;
+    index += 1;
+  }
+  if (out === undefined) {
+    return { command: 'help', error: '--out is required.' };
+  }
+  return { command: 'rollout:evidence', controlFile, observationsFile, out };
 }
 
 function parseIngestArgs(rawArgs: readonly string[]): CliCommand {
@@ -1037,7 +1213,7 @@ export interface FormatEvaluationReportOptions {
 
 type EvaluationReportView = Pick<
   EvaluationReport,
-  'judgeSummary' | 'passed' | 'retrievalSummary' | 'total'
+  'judgeSummary' | 'passed' | 'retrievalSummary' | 'runtimeSummary' | 'total'
 > & {
   results: ReadonlyArray<
     Pick<
@@ -1075,6 +1251,13 @@ export function formatEvaluationReport(
     );
   }
 
+  if (report.runtimeSummary !== undefined) {
+    const summary = report.runtimeSummary;
+    lines.push(
+      `Runtime: P50 ${formatMetric(summary.p50LatencyMs)} ms, P95 ${formatMetric(summary.p95LatencyMs)} ms, model responses ${summary.modelResponseCount}, total tokens ${summary.totalTokens}`,
+    );
+  }
+
   for (const result of report.results) {
     const status = `[${result.passed ? 'PASS' : 'FAIL'}] ${result.name}`;
     lines.push(
@@ -1094,6 +1277,321 @@ function formatMetric(value: number | undefined): string {
   return value === undefined ? 'n/a' : value.toFixed(6);
 }
 
+export interface QualityReleaseReport {
+  generatedAt: string;
+  gates: {
+    passed: boolean;
+    reasons: string[];
+  };
+  metrics: {
+    casePassRate: number;
+    forbiddenHitCount?: number;
+    meanReciprocalRank?: number;
+    ndcgAtK?: number;
+    p50LatencyMs?: number;
+    p95LatencyMs?: number;
+    recallAtK?: number;
+    totalTokens?: number;
+  };
+  mode: 'deterministic' | 'provider' | 'provider_retrieval';
+  passedCases: number;
+  schemaVersion: '1';
+  selectedCases?: string[];
+  totalCases: number;
+}
+
+export function createEvaluationReleaseReport(
+  report: EvaluationReport,
+  providerBacked: boolean,
+): QualityReleaseReport {
+  return {
+    generatedAt: new Date().toISOString(),
+    gates: { passed: true, reasons: [] },
+    metrics: {
+      casePassRate: report.total === 0 ? 0 : report.passed / report.total,
+      ...(report.retrievalSummary === undefined
+        ? {}
+        : {
+            forbiddenHitCount: report.retrievalSummary.totalForbiddenHits,
+            meanReciprocalRank: report.retrievalSummary.meanReciprocalRank,
+            ndcgAtK: report.retrievalSummary.averageNdcgAtK,
+            recallAtK: report.retrievalSummary.averageRecallAtK,
+          }),
+      ...(report.runtimeSummary === undefined
+        ? {}
+        : {
+            p50LatencyMs: report.runtimeSummary.p50LatencyMs,
+            p95LatencyMs: report.runtimeSummary.p95LatencyMs,
+            totalTokens: report.runtimeSummary.totalTokens,
+          }),
+    },
+    mode: providerBacked ? 'provider' : 'deterministic',
+    passedCases: report.passed,
+    schemaVersion: '1',
+    totalCases: report.total,
+  };
+}
+
+function createProviderRetrievalReleaseReport(
+  report: ProviderRetrievalReport,
+): QualityReleaseReport {
+  return {
+    generatedAt: new Date().toISOString(),
+    gates: { passed: true, reasons: [] },
+    metrics: {
+      casePassRate: report.total === 0 ? 0 : report.passed / report.total,
+      forbiddenHitCount: report.summary.totalForbiddenHits,
+      ...(report.summary.meanReciprocalRank === undefined
+        ? {}
+        : { meanReciprocalRank: report.summary.meanReciprocalRank }),
+      ...(report.summary.averageNdcgAtK === undefined
+        ? {}
+        : { ndcgAtK: report.summary.averageNdcgAtK }),
+      ...(report.summary.averageRecallAtK === undefined
+        ? {}
+        : { recallAtK: report.summary.averageRecallAtK }),
+    },
+    mode: 'provider_retrieval',
+    passedCases: report.passed,
+    schemaVersion: '1',
+    totalCases: report.total,
+  };
+}
+
+export function applyQualityReleaseGates(
+  current: QualityReleaseReport,
+  baseline?: QualityReleaseReport,
+): QualityReleaseReport {
+  const reasons: string[] = [];
+  if (current.metrics.casePassRate < 1) {
+    reasons.push(`case pass rate ${formatMetric(current.metrics.casePassRate)} is below 1.000000`);
+  }
+  if (current.metrics.recallAtK !== undefined && current.metrics.recallAtK < 0.9) {
+    reasons.push(`Recall@K ${formatMetric(current.metrics.recallAtK)} is below 0.900000`);
+  }
+  if ((current.metrics.forbiddenHitCount ?? 0) > 0) {
+    reasons.push(`forbidden hit count ${current.metrics.forbiddenHitCount ?? 0} is above zero`);
+  }
+  if (baseline !== undefined) {
+    if (baseline.mode !== current.mode) {
+      reasons.push(`baseline mode ${baseline.mode} does not match ${current.mode}`);
+    }
+    compareReleaseMetric(
+      reasons,
+      'case pass rate',
+      current.metrics.casePassRate,
+      baseline.metrics.casePassRate,
+    );
+    compareReleaseMetric(
+      reasons,
+      'Recall@K',
+      current.metrics.recallAtK,
+      baseline.metrics.recallAtK,
+    );
+    compareReleaseMetric(
+      reasons,
+      'MRR',
+      current.metrics.meanReciprocalRank,
+      baseline.metrics.meanReciprocalRank,
+    );
+    compareReleaseMetric(reasons, 'nDCG@K', current.metrics.ndcgAtK, baseline.metrics.ndcgAtK);
+    if (current.mode === 'provider' && baseline.mode === 'provider') {
+      compareReleaseBudget(
+        reasons,
+        'P95 latency',
+        current.metrics.p95LatencyMs,
+        baseline.metrics.p95LatencyMs,
+      );
+      compareReleaseBudget(
+        reasons,
+        'total tokens',
+        current.metrics.totalTokens,
+        baseline.metrics.totalTokens,
+      );
+    }
+  }
+  return {
+    ...current,
+    gates: {
+      passed: reasons.length === 0,
+      reasons,
+    },
+  };
+}
+
+function compareReleaseMetric(
+  reasons: string[],
+  label: string,
+  current: number | undefined,
+  baseline: number | undefined,
+): void {
+  if (current !== undefined && baseline !== undefined && current + 1e-9 < baseline) {
+    reasons.push(`${label} regressed from ${formatMetric(baseline)} to ${formatMetric(current)}`);
+  }
+}
+
+function compareReleaseBudget(
+  reasons: string[],
+  label: string,
+  current: number | undefined,
+  baseline: number | undefined,
+): void {
+  if (current !== undefined && baseline !== undefined && current > baseline * 1.2) {
+    reasons.push(
+      `${label} increased by more than 20% (${formatMetric(baseline)} to ${formatMetric(current)})`,
+    );
+  }
+}
+
+async function finalizeQualityReleaseReport(
+  io: CliIo,
+  options: Extract<CliCommand, { command: 'evaluate' }>,
+  current: QualityReleaseReport,
+): Promise<boolean> {
+  if (options.reportOut === undefined && options.baseline === undefined) {
+    return true;
+  }
+  const baseline =
+    options.baseline === undefined
+      ? undefined
+      : parseQualityReleaseReport(
+          JSON.parse(await readFile(path.resolve(io.cwd, options.baseline), 'utf8')) as unknown,
+        );
+  const report =
+    options.caseNames === undefined ? current : { ...current, selectedCases: options.caseNames };
+  const gated = applyQualityReleaseGates(report, baseline);
+  if (options.reportOut !== undefined) {
+    const outputPath = path.resolve(io.cwd, options.reportOut);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, `${JSON.stringify(gated, null, 2)}\n`, 'utf8');
+  }
+  writeLine(
+    io.stdout,
+    gated.gates.passed
+      ? 'Quality release gate: PASS'
+      : `Quality release gate: FAIL\n${gated.gates.reasons.map((reason) => `  - ${reason}`).join('\n')}`,
+  );
+  return gated.gates.passed;
+}
+
+function parseQualityReleaseReport(value: unknown): QualityReleaseReport {
+  if (
+    !isQualityReleaseRecord(value) ||
+    value.schemaVersion !== '1' ||
+    !isQualityReleaseRecord(value.metrics)
+  ) {
+    throw new Error('Quality baseline is not a version 1 release report.');
+  }
+  const mode = value.mode;
+  if (mode !== 'deterministic' && mode !== 'provider' && mode !== 'provider_retrieval') {
+    throw new Error('Quality baseline has an unsupported mode.');
+  }
+  const casePassRate = value.metrics.casePassRate;
+  if (typeof casePassRate !== 'number' || !Number.isFinite(casePassRate)) {
+    throw new Error('Quality baseline is missing a finite casePassRate.');
+  }
+  return value as unknown as QualityReleaseReport;
+}
+
+function isQualityReleaseRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function formatAnswerQualityRolloutGateReport(
+  report: AnswerQualityRolloutGateReport,
+): string {
+  const channelLines = report.channels.map(
+    (channel) =>
+      `  - ${channel.channel}: samples=${channel.sampleSize}, errors=${formatMetric(channel.errorRate)}, complete=${formatMetric(channel.completeRate)}, shadow_errors=${formatMetric(channel.shadowErrorRate)}, answer_diff=${formatMetric(channel.answerDifferenceRate)}, source_diff=${formatMetric(channel.sourceTypeDifferenceRate)}, p95=${formatMetric(channel.p95LatencyMs)}ms`,
+  );
+  return [
+    `Answer-quality rollout gate: ${report.passed ? 'PASS' : 'FAIL'}`,
+    `Approval: ${report.policy.approvalId || '(missing)'} by ${report.policy.approvedBy || '(missing)'}`,
+    `Window: ${formatMetric(report.metrics.windowMinutes)} minutes; observations=${report.metrics.sampleSize}; reviewed=${report.metrics.reviewedSamples}; review_pass=${formatMetric(report.metrics.reviewedPassRate)}`,
+    `Billing: avg_cost_usd=${formatMetric(report.metrics.averageCostUsd)}; avg_model_tokens=${formatMetric(report.metrics.averageModelTokens)}`,
+    'Channels:',
+    ...(channelLines.length === 0 ? ['  - none'] : channelLines),
+    ...(report.reasons.length === 0
+      ? []
+      : ['Reasons:', ...report.reasons.map((reason) => `  - ${reason}`)]),
+  ].join('\n');
+}
+
+async function runAnswerQualityRolloutGate(
+  io: CliIo,
+  options: Extract<CliCommand, { command: 'rollout:gate' }>,
+): Promise<boolean> {
+  const inputPath = path.resolve(io.cwd, options.file);
+  const input = parseAnswerQualityRolloutGateInput(
+    JSON.parse(await readFile(inputPath, 'utf8')) as unknown,
+  );
+  const report = evaluateAnswerQualityRolloutGate(input);
+  if (options.reportOut !== undefined) {
+    const outputPath = path.resolve(io.cwd, options.reportOut);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, `${JSON.stringify(report, finiteJsonNumberReplacer, 2)}\n`, 'utf8');
+  }
+  writeLine(io.stdout, formatAnswerQualityRolloutGateReport(report));
+  return report.passed;
+}
+
+async function prepareAnswerQualityRolloutEvidence(
+  io: CliIo,
+  options: Extract<CliCommand, { command: 'rollout:evidence' }>,
+): Promise<number> {
+  const control = parseAnswerQualityRolloutGateInput(
+    JSON.parse(await readFile(path.resolve(io.cwd, options.controlFile), 'utf8')) as unknown,
+  );
+  if (control.observations.length !== 0) {
+    throw new Error(
+      'Rollout control JSON must contain an empty observations array; observations come only from the JSONL input.',
+    );
+  }
+  const jsonl = await readFile(path.resolve(io.cwd, options.observationsFile), 'utf8');
+  if (Buffer.byteLength(jsonl, 'utf8') > MAX_ROLLOUT_OBSERVATIONS_BYTES) {
+    throw new Error('Rollout observations JSONL exceeds the 50 MiB safety limit.');
+  }
+  const observations = [];
+  const signatures = new Set<string>();
+  const lines = jsonl.split(/\r?\n/u);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim();
+    if (line === undefined || line.length === 0) {
+      continue;
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(line) as unknown;
+    } catch {
+      throw new Error(`Rollout observations line ${index + 1} is not valid JSON.`);
+    }
+    const observation = parseAnswerQualityRolloutObservation(value);
+    const signature = JSON.stringify(observation);
+    if (signatures.has(signature)) {
+      throw new Error(`Rollout observations contain a duplicate at line ${index + 1}.`);
+    }
+    signatures.add(signature);
+    observations.push(observation);
+  }
+  if (observations.length === 0) {
+    throw new Error('Rollout observations JSONL contains no observations.');
+  }
+  observations.sort((left, right) => left.observedAt.localeCompare(right.observedAt));
+  const evidence = parseAnswerQualityRolloutGateInput({ ...control, observations });
+  const outputPath = path.resolve(io.cwd, options.out);
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
+  writeLine(
+    io.stdout,
+    `Prepared ${observations.length} rollout observations for ${control.policy.channels.join(', ')} at ${options.out}.`,
+  );
+  return observations.length;
+}
+
+function finiteJsonNumberReplacer(_key: string, value: unknown): unknown {
+  return typeof value === 'number' && !Number.isFinite(value) ? null : value;
+}
+
 export function formatFeedbackEvalBacklog(feedbackRecords: FeedbackRecord[]): string {
   const records = uniqueFeedbackRecords(feedbackRecords).filter(shouldCreateEvalBacklogCandidate);
   if (records.length === 0) {
@@ -1101,6 +1599,348 @@ export function formatFeedbackEvalBacklog(feedbackRecords: FeedbackRecord[]): st
   }
 
   return records.map((record) => JSON.stringify(toFeedbackEvalBacklogRecord(record))).join('\n');
+}
+
+export interface FeedbackGoldenPromotionSummary {
+  inputCount: number;
+  promotedCount: number;
+  skippedDuplicateCount: number;
+  target: string;
+}
+
+const GOLDEN_STRING_ARRAY_FIELDS = new Set<keyof GoldenQaRecord>([
+  'expectedCitationFiles',
+  'expectedCitationTitles',
+  'expectedSourceUrls',
+  'expectedStandaloneQuestionTerms',
+  'expectedToolNames',
+  'forbiddenChunkIds',
+  'forbiddenCitationFiles',
+  'forbiddenSourceUrls',
+  'mustContain',
+  'mustNotContain',
+  'forbiddenMarketingPhrases',
+  'referenceFacts',
+  'requiredFacets',
+  'requiredSourceTypes',
+  'relevantChunkIds',
+]);
+const GOLDEN_BOOLEAN_FIELDS = new Set<keyof GoldenQaRecord>([
+  'boundaryExpected',
+  'expectedClarification',
+  'expectedPartialAnswer',
+  'requireCitationSupport',
+]);
+const GOLDEN_NUMBER_FIELDS = new Set<keyof GoldenQaRecord>([
+  'maximumXSourceCount',
+  'minimumFacetCoverage',
+]);
+const GOLDEN_ENUM_FIELDS: Partial<Record<keyof GoldenQaRecord, ReadonlySet<string>>> = {
+  expectedAgentRoute: new Set([
+    'agent_answer',
+    'boundary',
+    'chain_answer',
+    'clarify',
+    'product_answer',
+  ]),
+  expectedAnswerStatus: new Set(['complete', 'partial', 'insufficient', 'conflict']),
+  expectedFineGrainedIntent: new Set([
+    'capability_overview',
+    'feature_support',
+    'how_to',
+    'limit_or_quota',
+    'plan_entitlement',
+    'comparison',
+    'recent_updates',
+    'historical_change',
+    'agent_capabilities',
+    'unknown',
+  ]),
+  expectedIntent: new Set([
+    'agent_capabilities',
+    'product_qa',
+    'how_to',
+    'onchain_transaction',
+    'realtime_account_query',
+    'investment_advice',
+    'unknown',
+  ]),
+  expectedSubject: new Set(['customer_agent', 'unknown', 'xxyy_product']),
+};
+const GOLDEN_ALLOWED_FIELDS = new Set<keyof GoldenQaRecord>([
+  'boundaryExpected',
+  'expectedCitationFiles',
+  'expectedCitationTitles',
+  'expectedSourceUrls',
+  'expectedIntent',
+  'expectedAgentRoute',
+  'expectedAnswerStatus',
+  'expectedClarification',
+  'expectedFineGrainedIntent',
+  'expectedPartialAnswer',
+  'expectedSearchCountRange',
+  'expectedStandaloneQuestionTerms',
+  'expectedSubject',
+  'expectedToolNames',
+  'forbiddenChunkIds',
+  'forbiddenCitationFiles',
+  'forbiddenSourceUrls',
+  'mustContain',
+  'mustNotContain',
+  'forbiddenMarketingPhrases',
+  'maximumXSourceCount',
+  'minimumFacetCoverage',
+  'name',
+  'question',
+  'referenceFacts',
+  'requiredFacets',
+  'requiredSourceTypes',
+  'relevantChunkIds',
+  'requireCitationSupport',
+]);
+const GOLDEN_ORACLE_FIELDS = new Set<keyof GoldenQaRecord>([
+  'expectedCitationFiles',
+  'expectedCitationTitles',
+  'expectedSourceUrls',
+  'expectedAgentRoute',
+  'expectedAnswerStatus',
+  'expectedClarification',
+  'expectedFineGrainedIntent',
+  'expectedPartialAnswer',
+  'expectedSearchCountRange',
+  'expectedStandaloneQuestionTerms',
+  'expectedSubject',
+  'expectedToolNames',
+  'forbiddenChunkIds',
+  'forbiddenCitationFiles',
+  'forbiddenSourceUrls',
+  'mustContain',
+  'mustNotContain',
+  'forbiddenMarketingPhrases',
+  'maximumXSourceCount',
+  'minimumFacetCoverage',
+  'referenceFacts',
+  'requiredFacets',
+  'requiredSourceTypes',
+  'relevantChunkIds',
+  'requireCitationSupport',
+]);
+
+export async function promoteReviewedFeedbackCases(input: {
+  cwd: string;
+  file: string;
+  reviewer: string;
+}): Promise<FeedbackGoldenPromotionSummary> {
+  if (!isSafeEvaluationOutputPath(input.file)) {
+    throw new Error('Reviewed feedback file must be under .rag/.');
+  }
+  const sourcePath = path.resolve(input.cwd, input.file);
+  const targetPath = path.join(input.cwd, 'docs', 'eval', 'golden-qa.jsonl');
+  const sourceLines = splitJsonl(await readFile(sourcePath, 'utf8'));
+  const reviewed = sourceLines.map((line, index) =>
+    parseReviewedFeedbackCase(line, index + 1, input.reviewer),
+  );
+  const existingContent = await readFile(targetPath, 'utf8');
+  const existingLines = splitJsonl(existingContent);
+  const existingRecords = existingLines.map((line) => JSON.parse(line) as GoldenQaRecord);
+  const existingByName = new Map(
+    existingRecords.flatMap((record) =>
+      record.name === undefined ? [] : [[record.name, stableGoldenRecord(record)] as const],
+    ),
+  );
+  const existingQuestionKeys = new Set(existingRecords.map(createGoldenQuestionKey));
+  const promoted: GoldenQaRecord[] = [];
+  let skippedDuplicateCount = 0;
+
+  for (const record of reviewed) {
+    const serialized = stableGoldenRecord(record);
+    const existingWithName = existingByName.get(record.name ?? '');
+    if (existingWithName !== undefined && existingWithName !== serialized) {
+      throw new Error(`Golden QA case name conflicts with an existing case: ${record.name}.`);
+    }
+    const questionKey = createGoldenQuestionKey(record);
+    if (existingWithName === serialized || existingQuestionKeys.has(questionKey)) {
+      skippedDuplicateCount += 1;
+      continue;
+    }
+    existingByName.set(record.name ?? '', serialized);
+    existingQuestionKeys.add(questionKey);
+    promoted.push(record);
+  }
+
+  if (promoted.length > 0) {
+    const nextContent = [
+      ...existingLines,
+      ...promoted.map((record) => stableGoldenRecord(record)),
+    ].join('\n');
+    const temporaryPath = `${targetPath}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporaryPath, `${nextContent}\n`, 'utf8');
+      await rename(temporaryPath, targetPath);
+    } catch (error) {
+      await unlink(temporaryPath).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  return {
+    inputCount: reviewed.length,
+    promotedCount: promoted.length,
+    skippedDuplicateCount,
+    target: path.relative(input.cwd, targetPath),
+  };
+}
+
+export function formatFeedbackGoldenPromotionSummary(
+  summary: FeedbackGoldenPromotionSummary,
+): string {
+  return [
+    `Reviewed feedback promotion: ${summary.promotedCount}/${summary.inputCount} promoted`,
+    `Skipped duplicates: ${summary.skippedDuplicateCount}`,
+    `Target: ${summary.target}`,
+  ].join('\n');
+}
+
+function splitJsonl(content: string): string[] {
+  return content
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+function parseReviewedFeedbackCase(
+  line: string,
+  lineNumber: number,
+  reviewer: string,
+): GoldenQaRecord {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    throw new Error(`Reviewed feedback line ${lineNumber} is not valid JSON.`);
+  }
+  if (!isQualityReleaseRecord(value)) {
+    throw new Error(`Reviewed feedback line ${lineNumber} must be an object.`);
+  }
+  const review = value._review;
+  if (
+    !isQualityReleaseRecord(review) ||
+    review.source !== 'rag_feedback' ||
+    review.approved !== true ||
+    review.reviewer !== reviewer ||
+    typeof review.reviewedAt !== 'string' ||
+    !Number.isFinite(Date.parse(review.reviewedAt))
+  ) {
+    throw new Error(
+      `Reviewed feedback line ${lineNumber} requires _review source=rag_feedback, approved=true, matching reviewer, and a valid reviewedAt.`,
+    );
+  }
+
+  const record: Record<string, unknown> = {};
+  for (const [field, fieldValue] of Object.entries(value)) {
+    if (field === '_review') {
+      continue;
+    }
+    if (!GOLDEN_ALLOWED_FIELDS.has(field as keyof GoldenQaRecord)) {
+      throw new Error(`Reviewed feedback line ${lineNumber} has unsupported field: ${field}.`);
+    }
+    record[field] = fieldValue;
+  }
+  validateGoldenRecord(record, lineNumber);
+  return record as unknown as GoldenQaRecord;
+}
+
+function validateGoldenRecord(record: Record<string, unknown>, lineNumber: number): void {
+  for (const field of ['name', 'question'] as const) {
+    const value = record[field];
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`Reviewed feedback line ${lineNumber} requires a non-empty ${field}.`);
+    }
+    record[field] = value.trim();
+  }
+  if ((record.name as string).length > 160 || (record.question as string).length > 2_000) {
+    throw new Error(`Reviewed feedback line ${lineNumber} exceeds the name or question limit.`);
+  }
+  for (const [field, allowed] of Object.entries(GOLDEN_ENUM_FIELDS)) {
+    const value = record[field];
+    if (value !== undefined && (typeof value !== 'string' || !allowed?.has(value))) {
+      throw new Error(`Reviewed feedback line ${lineNumber} has invalid ${field}.`);
+    }
+  }
+  if (record.expectedIntent === undefined) {
+    throw new Error(`Reviewed feedback line ${lineNumber} requires expectedIntent.`);
+  }
+  for (const field of GOLDEN_STRING_ARRAY_FIELDS) {
+    const value = record[field];
+    if (
+      value !== undefined &&
+      (!Array.isArray(value) ||
+        value.length === 0 ||
+        value.some((item) => typeof item !== 'string' || item.trim().length === 0))
+    ) {
+      throw new Error(`Reviewed feedback line ${lineNumber} has invalid ${field}.`);
+    }
+  }
+  const sourceTypes = record.requiredSourceTypes;
+  if (
+    Array.isArray(sourceTypes) &&
+    sourceTypes.some(
+      (sourceType) =>
+        sourceType !== 'admin_verified' &&
+        sourceType !== 'official_docs' &&
+        sourceType !== 'x_updates',
+    )
+  ) {
+    throw new Error(`Reviewed feedback line ${lineNumber} has invalid requiredSourceTypes.`);
+  }
+  for (const field of GOLDEN_BOOLEAN_FIELDS) {
+    const value = record[field];
+    if (value !== undefined && typeof value !== 'boolean') {
+      throw new Error(`Reviewed feedback line ${lineNumber} has invalid ${field}.`);
+    }
+  }
+  for (const field of GOLDEN_NUMBER_FIELDS) {
+    const value = record[field];
+    if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) {
+      throw new Error(`Reviewed feedback line ${lineNumber} has invalid ${field}.`);
+    }
+  }
+  if (
+    (typeof record.maximumXSourceCount === 'number' && record.maximumXSourceCount < 0) ||
+    (typeof record.minimumFacetCoverage === 'number' &&
+      (record.minimumFacetCoverage < 0 || record.minimumFacetCoverage > 1))
+  ) {
+    throw new Error(`Reviewed feedback line ${lineNumber} has an out-of-range quality threshold.`);
+  }
+  const searchRange = record.expectedSearchCountRange;
+  if (
+    searchRange !== undefined &&
+    (!Array.isArray(searchRange) ||
+      searchRange.length !== 2 ||
+      searchRange.some((item) => typeof item !== 'number' || !Number.isInteger(item)) ||
+      (searchRange[0] as number) < 0 ||
+      (searchRange[1] as number) < (searchRange[0] as number))
+  ) {
+    throw new Error(`Reviewed feedback line ${lineNumber} has invalid expectedSearchCountRange.`);
+  }
+  const hasOracle =
+    record.boundaryExpected === true ||
+    [...GOLDEN_ORACLE_FIELDS].some((field) => record[field] !== undefined);
+  if (!hasOracle) {
+    throw new Error(
+      `Reviewed feedback line ${lineNumber} needs at least one reviewed assertion beyond expectedIntent.`,
+    );
+  }
+}
+
+function stableGoldenRecord(record: GoldenQaRecord): string {
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(record).sort(([left], [right]) => left.localeCompare(right))),
+  );
+}
+
+function createGoldenQuestionKey(record: GoldenQaRecord): string {
+  return `${record.expectedIntent}\0${record.question.trim().replaceAll(/\s+/gu, ' ').toLowerCase()}`;
 }
 
 function uniqueFeedbackRecords(feedbackRecords: FeedbackRecord[]): FeedbackRecord[] {
@@ -1205,21 +2045,66 @@ export async function runCli(
         const report = await evaluateProviderRetrieval(
           { ...io, cwd: workspaceCwd },
           parsed.failuresOut,
+          parsed.caseNames,
         );
         writeLine(io.stdout, formatProviderRetrievalReport(report));
-        return report.passed === report.total ? 0 : 1;
+        const releaseGatePassed = await finalizeQualityReleaseReport(
+          { ...io, cwd: workspaceCwd },
+          parsed,
+          createProviderRetrievalReleaseReport(report),
+        );
+        return report.passed === report.total && releaseGatePassed ? 0 : 1;
       }
       const report = await evaluate({ ...io, cwd: workspaceCwd }, parsed);
       writeLine(
         io.stdout,
         formatEvaluationReport(report, { providerBacked: parsed.providerBacked }),
       );
-      return report.passed === report.total ? 0 : 1;
+      const releaseGatePassed = await finalizeQualityReleaseReport(
+        { ...io, cwd: workspaceCwd },
+        parsed,
+        createEvaluationReleaseReport(report, parsed.providerBacked),
+      );
+      return report.passed === report.total && releaseGatePassed ? 0 : 1;
     } catch (error) {
       if (writeConfigurationError(io, error)) {
         return 1;
       }
       throw error;
+    }
+  }
+
+  if (parsed.command === 'feedback:promote') {
+    try {
+      const summary = await promoteReviewedFeedbackCases({
+        cwd: workspaceCwd,
+        file: parsed.file,
+        reviewer: parsed.reviewer,
+      });
+      writeLine(io.stdout, formatFeedbackGoldenPromotionSummary(summary));
+      return 0;
+    } catch (error) {
+      writeLine(io.stderr, error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+
+  if (parsed.command === 'rollout:gate') {
+    try {
+      return (await runAnswerQualityRolloutGate({ ...io, cwd: workspaceCwd }, parsed)) ? 0 : 1;
+    } catch (error) {
+      writeLine(io.stderr, error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+
+  if (parsed.command === 'rollout:evidence') {
+    try {
+      await prepareAnswerQualityRolloutEvidence({ ...io, cwd: workspaceCwd }, parsed);
+      return 0;
+    } catch (error) {
+      writeLine(io.stderr, error instanceof Error ? error.message : String(error));
+      return 1;
     }
   }
 
@@ -1409,7 +2294,7 @@ export async function runCli(
 
   try {
     const tracer = noopQualityTracer;
-    const runtime = createCliChatRuntime(config, tracer);
+    const runtime = createCliChatRuntime(config, tracer, io.env);
     try {
       if (parsed.debugRetrieve) {
         const chunks = await runtime.retriever.retrieve(parsed.question, {
@@ -1461,13 +2346,14 @@ interface ProviderRetrievalReport {
 async function evaluateProviderRetrieval(
   io: CliIo,
   failuresOut: string | undefined,
+  caseNames?: readonly string[],
 ): Promise<ProviderRetrievalReport> {
   const config = loadRagConfig(io.env);
-  const cases = (await loadEvaluationCases(io.cwd)).filter(
+  const cases = selectEvaluationCases(await loadEvaluationCases(io.cwd), caseNames).filter(
     (testCase) => (testCase.relevantChunkIds?.length ?? 0) > 0,
   );
   const tracer = noopQualityTracer;
-  const runtime = createCliChatRuntime(config, tracer);
+  const runtime = createCliChatRuntime(config, tracer, io.env);
 
   try {
     const retriever = createRerankingRetriever(runtime.retriever, createMetadataReranker(), {
@@ -1476,7 +2362,11 @@ async function evaluateProviderRetrieval(
     });
     const results: ProviderRetrievalCaseResult[] = [];
     for (const testCase of cases) {
-      const chunks = await retriever.retrieve(testCase.request.message, { topK: config.topK });
+      const retrievalInput = createEvaluationRetrievalInput(testCase.request.message);
+      const chunks = await retriever.retrieve(retrievalInput.query, {
+        policy: retrievalInput.policy,
+        topK: config.topK,
+      });
       const result = evaluateRetrievalRanking({
         forbiddenChunkIds: testCase.forbiddenChunkIds ?? [],
         relevantChunkIds: testCase.relevantChunkIds ?? [],
@@ -1645,13 +2535,13 @@ async function evaluate(
   options: Extract<CliCommand, { command: 'evaluate' }>,
 ): Promise<EvaluationReport> {
   const config = loadRagConfig(io.env);
-  const cases = await loadEvaluationCases(io.cwd);
+  const cases = selectEvaluationCases(await loadEvaluationCases(io.cwd), options.caseNames);
   const inMemoryTrace = options.providerBacked ? createInMemoryQualityTracer() : undefined;
   const tracer = inMemoryTrace?.tracer ?? noopQualityTracer;
   let report: EvaluationReport;
 
   if (options.providerBacked) {
-    const runtime = createCliChatRuntime(config, tracer);
+    const runtime = createCliChatRuntime(config, tracer, io.env);
     try {
       report = await evaluateCases(cases, runtime.service, {
         observe: (testCase) =>
@@ -1721,12 +2611,12 @@ async function evaluate(
 export function collectEvaluationTraceObservation(
   records: readonly QualityTraceRecord[],
   requestId: string,
-): { retrievedChunkIds: string[]; toolNames: string[] } {
+): { retrievedChunkIds: string[]; searchCount: number; toolNames: string[] } {
   const root = records.find(
     (record) => record.name === 'chat.request' && record.metadata?.requestId === requestId,
   );
   if (root === undefined) {
-    return { retrievedChunkIds: [], toolNames: [] };
+    return { retrievedChunkIds: [], searchCount: 0, toolNames: [] };
   }
 
   const descendantIds = new Set([root.id]);
@@ -1744,9 +2634,9 @@ export function collectEvaluationTraceObservation(
   const retrieval = descendants
     .filter((record) => ['rag.metadata_rerank', 'rag.pgvector_candidates'].includes(record.name))
     .at(-1);
-
   return {
     retrievedChunkIds: readTraceChunkIds(retrieval?.outputs?.chunks),
+    searchCount: toolNames.filter((toolName) => toolName === 'search_product_docs').length,
     toolNames,
   };
 }
@@ -1765,12 +2655,30 @@ function readTraceChunkIds(value: unknown): string[] {
 }
 
 function createRetrievalObserver(retriever: Retriever, topK: number) {
-  return async (testCase: EvaluationCase): Promise<{ retrievedChunkIds?: string[] }> => {
+  return async (
+    testCase: EvaluationCase,
+  ): Promise<{ retrievedChunkIds?: string[]; searchCount?: number }> => {
     if ((testCase.relevantChunkIds?.length ?? 0) === 0) {
       return {};
     }
-    const chunks = await retriever.retrieve(testCase.request.message, { topK });
-    return { retrievedChunkIds: chunks.map((chunk) => chunk.id) };
+    const retrievalInput = createEvaluationRetrievalInput(testCase.request.message);
+    const chunks = await retriever.retrieve(retrievalInput.query, {
+      policy: retrievalInput.policy,
+      topK,
+    });
+    return { retrievedChunkIds: chunks.map((chunk) => chunk.id), searchCount: 1 };
+  };
+}
+
+export function createEvaluationRetrievalInput(question: string): {
+  policy: ReturnType<typeof createProductRetrievalPolicy>;
+  query: string;
+} {
+  const understanding = understandProductQuestion(question, classifyQuestion(question));
+  const plan = createProductQueryPlan(question, question, understanding);
+  return {
+    policy: createProductRetrievalPolicy(understanding),
+    query: plan.queries[0]?.query ?? question,
   };
 }
 
@@ -1833,15 +2741,27 @@ interface GoldenQaRecord {
   expectedSourceUrls?: string[];
   expectedIntent: EvaluationCase['expectedIntent'];
   expectedAgentRoute?: EvaluationCase['expectedAgentRoute'];
+  expectedAnswerStatus?: EvaluationCase['expectedAnswerStatus'];
+  expectedClarification?: EvaluationCase['expectedClarification'];
+  expectedFineGrainedIntent?: EvaluationCase['expectedFineGrainedIntent'];
+  expectedPartialAnswer?: EvaluationCase['expectedPartialAnswer'];
+  expectedSearchCountRange?: EvaluationCase['expectedSearchCountRange'];
+  expectedStandaloneQuestionTerms?: EvaluationCase['expectedStandaloneQuestionTerms'];
+  expectedSubject?: EvaluationCase['expectedSubject'];
   expectedToolNames?: string[];
   forbiddenChunkIds?: string[];
   forbiddenCitationFiles?: string[];
   forbiddenSourceUrls?: string[];
   mustContain?: string[];
   mustNotContain?: string[];
+  forbiddenMarketingPhrases?: string[];
+  maximumXSourceCount?: number;
+  minimumFacetCoverage?: number;
   name?: string;
   question: string;
   referenceFacts?: string[];
+  requiredFacets?: string[];
+  requiredSourceTypes?: EvaluationCase['requiredSourceTypes'];
   relevantChunkIds?: string[];
   requireCitationSupport?: boolean;
 }
@@ -1856,22 +2776,69 @@ async function loadEvaluationCases(cwd: string): Promise<EvaluationCase[]> {
     .map((line, index) => toEvaluationCase(JSON.parse(line) as GoldenQaRecord, index));
 }
 
+export function selectEvaluationCases(
+  cases: readonly EvaluationCase[],
+  caseNames?: readonly string[],
+): EvaluationCase[] {
+  if (caseNames === undefined || caseNames.length === 0) {
+    return [...cases];
+  }
+  const requested = new Set(caseNames);
+  const selected = cases.filter((testCase) => requested.has(testCase.name));
+  const selectedNames = new Set(selected.map((testCase) => testCase.name));
+  const missing = caseNames.filter((name) => !selectedNames.has(name));
+  if (missing.length > 0) {
+    throw new Error(`Unknown Golden QA case(s): ${missing.join(', ')}.`);
+  }
+  return selected;
+}
+
 function toEvaluationCase(record: GoldenQaRecord, index: number): EvaluationCase {
   const name = record.name ?? `golden-${index + 1}`;
   return {
+    ...(record.expectedAnswerStatus === undefined
+      ? {}
+      : { expectedAnswerStatus: record.expectedAnswerStatus }),
     ...(record.expectedAgentRoute === undefined
       ? {}
       : { expectedAgentRoute: record.expectedAgentRoute }),
     expectedIntent: record.expectedIntent,
+    ...(record.expectedClarification === undefined
+      ? {}
+      : { expectedClarification: record.expectedClarification }),
+    ...(record.expectedFineGrainedIntent === undefined
+      ? {}
+      : { expectedFineGrainedIntent: record.expectedFineGrainedIntent }),
+    ...(record.expectedPartialAnswer === undefined
+      ? {}
+      : { expectedPartialAnswer: record.expectedPartialAnswer }),
+    ...(record.expectedSearchCountRange === undefined
+      ? {}
+      : { expectedSearchCountRange: record.expectedSearchCountRange }),
+    ...(record.expectedStandaloneQuestionTerms === undefined
+      ? {}
+      : { expectedStandaloneQuestionTerms: record.expectedStandaloneQuestionTerms }),
+    ...(record.expectedSubject === undefined ? {} : { expectedSubject: record.expectedSubject }),
     ...(record.expectedToolNames === undefined
       ? {}
       : { expectedToolNames: record.expectedToolNames }),
     ...(record.forbiddenChunkIds === undefined
       ? {}
       : { forbiddenChunkIds: record.forbiddenChunkIds }),
-    ...(record.mustNotContain === undefined
+    ...(record.mustNotContain === undefined && record.forbiddenMarketingPhrases === undefined
       ? {}
-      : { forbiddenAnswerIncludes: record.mustNotContain }),
+      : {
+          forbiddenAnswerIncludes: [
+            ...(record.mustNotContain ?? []),
+            ...(record.forbiddenMarketingPhrases ?? []),
+          ],
+        }),
+    ...(record.maximumXSourceCount === undefined
+      ? {}
+      : { maximumXSourceCount: record.maximumXSourceCount }),
+    ...(record.minimumFacetCoverage === undefined
+      ? {}
+      : { minimumFacetCoverage: record.minimumFacetCoverage }),
     ...(record.boundaryExpected === true ? { minCitations: 0 } : {}),
     name,
     request: {
@@ -1880,6 +2847,10 @@ function toEvaluationCase(record: GoldenQaRecord, index: number): EvaluationCase
       requestId: `eval:${name}`,
     },
     ...(record.referenceFacts === undefined ? {} : { referenceFacts: record.referenceFacts }),
+    ...(record.requiredFacets === undefined ? {} : { requiredFacets: record.requiredFacets }),
+    ...(record.requiredSourceTypes === undefined
+      ? {}
+      : { requiredSourceTypes: record.requiredSourceTypes }),
     ...(record.relevantChunkIds === undefined ? {} : { relevantChunkIds: record.relevantChunkIds }),
     ...(record.mustContain === undefined ? {} : { requiredAnswerIncludes: record.mustContain }),
     ...(record.expectedCitationFiles === undefined
@@ -2455,6 +3426,7 @@ async function embedPreparedChunks(
 function createCliChatRuntime(
   config: ReturnType<typeof loadRagConfig>,
   tracer: QualityTracer,
+  env: AnswerQualityRolloutEnv = process.env,
 ): CliChatRuntime {
   let pool: ReturnType<typeof createPgPool> | undefined;
   const retriever = createLazyRetriever(async () => {
@@ -2484,6 +3456,7 @@ function createCliChatRuntime(
   return {
     retriever,
     service: createCustomerAgentChatService({
+      answerQualityRollout: loadAnswerQualityRolloutConfig(env),
       answerProvider: createLazyAnswerProvider(config, tracer),
       config,
       productCapabilityCaller: {

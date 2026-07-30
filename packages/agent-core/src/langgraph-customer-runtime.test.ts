@@ -243,7 +243,7 @@ describe('createLangGraphCustomerRuntime', () => {
     expect(planner.plan).not.toHaveBeenCalled();
   });
 
-  it('answers agent capability questions through the planner-selected Agent tool', async () => {
+  it('answers explicit agent capability questions deterministically', async () => {
     const registry = createToolRegistry();
     for (const tool of createAgentTools()) {
       registry.register(tool);
@@ -269,6 +269,217 @@ describe('createLangGraphCustomerRuntime', () => {
       intent: 'agent_capabilities',
     });
     expect(response.answer).toContain('我是 XXYY 产品客服 Agent');
+  });
+
+  it('rewrites broad product capability overviews before the first search', async () => {
+    const { records, tracer } = createInMemoryQualityTracer();
+    const registry = createToolRegistry({ tracer });
+    const execute = vi.fn(() =>
+      Promise.resolve({
+        chunks: [
+          { id: 'official-trading', text: 'XXYY 支持交易和钱包功能。' },
+          { id: 'official-monitoring', text: '支持钱包监控和移动端登录。' },
+        ],
+        citations: [
+          {
+            excerpt: 'XXYY 支持交易和钱包功能。',
+            file: 'docs/product-features/pages/trading.md',
+            sourceType: 'official_docs' as const,
+            title: '交易代币',
+          },
+          {
+            excerpt: '支持钱包监控和移动端登录。',
+            file: 'docs/product-features/pages/monitoring.md',
+            sourceType: 'official_docs' as const,
+            title: '监控管理',
+          },
+        ],
+        confidence: 0.88,
+      }),
+    );
+
+    registry.register({
+      name: 'search_product_docs',
+      description: 'Search product docs.',
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.object({
+        chunks: z.array(z.object({ id: z.string(), text: z.string() })),
+        citations: z.array(
+          z.object({
+            excerpt: z.string(),
+            file: z.string(),
+            sourceType: z.literal('official_docs'),
+            title: z.string(),
+          }),
+        ),
+        confidence: z.number(),
+      }),
+      execute,
+    });
+
+    const response = await createLangGraphCustomerRuntime({
+      planner: {
+        plan: vi.fn(() => Promise.reject(new Error('planner should not run'))),
+      },
+      registry,
+      tracer,
+    }).ask({
+      channel: 'telegram',
+      message: '支持哪些功能',
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      {
+        query: 'XXYY 当前支持的产品功能总览 交易 钱包监控 数据分析 移动端',
+      },
+      { channel: 'telegram', sessionId: undefined, userIdPresent: false },
+    );
+    expect(response).toMatchObject({
+      agentRoute: 'product_answer',
+      intent: 'product_qa',
+    });
+    expect(records.find((record) => record.name === 'agent.classify')?.outputs).toMatchObject({
+      fineGrainedIntent: 'capability_overview',
+      subject: 'xxyy_product',
+      temporalScope: 'current',
+    });
+    expect(records.find((record) => record.name === 'agent.observe')?.outputs).toMatchObject({
+      authoritativeCitationCount: 2,
+      questionKind: 'capability_overview',
+      sufficient: true,
+      xCitationCount: 0,
+    });
+  });
+
+  it('uses the bounded query plan to search only missing overview facets', async () => {
+    const registry = createToolRegistry();
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({
+        chunks: [{ id: 'official-trading', text: 'XXYY 支持交易和数据分析。' }],
+        citations: [
+          {
+            excerpt: 'XXYY 支持交易和数据分析。',
+            file: 'docs/product-features/pages/trading.md',
+            sourceType: 'official_docs' as const,
+            title: '交易与数据分析',
+          },
+        ],
+        confidence: 0.75,
+      })
+      .mockResolvedValueOnce({
+        chunks: [{ id: 'official-wallet', text: 'XXYY 支持钱包、钱包监控和移动端。' }],
+        citations: [
+          {
+            excerpt: 'XXYY 支持钱包、钱包监控和移动端。',
+            file: 'docs/product-features/pages/wallet.md',
+            sourceType: 'official_docs' as const,
+            title: '钱包与监控',
+          },
+        ],
+        confidence: 0.82,
+      });
+
+    registry.register({
+      name: 'search_product_docs',
+      description: 'Search product docs.',
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.object({
+        chunks: z.array(z.object({ id: z.string(), text: z.string() })),
+        citations: z.array(
+          z.object({
+            excerpt: z.string(),
+            file: z.string(),
+            sourceType: z.literal('official_docs'),
+            title: z.string(),
+          }),
+        ),
+        confidence: z.number(),
+      }),
+      execute,
+    });
+
+    const response = await createLangGraphCustomerRuntime({
+      planner: {
+        plan: vi.fn(() => Promise.reject(new Error('planner should not run'))),
+      },
+      registry,
+    }).ask({
+      channel: 'telegram',
+      message: '支持哪些功能',
+    });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute.mock.calls[1]?.[0]).toEqual({
+      query: 'XXYY 当前钱包管理 钱包监控 Telegram 通知 移动端 官方文档',
+    });
+    expect(response).toMatchObject({
+      agentRoute: 'product_answer',
+      intent: 'product_qa',
+    });
+  });
+
+  it('fails closed when current numeric evidence conflicts in the same scope', async () => {
+    const { records, tracer } = createInMemoryQualityTracer();
+    const registry = createToolRegistry({ tracer });
+    registry.register({
+      name: 'search_product_docs',
+      description: 'Search product docs.',
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.object({
+        chunks: z.array(z.unknown()),
+        citations: z.array(z.unknown()),
+        confidence: z.number(),
+      }),
+      execute: () =>
+        Promise.resolve({
+          chunks: [
+            conflictChunk('monitor-2000', 'XXYY Pro 当前最多可以监控 2000 个钱包。'),
+            conflictChunk('monitor-3000', 'XXYY Pro 当前最多可以监控 3000 个钱包。'),
+          ],
+          citations: [
+            {
+              excerpt: 'XXYY Pro 当前最多可以监控 2000 个钱包。',
+              file: 'docs/monitor-2000.md',
+              sourceType: 'official_docs',
+              title: 'Pro 钱包监控上限',
+            },
+            {
+              excerpt: 'XXYY Pro 当前最多可以监控 3000 个钱包。',
+              file: 'docs/monitor-3000.md',
+              sourceType: 'official_docs',
+              title: 'Pro 钱包监控上限',
+            },
+          ],
+          confidence: 0.8,
+        }),
+    });
+
+    const response = await createLangGraphCustomerRuntime({
+      maxSteps: 1,
+      planner: {
+        plan: vi.fn(() => Promise.reject(new Error('planner should not run'))),
+      },
+      registry,
+      tracer,
+    }).ask({
+      channel: 'web',
+      message: 'XXYY Pro 钱包监控最多支持多少个钱包？',
+    });
+
+    expect(response).toMatchObject({
+      agentRoute: 'product_answer',
+      answerStatus: 'conflict',
+      confidence: 0.2,
+      intent: 'product_qa',
+    });
+    expect(response.answer).toContain('2000、3000');
+    expect(response.answer).toContain('无法可靠给出唯一结论');
+    expect(records.find((record) => record.name === 'agent.observe')?.outputs).toMatchObject({
+      conflictCount: 1,
+      nextAction: 'partial_answer',
+      sufficient: false,
+    });
   });
 
   it('does not block product capability questions that mention wallet balances', async () => {
@@ -1391,6 +1602,57 @@ describe('createLangGraphCustomerRuntime', () => {
     expect(execute).toHaveBeenCalledOnce();
   });
 
+  it('retries one transient read-only product search failure', async () => {
+    const registry = createToolRegistry();
+    const execute = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('temporary search failure'))
+      .mockResolvedValueOnce({
+        chunks: [{ id: 'pro-retry', text: 'XXYY Pro 支持独享服务器和节点。' }],
+        citations: [
+          {
+            excerpt: 'XXYY Pro 支持独享服务器和节点。',
+            file: 'docs/product-features/pro.md',
+            title: 'XXYY Pro 权益',
+          },
+        ],
+        confidence: 10,
+      });
+
+    registry.register({
+      name: 'search_product_docs',
+      description: 'Search product docs.',
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.object({
+        chunks: z.array(z.object({ id: z.string(), text: z.string() })),
+        citations: z.array(
+          z.object({
+            excerpt: z.string(),
+            file: z.string(),
+            title: z.string(),
+          }),
+        ),
+        confidence: z.number(),
+      }),
+      execute,
+    });
+
+    const response = await createLangGraphCustomerRuntime({
+      planner: createScriptedPlannerModel([]),
+      registry,
+    }).ask({
+      channel: 'web',
+      message: 'XXYY Pro 有哪些权益？',
+    });
+
+    expect(response).toMatchObject({
+      agentRoute: 'product_answer',
+      intent: 'product_qa',
+    });
+    expect(response.answer).toContain('独享服务器和节点');
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
   it('derives the final route from the executed product tool when planner route mismatches', async () => {
     const registry = createToolRegistry();
     const response: ChatResponse = {
@@ -1749,3 +2011,24 @@ describe('createLangGraphCustomerRuntime', () => {
     expect(JSON.stringify(records)).not.toContain('secret product delta');
   });
 });
+
+function conflictChunk(id: string, text: string) {
+  return {
+    documentId: `document-${id}`,
+    id,
+    lexicalScore: 1,
+    metadata: {
+      file: `docs/${id}.md`,
+      headingPath: ['钱包监控'],
+      module: '会员',
+      sourceType: 'official_docs' as const,
+      status: 'current' as const,
+      title: 'XXYY Pro 权益',
+    },
+    rank: 1,
+    score: 1,
+    sourceBoost: 0,
+    text,
+    vectorScore: 1,
+  };
+}

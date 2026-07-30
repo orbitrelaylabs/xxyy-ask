@@ -23,6 +23,82 @@ describe('evidence observation', () => {
     });
   });
 
+  it('requires broad capability overviews to cover core facets with authoritative evidence', () => {
+    const xOnly = observeProductEvidence(
+      '支持哪些功能',
+      [
+        attempt(
+          '支持哪些功能',
+          ['x-1', 'x-2'],
+          ['x-source-1', 'x-source-2'],
+          ['支持 BSC 快捷交易和挂单。', '支持钱包监控和移动端登录。'],
+          ['x_updates', 'x_updates'],
+        ),
+      ],
+      4,
+    );
+
+    expect(xOnly).toMatchObject({
+      authoritativeCitationCount: 0,
+      authoritativeOverviewCitationCount: 0,
+      coverage: 1,
+      nextAction: 'continue_search',
+      questionKind: 'capability_overview',
+      shouldContinue: true,
+      sourceTypes: ['x_updates'],
+      sufficient: false,
+      version: '1',
+      xCitationCount: 2,
+    });
+
+    const authoritative = observeProductEvidence(
+      '支持哪些功能',
+      [
+        attempt(
+          'XXYY 当前支持的产品功能总览',
+          ['docs-1', 'docs-2'],
+          ['docs-source-1', 'docs-source-2'],
+          ['交易和钱包功能。', '钱包监控、移动端登录。'],
+          ['official_docs', 'official_docs'],
+        ),
+      ],
+      4,
+    );
+
+    expect(authoritative).toMatchObject({
+      authoritativeCitationCount: 2,
+      authoritativeOverviewCitationCount: 0,
+      coveredFacets: ['交易', '钱包', '监控', '移动端'],
+      nextAction: 'answer',
+      questionKind: 'capability_overview',
+      sourceTypes: ['official_docs'],
+      stopReason: 'sufficient',
+      sufficient: true,
+      xCitationCount: 0,
+    });
+
+    const catalog = observeProductEvidence(
+      '支持哪些功能',
+      [
+        attempt(
+          'XXYY 当前支持的产品功能总览',
+          ['catalog'],
+          ['catalog-source'],
+          ['XXYY 当前支持的产品功能总览：交易、钱包、监控、移动端。'],
+          ['official_docs'],
+        ),
+      ],
+      4,
+    );
+
+    expect(catalog).toMatchObject({
+      authoritativeCitationCount: 1,
+      authoritativeOverviewCitationCount: 1,
+      stopReason: 'sufficient',
+      sufficient: true,
+    });
+  });
+
   it('identifies an uncovered comparison facet and proposes a bounded follow-up query', () => {
     const observation = observeProductEvidence(
       '请比较 XXYY Pro 权益和钱包管理上限',
@@ -149,6 +225,13 @@ function attempt(
   chunkIds: string[],
   citationKeys: string[],
   evidenceTexts: string[],
+  citationSourceTypes?: Array<'admin_verified' | 'official_docs' | 'x_updates'>,
 ) {
-  return { chunkIds, citationKeys, evidenceTexts, query };
+  return {
+    chunkIds,
+    citationKeys,
+    ...(citationSourceTypes === undefined ? {} : { citationSourceTypes }),
+    evidenceTexts,
+    query,
+  };
 }

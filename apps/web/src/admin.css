@@ -907,6 +907,147 @@ body:has(.admin-login-page) {
   margin-bottom: 12px;
 }
 
+.support-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.support-layout {
+  grid-template-columns: minmax(270px, 0.32fr) minmax(0, 1fr);
+}
+
+.support-transcript {
+  display: grid;
+  gap: 9px;
+  max-height: 440px;
+  overflow: auto;
+}
+
+.support-message {
+  max-width: 86%;
+  border: 1px solid #e0e7e5;
+  border-radius: 9px;
+  background: #f8faf9;
+  padding: 10px 12px;
+}
+
+.support-message.role-user {
+  justify-self: end;
+  border-color: #c9dfd9;
+  background: #edf6f3;
+}
+
+.support-message > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: #74807c;
+  font-size: 9px;
+}
+
+.support-message > div strong {
+  color: #315047;
+}
+
+.support-message p {
+  margin: 7px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.support-reply-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: end;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e5eae9;
+}
+
+.support-reply-composer textarea {
+  min-height: 62px;
+}
+
+.knowledge-gap-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.knowledge-gap-list > .metric-grid {
+  grid-column: 1 / -1;
+}
+
+.knowledge-gap-list article {
+  min-width: 0;
+  border: 1px solid #e0e7e5;
+  border-radius: 9px;
+  background: #fafcfc;
+  padding: 11px;
+}
+
+.knowledge-gap-list article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  color: #74807c;
+  font-size: 9px;
+}
+
+.knowledge-gap-list strong,
+.knowledge-gap-list p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+}
+
+.knowledge-gap-list details {
+  margin-top: 9px;
+  border-top: 1px solid #e3e9e7;
+  padding-top: 8px;
+  font-size: 10px;
+}
+
+.knowledge-gap-list summary {
+  cursor: pointer;
+  color: #145f50;
+  font-weight: 700;
+}
+
+.knowledge-gap-list dl {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 5px 8px;
+  margin: 9px 0 0;
+}
+
+.knowledge-gap-list dt {
+  color: #74807c;
+}
+
+.knowledge-gap-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-gap-list ol {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.knowledge-gap-list strong {
+  -webkit-line-clamp: 2;
+  font-size: 11px;
+}
+
+.knowledge-gap-list p {
+  margin: 6px 0 0;
+  -webkit-line-clamp: 3;
+}
+
 .metric {
   display: grid;
   gap: 3px;
@@ -993,7 +1134,8 @@ body:has(.admin-login-page) {
 @media (max-width: 1050px) {
   .candidate-layout,
   .two-column-admin,
-  .import-layout {
+  .import-layout,
+  .support-layout {
     grid-template-columns: 1fr;
   }
 
@@ -1050,7 +1192,9 @@ body:has(.admin-login-page) {
   .admin-form-grid,
   .candidate-facts,
   .history-grid,
-  .metric-grid {
+  .metric-grid,
+  .support-metrics,
+  .knowledge-gap-list {
     grid-template-columns: 1fr;
   }
 

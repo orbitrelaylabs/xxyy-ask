@@ -9,6 +9,8 @@
 - [x] Scheduler-safe 知识刷新：`pnpm rag:refresh` 提供外部 scheduler 可调用的 X 增量 Job，`--full` 执行官网/媒体/X 全量重建，最后统一对账知识候选、补建/重试发布任务并执行队列；`--dry-run` 验证固定计划。实际运行有同工作区锁、stale recovery、步骤级脱敏回执和失败退出。
 - [x] HTTP 服务面：保留 `GET /`、`GET /health`、`GET /health/deep`、`GET /api/knowledge-refresh-status`、`POST /api/chat`、`POST /api/chat/stream` 和 `GET /assets/*`。
 - [x] Web UI：`GET /` 提供静态聊天界面，支持普通回答、流式回答、引用展示、产品知识库附件，以及基于调度器脱敏回执的自动更新状态徽标。
+- [x] 客服运营闭环：Web 会话和有界多轮上下文持久化到 PostgreSQL；用户显式转人工后创建幂等工单，`/admin` 可查看脱敏会话、指派、回复、解决/关闭并观察知识缺口，Web 会自动接收人工回复。
+- [x] Versioned Agent SDK/API：`@xxyy/agent-sdk` 封装问答、SSE、反馈和转人工；`/api/v1` 使用独立 Bearer Key 并提供 OpenAPI 3.1，未配置 Key 时失败关闭。
 - [x] Telegram Bot：`pnpm run telegram:dev` 通过 Telegram Bot API long polling 接收消息，并以 `channel: "telegram"` 复用同一套 LangGraph 客服 Agent；私聊文本直接回答，群聊普通消息只做静默学习观察，只有命令、精确 @ 当前 Bot 或直接回复当前 Bot 才触发客服回答。Bot 菜单提供 `/status` 查看自动更新状态，并提供 `/learning`、`/learning_on`、`/learning_off` 查看和由管理员持久化控制本群自动学习。启用后只在内存中保留有界 reply 对话链，当前管理员回复用户时自动验证身份并进入知识治理；Web 不采集客服对话用于知识演进。
 - [x] Knowledge Curator Auto Mode：Telegram 实时回复和 Desktop JSON 可按角色有效期验证作者、重建 reply 线程、脱敏、分类、标准化、去重、检查正式 chunk 冲突并生成质量/风险信息；默认 `auto` 只把确定性路径未覆盖的复杂线程交给已配置模型，模型缺失或单线程失败时安全降级并返回脱敏统计，同时保留 deterministic/required 模式和调用预算。
 - [x] 严格自动知识治理：`knowledge-automation-v1` 以确定性规则验证来源、提取方式、作者时效、最低质量、重复/冲突、风险、Agent lineage 和 prompt injection；合格候选自动批准并入队，其余自动拒绝。模型不能决定发布，正常流程没有逐条人工审核。
@@ -55,6 +57,6 @@
 
 - [ ] 产品知识质量增强：继续补官方文档、X / Twitter 更新和回归样本，让 Product RAG 对新功能更新更稳。
 - [ ] 更多渠道接入：在不改变客服 Agent 核心边界的前提下，继续接入更多入口。
-- [ ] Telegram 知识覆盖增强：有界多消息 reply 线程已接入；后续仍需评估编辑/删除事件，在保持严格自动决策与管理员回复来源约束的前提下补齐变更撤回语义，不引入 `/approve`、`/reject` 逐条人工流程。
+- [x] Telegram 来源变更撤回：编辑事件自动撤回旧候选并重新评估，已发布来源通过持久 tombstone 退出统计和检索；普通群消息删除由管理员在工作台确认群 ID / 消息 ID 后撤回，定期导出可作为删除发现与对账来源。
 - [ ] 安全与隐私增强：继续完善数据保留、删除策略和生产告警；Product RAG 的 prompt injection 隔离与敏感信息脱敏已落地。
 - [ ] 链上生产激活（Goal 20B）待 owner 执行：仓库已提供受控 request/plan、Ed25519 machine attestation、独立数据库 CLI、15 分钟 application window、receipt/8-grant lineage/audit verification、内部 MCP/Skills 与 readiness-gated composition root。真实受控人工账号、四个 service account、authority key/policy evidence、目标生产 Postgres、Provider、workers、主网 corpus 和 readiness attestation 仍未部署；完成前内部入口按设计不能启动，也不声明 production ready。

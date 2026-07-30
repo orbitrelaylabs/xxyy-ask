@@ -5,12 +5,18 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-import { createCustomerAgentChatService } from '@xxyy/agent-core';
+import {
+  createCustomerAgentChatService,
+  loadAnswerQualityRolloutConfig,
+  type AnswerQualityRolloutObservation,
+  type AnswerQualityRolloutObserver,
+} from '@xxyy/agent-core';
 import { createPublicOnchainMcpClient } from '@xxyy/chain-analysis-mcp';
 import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxyy/knowledge';
 import {
   createOpenAiAnswerProvider,
   createPgFeedbackStore,
+  createPgSupportOperationsStore,
   createLazyRetriever,
   createPgPool,
   createPgVectorStore,
@@ -26,20 +32,26 @@ import {
 import type {
   ChatRequest,
   ChatChannel,
+  ChatHistoryMessage,
   ChatResponse,
   ChatStreamEvent,
   KnowledgeRefreshStatus,
+  SourceType,
 } from '@xxyy/shared';
 import { supportedChannels, supportedIntents } from '@xxyy/shared';
 import type {
   AnswerProvider,
   ChatService,
   QualityTracer,
+  PgSupportOperationsStore,
   RagEnv,
   RecordFeedbackInput,
+  SupportMessageRole,
+  SupportEscalationReason,
 } from '@xxyy/rag-core';
 import { renderAdminPage, renderChatPage } from '@xxyy/web';
 
+import { createAgentApiAuthenticator, type AgentApiAuthenticator } from './agent-api-auth.js';
 import {
   createKnowledgeAdminAuthenticator,
   type KnowledgeAdminAuthenticator,
@@ -63,6 +75,14 @@ type ApiEnv = RagEnv &
       | 'API_MAX_BODY_BYTES'
       | 'API_RATE_LIMIT_MAX'
       | 'API_RATE_LIMIT_WINDOW_MS'
+      | 'ANSWER_QUALITY_CLI_MODE'
+      | 'ANSWER_QUALITY_CLI_OPTIMIZED_PERCENTAGE'
+      | 'ANSWER_QUALITY_TELEGRAM_MODE'
+      | 'ANSWER_QUALITY_TELEGRAM_OPTIMIZED_PERCENTAGE'
+      | 'ANSWER_QUALITY_WEB_MODE'
+      | 'ANSWER_QUALITY_OBSERVABILITY_ENABLED'
+      | 'ANSWER_QUALITY_WEB_OPTIMIZED_PERCENTAGE'
+      | 'XXYY_AGENT_API_KEYS_JSON'
       | 'NODE_ENV'
       | 'ONCHAIN_ALLOW_INSECURE_LOCALHOST'
       | 'ONCHAIN_RPC_CONFIG_JSON'
@@ -108,6 +128,7 @@ export type ApiRequestHandler = (
 ) => Promise<void>;
 
 export interface CreateRequestHandlerOptions {
+  answerQualityRolloutObserver?: AnswerQualityRolloutObserver;
   createRequestId?: () => string;
   cwd?: string;
   env?: ApiEnv;
@@ -115,6 +136,8 @@ export interface CreateRequestHandlerOptions {
   getHealthStatus?: () => Promise<DeepHealthStatus>;
   getKnowledgeRefreshStatus?: () => Promise<KnowledgeRefreshStatus>;
   getKnowledgeAdminServices?: () => Promise<KnowledgeAdminServices>;
+  getSupportOperationsStore?: () => Promise<PgSupportOperationsStore>;
+  agentApiAuthenticator?: AgentApiAuthenticator;
   knowledgeAdminAuthenticator?: KnowledgeAdminAuthenticator;
   logger?: ApiLogger;
   now?: () => number;
@@ -138,6 +161,7 @@ interface ApiRuntimeConfig {
   adminRateLimitWindowMs: number;
   corsOrigins: string[];
   enableDeepHealth: boolean;
+  enableRolloutObservability: boolean;
   maxBodyBytes: number;
   rateLimitMax: number;
   rateLimitWindowMs: number;
@@ -201,16 +225,25 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
   const config = loadRagConfig(env);
   const apiConfig = loadApiRuntimeConfig(env);
   const tracer = noopQualityTracer;
+  const answerQualityRolloutObserver =
+    options.answerQualityRolloutObserver ??
+    (apiConfig.enableRolloutObservability ? createConsoleAnswerQualityObserver() : undefined);
   const renderHtml = options.renderHtml ?? renderChatPage;
   const renderKnowledgeAdminHtml = options.renderKnowledgeAdminHtml ?? renderAdminPage;
   const getChatService =
-    options.getChatService ?? createCachedChatServiceLoader(config, tracer, env);
+    options.getChatService ??
+    createCachedChatServiceLoader(config, tracer, env, answerQualityRolloutObserver);
   const getHealthStatus = options.getHealthStatus ?? (() => createDeepHealthStatus(config));
   const getKnowledgeAdminServices =
     options.getKnowledgeAdminServices ?? createCachedKnowledgeAdminServicesLoader({ config, env });
+  const getSupportOperationsStore =
+    options.getSupportOperationsStore ??
+    (isTestRuntime(env) ? undefined : createCachedSupportOperationsStoreLoader(config));
   const knowledgeAdminAuthenticator =
     options.knowledgeAdminAuthenticator ??
     createKnowledgeAdminAuthenticator(env.KNOWLEDGE_ADMIN_TOKENS_JSON);
+  const agentApiAuthenticator =
+    options.agentApiAuthenticator ?? createAgentApiAuthenticator(env.XXYY_AGENT_API_KEYS_JSON);
   const recordFeedback =
     options.recordFeedback ??
     (isTestRuntime(env) ? noopFeedbackRecorder : createCachedFeedbackRecorder(config));
@@ -258,7 +291,10 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
       }
     }
 
-    if (isRateLimitedPostApiRoute(requestUrl.pathname) && request.method === 'POST') {
+    if (
+      (isRateLimitedPostApiRoute(requestUrl.pathname) && request.method === 'POST') ||
+      (requestUrl.pathname === '/api/support/status' && request.method === 'GET')
+    ) {
       const rateLimitResult = rateLimiter.check(clientAddress(request, apiConfig));
       if (!rateLimitResult.allowed) {
         response.setHeader('Retry-After', String(Math.ceil(rateLimitResult.retryAfterMs / 1000)));
@@ -270,9 +306,37 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
       }
     }
 
+    if (
+      requestUrl.pathname.startsWith('/api/v1/') &&
+      requestUrl.pathname !== '/api/v1/openapi.json'
+    ) {
+      if (!agentApiAuthenticator.configured) {
+        sendJson(response, 503, {
+          error: 'agent_api_not_configured',
+          message: 'The versioned Agent API is not configured.',
+        });
+        return;
+      }
+      if (
+        agentApiAuthenticator.authenticate(headerValue(request.headers.authorization)) === undefined
+      ) {
+        response.setHeader('WWW-Authenticate', 'Bearer');
+        sendJson(response, 401, {
+          error: 'unauthorized',
+          message: 'A valid Agent API bearer token is required.',
+        });
+        return;
+      }
+    }
+
     try {
       if (request.method === 'GET' && requestUrl.pathname === '/health') {
         sendJson(response, 200, { status: 'ok' });
+        return;
+      }
+
+      if (request.method === 'GET' && requestUrl.pathname === '/api/v1/openapi.json') {
+        sendJson(response, 200, createAgentApiOpenApiDocument());
         return;
       }
 
@@ -338,7 +402,10 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
         return;
       }
 
-      if (request.method === 'POST' && requestUrl.pathname === '/api/chat') {
+      if (
+        request.method === 'POST' &&
+        (requestUrl.pathname === '/api/chat' || requestUrl.pathname === '/api/v1/chat')
+      ) {
         await handleChatRequest({
           getChatService,
           logger,
@@ -346,6 +413,7 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
           maxBodyBytes: apiConfig.maxBodyBytes,
           now,
           recordFeedback,
+          ...(getSupportOperationsStore === undefined ? {} : { getSupportOperationsStore }),
           request,
           response,
           route: '/api/chat',
@@ -353,7 +421,11 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
         return;
       }
 
-      if (request.method === 'POST' && requestUrl.pathname === '/api/chat/stream') {
+      if (
+        request.method === 'POST' &&
+        (requestUrl.pathname === '/api/chat/stream' ||
+          requestUrl.pathname === '/api/v1/chat/stream')
+      ) {
         await handleChatRequest({
           getChatService,
           logger,
@@ -361,6 +433,7 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
           maxBodyBytes: apiConfig.maxBodyBytes,
           now,
           recordFeedback,
+          ...(getSupportOperationsStore === undefined ? {} : { getSupportOperationsStore }),
           request,
           response,
           route: '/api/chat/stream',
@@ -368,11 +441,74 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
         return;
       }
 
-      if (request.method === 'POST' && requestUrl.pathname === '/api/feedback') {
+      if (
+        request.method === 'POST' &&
+        (requestUrl.pathname === '/api/feedback' || requestUrl.pathname === '/api/v1/feedback')
+      ) {
         const payload = parseFeedbackPayload(await readJsonBody(request, apiConfig.maxBodyBytes));
         await recordFeedback(payload);
         response.statusCode = 204;
         response.end();
+        return;
+      }
+
+      if (
+        request.method === 'POST' &&
+        (requestUrl.pathname === '/api/support/escalate' ||
+          requestUrl.pathname === '/api/v1/support/escalate')
+      ) {
+        if (getSupportOperationsStore === undefined) {
+          sendJson(response, 503, {
+            error: 'support_operations_unavailable',
+            message: 'Support escalation is not configured.',
+          });
+          return;
+        }
+        const payload = parseSupportEscalationPayload(
+          await readJsonBody(request, apiConfig.maxBodyBytes),
+        );
+        const store = await getSupportOperationsStore();
+        const conversation = await store.ensureConversation({
+          channel: payload.channel,
+          externalSessionId: payload.sessionId,
+          ...(payload.userId === undefined ? {} : { userId: payload.userId }),
+        });
+        const ticket = await store.createTicket({
+          conversationId: conversation.id,
+          priority: payload.priority,
+          reason: payload.reason,
+          subject: payload.subject,
+        });
+        sendJson(response, 201, { ticket });
+        return;
+      }
+
+      if (request.method === 'GET' && requestUrl.pathname === '/api/support/status') {
+        if (getSupportOperationsStore === undefined) {
+          sendJson(response, 503, {
+            error: 'support_operations_unavailable',
+            message: 'Support operations are not configured.',
+          });
+          return;
+        }
+        const sessionId = requestUrl.searchParams.get('sessionId')?.trim();
+        if (sessionId === undefined || !isHighEntropySupportSessionId(sessionId)) {
+          throw new BadRequestError('sessionId must be a high-entropy opaque identifier.');
+        }
+        const store = await getSupportOperationsStore();
+        const conversation = await store.getConversationByExternalSessionId(sessionId);
+        if (conversation === undefined) {
+          sendJson(response, 404, {
+            error: 'support_conversation_not_found',
+            message: 'Support conversation was not found.',
+          });
+          return;
+        }
+        const messages = await store.getRecentMessages(conversation.id, { limit: 50 });
+        sendJson(response, 200, {
+          conversation: { status: conversation.status },
+          messages: messages.filter((message) => message.role === 'support_agent'),
+        });
         return;
       }
 
@@ -387,6 +523,7 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
 interface HandleChatRequestOptions {
   createRequestId: () => string;
   getChatService: () => Promise<ChatService>;
+  getSupportOperationsStore?: () => Promise<PgSupportOperationsStore>;
   logger: ApiLogger;
   maxBodyBytes: number;
   now: () => number;
@@ -403,13 +540,43 @@ async function handleChatRequest(options: HandleChatRequestOptions): Promise<voi
     requestId: payload.requestId ?? options.createRequestId(),
   };
   const startedAt = options.now();
-  const chatRequest = toChatRequest(requestPayload);
+  let chatRequest = toChatRequest(requestPayload);
+  let supportConversationId: string | undefined;
 
   try {
+    if (chatRequest.sessionId !== undefined && options.getSupportOperationsStore !== undefined) {
+      const supportStore = await options.getSupportOperationsStore();
+      const conversation = await supportStore.ensureConversation({
+        channel: chatRequest.channel,
+        externalSessionId: chatRequest.sessionId,
+        ...(chatRequest.userId === undefined ? {} : { userId: chatRequest.userId }),
+      });
+      supportConversationId = conversation.id;
+      const previousMessages = await supportStore.getRecentMessages(conversation.id, { limit: 12 });
+      chatRequest = {
+        ...chatRequest,
+        history: previousMessages.flatMap((message) => {
+          const historyMessage = toChatHistoryMessage(message.content, message.role);
+          return historyMessage === undefined ? [] : [historyMessage];
+        }),
+      };
+      await supportStore.appendMessage({
+        content: chatRequest.message,
+        conversationId: conversation.id,
+        role: 'user',
+        ...(chatRequest.requestId === undefined ? {} : { requestId: chatRequest.requestId }),
+      });
+    }
     const service = await options.getChatService();
 
     if (options.route === '/api/chat') {
       const chatResponse = await service.ask(chatRequest);
+      await persistAssistantResponse(
+        options.getSupportOperationsStore,
+        supportConversationId,
+        chatRequest,
+        chatResponse,
+      );
       sendJson(options.response, 200, chatResponse);
       await recordAutomaticLowEvidence(options.recordFeedback, chatRequest, chatResponse);
       options.logger(
@@ -425,6 +592,12 @@ async function handleChatRequest(options: HandleChatRequestOptions): Promise<voi
     }
 
     const summary = await sendChatStream(options.response, service.stream(chatRequest));
+    await persistAssistantStreamSummary(
+      options.getSupportOperationsStore,
+      supportConversationId,
+      chatRequest,
+      summary,
+    );
     await recordAutomaticLowEvidenceFromStream(options.recordFeedback, chatRequest, summary);
     options.logger(
       createChatStreamLogEntry({
@@ -449,23 +622,85 @@ async function handleChatRequest(options: HandleChatRequestOptions): Promise<voi
   }
 }
 
+function toChatHistoryMessage(
+  content: string,
+  role: SupportMessageRole,
+): ChatHistoryMessage | undefined {
+  return role === 'assistant' || role === 'support_agent' || role === 'user'
+    ? { content, role }
+    : undefined;
+}
+
+async function persistAssistantResponse(
+  getStore: (() => Promise<PgSupportOperationsStore>) | undefined,
+  conversationId: string | undefined,
+  request: ChatRequest,
+  response: ChatResponse,
+): Promise<void> {
+  if (getStore === undefined || conversationId === undefined) {
+    return;
+  }
+  const store = await getStore();
+  await store.appendMessage({
+    citationCount: response.citations.length,
+    content: response.answer,
+    conversationId,
+    intent: response.intent,
+    role: 'assistant',
+    ...(request.requestId === undefined ? {} : { requestId: request.requestId }),
+  });
+}
+
+async function persistAssistantStreamSummary(
+  getStore: (() => Promise<PgSupportOperationsStore>) | undefined,
+  conversationId: string | undefined,
+  request: ChatRequest,
+  summary: ChatStreamSummary,
+): Promise<void> {
+  if (
+    getStore === undefined ||
+    conversationId === undefined ||
+    summary.outcome !== 'success' ||
+    summary.answer === undefined ||
+    summary.intent === undefined
+  ) {
+    return;
+  }
+  const store = await getStore();
+  await store.appendMessage({
+    citationCount: summary.citationCount ?? 0,
+    content: summary.answer,
+    conversationId,
+    intent: summary.intent,
+    role: 'assistant',
+    ...(request.requestId === undefined ? {} : { requestId: request.requestId }),
+  });
+}
+
 async function recordAutomaticLowEvidence(
   recordFeedback: FeedbackRecorder,
   request: ChatRequest,
   response: ChatResponse,
 ): Promise<void> {
-  if (!isLowEvidenceProductAnswer(response.intent, response.citations.length)) {
+  const comment = automaticQualityComment(
+    response.intent,
+    response.citations.length,
+    response.answerStatus,
+  );
+  if (comment === undefined) {
     return;
   }
 
   await recordFeedback({
     answer: response.answer,
+    ...(response.answerStatus === undefined ? {} : { answerStatus: response.answerStatus }),
     channel: request.channel,
     citationCount: response.citations.length,
-    comment: 'automatic_low_evidence',
+    comment,
     intent: response.intent,
     question: request.message,
     rating: 'negative',
+    sourceTypes: feedbackSourceTypes(response.citations),
     ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
   }).catch(() => undefined);
 }
@@ -478,21 +713,44 @@ async function recordAutomaticLowEvidenceFromStream(
   if (
     summary.outcome !== 'success' ||
     summary.intent === undefined ||
-    !isLowEvidenceProductAnswer(summary.intent, summary.citationCount ?? 0)
+    automaticQualityComment(summary.intent, summary.citationCount ?? 0, summary.answerStatus) ===
+      undefined
   ) {
+    return;
+  }
+  const comment = automaticQualityComment(
+    summary.intent,
+    summary.citationCount ?? 0,
+    summary.answerStatus,
+  );
+  if (comment === undefined) {
     return;
   }
 
   await recordFeedback({
     answer: summary.answer ?? '',
+    ...(summary.answerStatus === undefined ? {} : { answerStatus: summary.answerStatus }),
     channel: request.channel,
     citationCount: summary.citationCount ?? 0,
-    comment: 'automatic_low_evidence',
+    comment,
     intent: summary.intent,
     question: request.message,
     rating: 'negative',
+    sourceTypes: summary.sourceTypes ?? [],
     ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
   }).catch(() => undefined);
+}
+
+function feedbackSourceTypes(
+  citations: readonly ChatResponse['citations'][number][],
+): SourceType[] {
+  return [
+    ...new Set(
+      citations.flatMap((citation) =>
+        citation.sourceType === undefined ? [] : [citation.sourceType],
+      ),
+    ),
+  ];
 }
 
 function isLowEvidenceProductAnswer(
@@ -502,6 +760,24 @@ function isLowEvidenceProductAnswer(
   return (intent === 'product_qa' || intent === 'how_to') && citationCount === 0;
 }
 
+function automaticQualityComment(
+  intent: ChatResponse['intent'],
+  citationCount: number,
+  answerStatus: ChatResponse['answerStatus'],
+):
+  | 'automatic_evidence_conflict'
+  | 'automatic_low_evidence'
+  | 'automatic_partial_answer'
+  | undefined {
+  if (answerStatus === 'conflict') {
+    return 'automatic_evidence_conflict';
+  }
+  if (answerStatus === 'partial') {
+    return 'automatic_partial_answer';
+  }
+  return isLowEvidenceProductAnswer(intent, citationCount) ? 'automatic_low_evidence' : undefined;
+}
+
 function loadApiRuntimeConfig(env: ApiEnv): ApiRuntimeConfig {
   return {
     adminMaxBodyBytes: parsePositiveInteger(env.KNOWLEDGE_ADMIN_MAX_BODY_BYTES, 5 * 1024 * 1024),
@@ -509,6 +785,7 @@ function loadApiRuntimeConfig(env: ApiEnv): ApiRuntimeConfig {
     adminRateLimitWindowMs: parsePositiveInteger(env.KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS, 60_000),
     corsOrigins: parseCsv(env.API_CORS_ORIGIN),
     enableDeepHealth: parseBoolean(env.API_ENABLE_DEEP_HEALTH, true),
+    enableRolloutObservability: parseBoolean(env.ANSWER_QUALITY_OBSERVABILITY_ENABLED, false),
     maxBodyBytes: parsePositiveInteger(env.API_MAX_BODY_BYTES, 64 * 1024),
     rateLimitMax: parsePositiveInteger(env.API_RATE_LIMIT_MAX, 60),
     rateLimitWindowMs: parsePositiveInteger(env.API_RATE_LIMIT_WINDOW_MS, 60_000),
@@ -606,7 +883,16 @@ function isCorsOriginAllowed(origin: string, allowedOrigins: string[]): boolean 
 
 function isApiRoute(pathname: string): boolean {
   return (
-    pathname === '/api/chat' || pathname === '/api/chat/stream' || pathname === '/api/feedback'
+    pathname === '/api/chat' ||
+    pathname === '/api/chat/stream' ||
+    pathname === '/api/feedback' ||
+    pathname === '/api/support/escalate' ||
+    pathname === '/api/support/status' ||
+    pathname === '/api/v1/chat' ||
+    pathname === '/api/v1/chat/stream' ||
+    pathname === '/api/v1/feedback' ||
+    pathname === '/api/v1/openapi.json' ||
+    pathname === '/api/v1/support/escalate'
   );
 }
 
@@ -1103,6 +1389,7 @@ function createCachedChatServiceLoader(
   config: ReturnType<typeof loadRagConfig>,
   tracer: QualityTracer,
   env: ApiEnv,
+  answerQualityRolloutObserver: AnswerQualityRolloutObserver | undefined,
 ): () => Promise<ChatService> {
   let cachedService: ChatService | undefined;
 
@@ -1135,6 +1422,8 @@ function createCachedChatServiceLoader(
     });
     const publicChainMcpClient = createOptionalPublicOnchainMcpClient(env);
     cachedService = createCustomerAgentChatService({
+      answerQualityRollout: loadAnswerQualityRolloutConfig(env),
+      ...(answerQualityRolloutObserver === undefined ? {} : { answerQualityRolloutObserver }),
       answerProvider: createLazyAnswerProvider(config, tracer),
       config,
       productCapabilityCaller: {
@@ -1185,6 +1474,19 @@ function createCachedFeedbackRecorder(config: ReturnType<typeof loadRagConfig>):
       recorder = (record) => store.recordFeedback(record);
     }
     await recorder(input);
+  };
+}
+
+function createCachedSupportOperationsStoreLoader(
+  config: ReturnType<typeof loadRagConfig>,
+): () => Promise<PgSupportOperationsStore> {
+  let store: PgSupportOperationsStore | undefined;
+  return async () => {
+    if (store === undefined) {
+      const pool = createPgPool(config.databaseUrl);
+      store = createPgSupportOperationsStore({ client: pool });
+    }
+    return store;
   };
 }
 
@@ -1310,6 +1612,150 @@ function parseFeedbackPayload(value: unknown): RecordFeedbackInput {
     rating: record.rating,
     ...(comment === undefined || comment.length === 0 ? {} : { comment }),
     ...(sessionId === undefined || sessionId.length === 0 ? {} : { sessionId }),
+  };
+}
+
+function parseSupportEscalationPayload(value: unknown): {
+  channel: ChatChannel;
+  priority: 'high' | 'low' | 'normal' | 'urgent';
+  reason: SupportEscalationReason;
+  sessionId: string;
+  subject: string;
+  userId?: string;
+} {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new BadRequestError('Request body must be a JSON object.');
+  }
+  const record = value as Record<string, unknown>;
+  const sessionId = parseRequiredString(record.sessionId, 'sessionId');
+  if (!isHighEntropySupportSessionId(sessionId)) {
+    throw new BadRequestError('sessionId must be a high-entropy opaque identifier.');
+  }
+  const subject = parseRequiredString(record.subject, 'subject');
+  const channel = parseOptionalChannel(record.channel) ?? 'web';
+  const reasons: readonly SupportEscalationReason[] = [
+    'account_or_private_data',
+    'explicit_human_request',
+    'low_evidence',
+    'negative_feedback',
+    'repeated_unresolved',
+    'other',
+  ];
+  if (
+    typeof record.reason !== 'string' ||
+    !reasons.includes(record.reason as SupportEscalationReason)
+  ) {
+    throw new BadRequestError(`reason must be one of: ${reasons.join(', ')}.`);
+  }
+  const priorities = ['low', 'normal', 'high', 'urgent'] as const;
+  const priority =
+    record.priority === undefined
+      ? 'normal'
+      : priorities.includes(record.priority as (typeof priorities)[number])
+        ? (record.priority as (typeof priorities)[number])
+        : undefined;
+  if (priority === undefined) {
+    throw new BadRequestError(`priority must be one of: ${priorities.join(', ')}.`);
+  }
+  const userId = parseOptionalString(record.userId, 'userId')?.trim();
+  return {
+    channel,
+    priority,
+    reason: record.reason as SupportEscalationReason,
+    sessionId,
+    subject,
+    ...(userId === undefined || userId.length === 0 ? {} : { userId }),
+  };
+}
+
+function isHighEntropySupportSessionId(value: string): boolean {
+  return (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value) ||
+    /^[A-Za-z0-9_-]{32,256}$/u.test(value)
+  );
+}
+
+function createAgentApiOpenApiDocument(): Record<string, unknown> {
+  const bearerSecurity = [{ bearerAuth: [] }];
+  return {
+    openapi: '3.1.0',
+    info: {
+      title: 'XXYY Agent API',
+      version: '1.0.0',
+      description:
+        'Versioned API for product support chat, streaming, quality feedback, and explicit human escalation.',
+    },
+    servers: [{ url: '/api/v1' }],
+    components: {
+      securitySchemes: {
+        bearerAuth: { scheme: 'bearer', type: 'http' },
+      },
+      schemas: {
+        ChatRequest: {
+          type: 'object',
+          required: ['message'],
+          properties: {
+            channel: { enum: supportedChannels, type: 'string' },
+            message: { minLength: 1, type: 'string' },
+            requestId: { type: 'string' },
+            sessionId: { type: 'string' },
+            userId: { type: 'string' },
+          },
+        },
+        Error: {
+          type: 'object',
+          required: ['error', 'message'],
+          properties: { error: { type: 'string' }, message: { type: 'string' } },
+        },
+      },
+    },
+    paths: {
+      '/chat': {
+        post: {
+          operationId: 'ask',
+          security: bearerSecurity,
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ChatRequest' } },
+            },
+          },
+          responses: {
+            '200': { description: 'Agent answer with citations and confidence.' },
+            '401': { description: 'Invalid API key.' },
+          },
+        },
+      },
+      '/chat/stream': {
+        post: {
+          operationId: 'stream',
+          security: bearerSecurity,
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ChatRequest' } },
+            },
+          },
+          responses: {
+            '200': { description: 'Server-sent Agent status, answer delta, and metadata events.' },
+          },
+        },
+      },
+      '/feedback': {
+        post: {
+          operationId: 'recordFeedback',
+          security: bearerSecurity,
+          responses: { '204': { description: 'Feedback recorded.' } },
+        },
+      },
+      '/support/escalate': {
+        post: {
+          operationId: 'escalate',
+          security: bearerSecurity,
+          responses: { '201': { description: 'Idempotent support ticket created or returned.' } },
+        },
+      },
+    },
   };
 }
 
@@ -1475,12 +1921,14 @@ interface ChatStreamSummary {
   outcome: 'success' | 'error';
   statusCode: number;
   answer?: string;
+  answerStatus?: ChatResponse['answerStatus'];
   agentRoute?: ChatResponse['agentRoute'];
   attachmentCount?: number;
   citationCount?: number;
   confidence?: number;
   error?: string;
   intent?: ChatResponse['intent'];
+  sourceTypes?: SourceType[];
 }
 
 async function sendChatStream(
@@ -1509,11 +1957,13 @@ async function sendChatStream(
     }
     return {
       answer,
+      ...(metadata?.answerStatus === undefined ? {} : { answerStatus: metadata.answerStatus }),
       attachmentCount: metadata?.attachments?.length ?? 0,
       ...(metadata?.agentRoute === undefined ? {} : { agentRoute: metadata.agentRoute }),
       citationCount: metadata?.citations.length ?? 0,
       ...(metadata?.confidence === undefined ? {} : { confidence: metadata.confidence }),
       ...(metadata?.intent === undefined ? {} : { intent: metadata.intent }),
+      ...(metadata === undefined ? {} : { sourceTypes: feedbackSourceTypes(metadata.citations) }),
       outcome: 'success',
       statusCode: 200,
     };
@@ -1596,6 +2046,14 @@ function noopLogger(_entry: ApiLogEntry): void {}
 function createConsoleApiLogger(): ApiLogger {
   return (entry) => {
     process.stdout.write(`${JSON.stringify({ ...entry, timestamp: new Date().toISOString() })}\n`);
+  };
+}
+
+function createConsoleAnswerQualityObserver(): AnswerQualityRolloutObserver {
+  return (observation: AnswerQualityRolloutObservation) => {
+    process.stdout.write(
+      `${JSON.stringify({ event: 'answer_quality_rollout', ...observation })}\n`,
+    );
   };
 }
 

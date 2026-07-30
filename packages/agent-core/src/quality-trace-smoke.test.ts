@@ -74,6 +74,7 @@ describe('quality trace end-to-end smoke', () => {
       'agent.observe',
       'agent.answer_composer',
       'rag.grounding_selection',
+      'rag.fact_extraction',
       'llm.answer',
       'rag.claim_grounding',
     ]);

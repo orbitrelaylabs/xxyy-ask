@@ -2,8 +2,10 @@ import { createLocalHashEmbedding, tokenize } from '@xxyy/knowledge';
 import type { IndexEntry, RagIndex, SourceType } from '@xxyy/shared';
 
 import { extractSupportEntityTokens, supportEntityEvidenceBoost } from './support-entity.js';
+import type { ProductRetrievalPolicy } from './product-question.js';
 
 export interface RetrieveOptions {
+  policy?: ProductRetrievalPolicy;
   topK?: number;
 }
 
@@ -59,6 +61,7 @@ export function retrieve(
   const averageDocumentLength = averageTokenLength(eligibleEntries);
   const queryEmbedding = createLocalHashEmbedding(createSemanticRetrieveQuery(question));
 
+  const anchorDocumentIds = options.policy?.anchorDocumentIds ?? [];
   const scored = eligibleEntries
     .map((entry) => {
       const lexicalScore = calculateBm25(
@@ -101,16 +104,47 @@ export function retrieve(
     })
     .filter(
       (entry) =>
+        anchorDocumentIds.includes(entry.documentId) ||
         entry.lexicalScore > 0 ||
         (entry.lexicalScore === 0 && entry.vectorScore >= VECTOR_ONLY_MATCH_THRESHOLD),
     )
-    .sort(compareScoredEntries)
-    .slice(0, topK);
+    .sort(compareScoredEntries);
 
-  return scored.map((entry, indexOfEntry) => ({
+  return pinRetrievalPolicyAnchors(scored, anchorDocumentIds, topK).map((entry, indexOfEntry) => ({
     ...entry,
     rank: indexOfEntry + 1,
   }));
+}
+
+export function pinRetrievalPolicyAnchors<T extends { documentId: string }>(
+  chunks: readonly T[],
+  anchorDocumentIds: readonly string[],
+  topK: number,
+): T[] {
+  if (anchorDocumentIds.length === 0) {
+    return chunks.slice(0, topK);
+  }
+  const selected: T[] = [];
+  const selectedChunks = new Set<T>();
+  for (const documentId of anchorDocumentIds) {
+    const anchor = chunks.find(
+      (chunk) => chunk.documentId === documentId && !selectedChunks.has(chunk),
+    );
+    if (anchor !== undefined && selected.length < topK) {
+      selected.push(anchor);
+      selectedChunks.add(anchor);
+    }
+  }
+  for (const chunk of chunks) {
+    if (selected.length >= topK) {
+      break;
+    }
+    if (!selectedChunks.has(chunk)) {
+      selected.push(chunk);
+      selectedChunks.add(chunk);
+    }
+  }
+  return selected;
 }
 
 function selectEligibleEntries(question: string, entries: IndexEntry[]): IndexEntry[] {

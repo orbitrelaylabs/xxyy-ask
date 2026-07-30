@@ -6,6 +6,11 @@ import {
   type RagEnv,
 } from '@xxyy/rag-core';
 import { createPublicOnchainMcpClient } from '@xxyy/chain-analysis-mcp';
+import {
+  loadAnswerQualityRolloutConfig,
+  type AnswerQualityRolloutEnv,
+  type AnswerQualityRolloutObservation,
+} from '@xxyy/agent-core';
 
 import {
   TelegramBotConfigurationError,
@@ -25,6 +30,13 @@ type TelegramEnv = RagEnv &
     Record<
       | 'INIT_CWD'
       | 'NODE_ENV'
+      | 'ANSWER_QUALITY_CLI_MODE'
+      | 'ANSWER_QUALITY_CLI_OPTIMIZED_PERCENTAGE'
+      | 'ANSWER_QUALITY_OBSERVABILITY_ENABLED'
+      | 'ANSWER_QUALITY_TELEGRAM_MODE'
+      | 'ANSWER_QUALITY_TELEGRAM_OPTIMIZED_PERCENTAGE'
+      | 'ANSWER_QUALITY_WEB_MODE'
+      | 'ANSWER_QUALITY_WEB_OPTIMIZED_PERCENTAGE'
       | 'ONCHAIN_ALLOW_INSECURE_LOCALHOST'
       | 'ONCHAIN_RPC_CONFIG_JSON'
       | 'TELEGRAM_API_BASE_URL',
@@ -61,11 +73,17 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
             ONCHAIN_RPC_CONFIG_JSON: workspaceEnv.ONCHAIN_RPC_CONFIG_JSON,
           },
         });
-  const runtime = createTelegramChatRuntime(
-    config,
-    undefined,
-    publicChainMcpClient === undefined ? {} : { publicChainMcpClient },
-  );
+  const runtime = createTelegramChatRuntime(config, undefined, {
+    answerQualityRollout: loadAnswerQualityRolloutConfig(workspaceEnv as AnswerQualityRolloutEnv),
+    ...(parseBoolean(workspaceEnv.ANSWER_QUALITY_OBSERVABILITY_ENABLED, false)
+      ? {
+          answerQualityRolloutObserver: (observation: AnswerQualityRolloutObservation) => {
+            logger.info(JSON.stringify({ event: 'answer_quality_rollout', ...observation }));
+          },
+        }
+      : {}),
+    ...(publicChainMcpClient === undefined ? {} : { publicChainMcpClient }),
+  });
   const knowledgeRuntime = createTelegramKnowledgeAutomationRuntime({
     botToken: botConfig.botToken,
     config,
@@ -116,6 +134,17 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
     process.off('SIGTERM', stop);
     await Promise.all([runtime.close(), knowledgeRuntime.close()]);
   }
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
+    ? true
+    : ['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase())
+      ? false
+      : fallback;
 }
 
 try {

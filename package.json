@@ -6,6 +6,7 @@
   "scripts": {
     "admin:token:create": "node scripts/create-knowledge-admin-token.mjs",
     "agent:smoke": "node scripts/agent-smoke.mjs",
+    "agent:api-key:create": "node scripts/create-agent-api-key.mjs",
     "app:down": "docker compose down",
     "api:dev": "pnpm --filter @xxyy/api start",
     "app:dev": "node scripts/start-agent.mjs",
@@ -42,6 +43,9 @@
     "rag:ask": "pnpm --filter @xxyy/cli rag:ask",
     "rag:evaluate": "pnpm --filter @xxyy/cli rag:evaluate",
     "rag:feedback:backlog": "pnpm --filter @xxyy/cli rag:feedback:backlog",
+    "rag:feedback:promote": "pnpm --filter @xxyy/cli rag:feedback:promote",
+    "rag:rollout:gate": "pnpm --filter @xxyy/cli rag:rollout:gate",
+    "rag:rollout:evidence": "pnpm --filter @xxyy/cli rag:rollout:evidence",
     "rag:ingest": "pnpm --filter @xxyy/cli rag:ingest",
     "rag:knowledge:approve": "pnpm --filter @xxyy/cli rag:knowledge:approve",
     "rag:knowledge:automation:work": "pnpm --filter @xxyy/cli rag:knowledge:automation:work",

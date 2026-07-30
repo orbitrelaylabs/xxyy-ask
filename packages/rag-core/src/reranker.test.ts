@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import type { RetrievedChunk } from './retrieve.js';
 import { createInMemoryQualityTracer } from './quality-trace.js';
-import { createMetadataReranker, createRerankingRetriever, type Retriever } from './retriever.js';
+import {
+  applyProductRetrievalPolicy,
+  createMetadataReranker,
+  createRerankingRetriever,
+  type Retriever,
+} from './retriever.js';
 
 describe('createRerankingRetriever', () => {
   it('keeps default retrieval order when no reranker is provided', async () => {
@@ -370,6 +375,84 @@ describe('createRerankingRetriever', () => {
   });
 });
 
+describe('applyProductRetrievalPolicy', () => {
+  it('pins a governed document anchor when it is present in the candidate set', () => {
+    const results = applyProductRetrievalPolicy(
+      [
+        createChunk({ id: 'generic-1', score: 3, title: '产品更新' }),
+        createChunk({ id: 'generic-2', score: 2, title: '功能说明' }),
+        createChunk({
+          documentId: 'official_docs:pages/00-current-capability-overview',
+          id: 'overview',
+          score: 1,
+          title: 'XXYY 当前支持的产品功能总览',
+        }),
+      ],
+      {
+        anchorDocumentIds: ['official_docs:pages/00-current-capability-overview'],
+        diversity: 'balanced',
+        preferredSourceTypes: ['admin_verified', 'official_docs', 'x_updates'],
+        temporalScope: 'current',
+        version: '1',
+      },
+      2,
+    );
+
+    expect(results.map((chunk) => chunk.id)).toEqual(['overview', 'generic-1']);
+  });
+
+  it('selects another document before repeated chunks from the same document', () => {
+    const results = applyProductRetrievalPolicy(
+      [
+        createChunk({ documentId: 'doc-a', id: 'doc-a-1', score: 3, title: '交易' }),
+        createChunk({ documentId: 'doc-a', id: 'doc-a-2', score: 2, title: '挂单' }),
+        createChunk({ documentId: 'doc-b', id: 'doc-b-1', score: 1, title: '钱包' }),
+      ],
+      {
+        anchorDocumentIds: [],
+        diversity: 'balanced',
+        preferredSourceTypes: ['official_docs', 'admin_verified', 'x_updates'],
+        temporalScope: 'current',
+        version: '1',
+      },
+      2,
+    );
+
+    expect(results.map((chunk) => chunk.id)).toEqual(['doc-a-1', 'doc-b-1']);
+  });
+
+  it('applies intent source and temporal preferences without filtering evidence', () => {
+    const results = applyProductRetrievalPolicy(
+      [
+        createChunk({
+          id: 'historical-doc',
+          score: 3,
+          sourceType: 'official_docs',
+          status: 'historical',
+          title: '历史说明',
+        }),
+        createChunk({
+          id: 'current-x',
+          score: 2,
+          sourceType: 'x_updates',
+          status: 'current',
+          title: '最新更新',
+        }),
+      ],
+      {
+        anchorDocumentIds: [],
+        diversity: 'none',
+        preferredSourceTypes: ['x_updates', 'official_docs', 'admin_verified'],
+        temporalScope: 'current',
+        version: '1',
+      },
+      2,
+    );
+
+    expect(results.map((chunk) => chunk.id)).toEqual(['current-x', 'historical-doc']);
+  });
+});
+
 function createBaseRetriever(chunks: RetrievedChunk[]): Retriever {
   return {
     retrieve(_question, options) {
@@ -379,6 +462,7 @@ function createBaseRetriever(chunks: RetrievedChunk[]): Retriever {
 }
 
 function createChunk(input: {
+  documentId?: string;
   effectiveAt?: string;
   id: string;
   module?: string;
@@ -390,7 +474,7 @@ function createChunk(input: {
 }): RetrievedChunk {
   const text = input.text ?? `${input.title} 内容。`;
   return {
-    documentId: input.id,
+    documentId: input.documentId ?? input.id,
     embedding: [],
     id: input.id,
     lexicalScore: 1,

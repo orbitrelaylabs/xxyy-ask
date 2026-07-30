@@ -436,7 +436,9 @@ describe('planner model', () => {
       expect.stringContaining('original complete user question'),
     );
     expect(systemMessage?.content).toEqual(
-      expect.stringContaining('The first search always uses the original question'),
+      expect.stringContaining(
+        'The first search may use the runtime-validated standalone question or bounded query plan',
+      ),
     );
     expect(systemMessage?.content).toEqual(expect.stringContaining('missingFacets'));
     expect(systemMessage?.content).toEqual(

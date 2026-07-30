@@ -72,6 +72,8 @@ export const supportedAgentRoutes = [
 ] as const;
 
 export type AgentRoute = (typeof supportedAgentRoutes)[number];
+export const supportedAnswerStatuses = ['complete', 'partial', 'insufficient', 'conflict'] as const;
+export type AnswerStatus = (typeof supportedAnswerStatuses)[number];
 
 const supportedStreamStatusPhases = ['planning', 'retrieving', 'answering'] as const;
 
@@ -100,9 +102,15 @@ export const knowledgeSourceCatalog = {
 export interface ChatRequest {
   message: string;
   channel: ChatChannel;
+  history?: ChatHistoryMessage[];
   requestId?: string;
   sessionId?: string;
   userId?: string;
+}
+
+export interface ChatHistoryMessage {
+  content: string;
+  role: 'assistant' | 'support_agent' | 'user';
 }
 
 export interface Citation {
@@ -140,6 +148,7 @@ export interface ChatResponse {
   citations: Citation[];
   confidence: number;
   agentRoute?: AgentRoute;
+  answerStatus?: AnswerStatus;
   attachments?: ChatAttachment[];
   tokenUsage?: ChatTokenUsage;
 }
@@ -190,6 +199,7 @@ export const chatTokenUsageSchema = z.object({
 export const chatResponseSchema = z.object({
   agentRoute: z.enum(supportedAgentRoutes).optional(),
   answer: z.string(),
+  answerStatus: z.enum(supportedAnswerStatuses).optional(),
   attachments: z.array(chatAttachmentSchema).optional(),
   citations: z.array(citationSchema),
   confidence: z.number(),
@@ -210,6 +220,7 @@ export const chatStreamEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('metadata'),
     agentRoute: z.enum(supportedAgentRoutes).optional(),
+    answerStatus: z.enum(supportedAnswerStatuses).optional(),
     attachments: z.array(chatAttachmentSchema).optional(),
     citations: z.array(citationSchema),
     confidence: z.number(),
@@ -234,6 +245,7 @@ export type ChatStreamEvent =
       citations: Citation[];
       confidence: number;
       agentRoute?: AgentRoute;
+      answerStatus?: AnswerStatus;
       attachments?: ChatAttachment[];
       tokenUsage?: ChatTokenUsage;
     };

@@ -26,6 +26,7 @@ packages/
   knowledge/    产品文档加载、Markdown chunk、tokenize、embedding provider
   rag-core/     意图分类、检索、pgvector store、LLM 回答和边界回复
   agent-core/   LangGraph 客服 runtime、tool registry，以及已接入产品检索的 MCP/Skill capability plane
+  agent-sdk/    版本化 HTTP API 的可复用 TypeScript 客户端
   product-qa-mcp/  只读产品知识 MCP server/client、Skill Resource/Prompt 和 stdio 入口
   chain-analysis-mcp/  通用 EVM/Solana 交易查询与 EVM Sandwich MCP server/client、Skill Resource/Prompt
   transaction-analysis-core/  无网络依赖、由内部 Chain MCP 组合的只读 EVM 交易事实计算
@@ -93,6 +94,14 @@ OPENAI_MAX_RETRIES=1
 
 RAG_TOP_K=6
 
+ANSWER_QUALITY_WEB_MODE=optimized
+ANSWER_QUALITY_WEB_OPTIMIZED_PERCENTAGE=100
+ANSWER_QUALITY_TELEGRAM_MODE=optimized
+ANSWER_QUALITY_TELEGRAM_OPTIMIZED_PERCENTAGE=100
+ANSWER_QUALITY_CLI_MODE=optimized
+ANSWER_QUALITY_CLI_OPTIMIZED_PERCENTAGE=100
+ANSWER_QUALITY_OBSERVABILITY_ENABLED=false
+
 KNOWLEDGE_AUTO_REFRESH_ENABLED=false
 KNOWLEDGE_AUTO_REFRESH_INCREMENTAL_DAILY_AT=08:00
 KNOWLEDGE_AUTO_REFRESH_TIME_ZONE=Asia/Shanghai
@@ -104,6 +113,7 @@ API_MAX_BODY_BYTES=65536
 API_RATE_LIMIT_MAX=60
 API_RATE_LIMIT_WINDOW_MS=60000
 TRUST_PROXY=false
+XXYY_AGENT_API_KEYS_JSON=
 KNOWLEDGE_ADMIN_TOKENS_JSON=
 KNOWLEDGE_ADMIN_MAX_BODY_BYTES=5242880
 KNOWLEDGE_ADMIN_RATE_LIMIT_MAX=30
@@ -116,6 +126,26 @@ TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES=12
 ```
 
 数据库默认从 `POSTGRES_*` 组装连接串；使用托管数据库时可以配置 `DATABASE_URL` 覆盖。`OPENAI_*` 配置 Chat/Planner；`EMBEDDING_API_KEY` 和 `EMBEDDING_BASE_URL` 可把向量请求发送到独立的 OpenAI-compatible 服务，未配置时回退使用 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。`pnpm run app:up` 会把 `ONCHAIN_RPC_CONFIG_JSON` 和 `ONCHAIN_ALLOW_INSECURE_LOCALHOST` 显式映射给 API 与 Telegram；未配置时产品客服仍可用，但公开交易查询会返回配置提示。当 `OPENAI_BASE_URL` 指向宿主机上的本地服务时，设置 `COMPOSE_OPENAI_BASE_URL=http://host.docker.internal:<端口>/v1`，让容器访问宿主机，同时保留 `app:dev` 使用的 `localhost` 地址。OpenAI-compatible 请求默认 30 秒超时、重试 1 次。默认 embedding 维度是 `1536`，匹配 `text-embedding-3-small`；更换 embedding 模型和维度时需要同步调整 `EMBEDDING_DIMENSION`，备份数据库后显式运行 `pnpm rag:ingest -- --rebuild-embedding-schema`。`.env.example` 会列出当前代码支持的环境变量。
+
+回答质量流程可以按 Web、Telegram 和 CLI 独立设置 `optimized`、`legacy` 或 `shadow`。`shadow` 按对应的 `*_OPTIMIZED_PERCENTAGE` 稳定选择主流程，同时在后台运行另一流程；只把主回答返回给用户，追踪中仅保存路线、状态、来源类型、引用数量差、答案指纹是否一致、延迟和 Token 差，不保存两份回答正文或具体答案指纹，也不从 Shadow 结果创建知识候选。Shadow 或灰度前应设置 `ANSWER_QUALITY_OBSERVABILITY_ENABLED=true`；Web API 和 Telegram 会输出 `event=answer_quality_rollout` 的 JSON line，记录渠道、模式、稳定分流比例、主/影子流程和上述脱敏差异，不包含问题、答案、用户 ID、会话 ID或请求 ID。紧急回滚可只把受影响渠道的 `*_MODE` 改为 `legacy`；回滚只切换 Query Plan、多轮补检和证据充分性策略，不改变客服边界、工具授权或知识发布门禁。
+
+真实 Shadow/灰度观察结束后，先使用 `pnpm rag:rollout:evidence` 从严格 JSONL 和已审批控制文件生成证据包，再使用 `pnpm rag:rollout:gate` 校验预先批准的质量、P95、错误率、人工抽检和供应商账单预算。缺少任一证据时命令失败关闭；完整命令、格式和模板见 `docs/eval/README.md`。
+
+本地 Docker Compose 会把这些变量显式传给 API 和 Telegram。可用下面的方式启动 10%
+本地 Shadow；门禁通过后把两个 `*_MODE` 改为 `optimized`、比例改为 `100` 重新执行即可
+本地扩量，改成 `legacy` 和 `0` 可验证回滚：
+
+```bash
+ANSWER_QUALITY_OBSERVABILITY_ENABLED=true \
+ANSWER_QUALITY_WEB_MODE=shadow \
+ANSWER_QUALITY_WEB_OPTIMIZED_PERCENTAGE=10 \
+ANSWER_QUALITY_TELEGRAM_MODE=shadow \
+ANSWER_QUALITY_TELEGRAM_OPTIMIZED_PERCENTAGE=10 \
+docker compose up --detach --build api telegram
+```
+
+这些 shell 覆盖只作用于本次容器创建；外部部署仍应在受控环境配置中持久化，并重新执行独立
+审批和观察窗口。
 
 例如 Chat/Planner 使用 Sub2API Grok、embedding 使用独立服务：
 
@@ -276,6 +306,8 @@ pnpm chain:mcp:serve
 - `pnpm rag:migrate` 只执行非破坏性数据库迁移，不调用 embedding 或 LLM；若检测到现有向量维度不匹配会明确失败，不会自动删列。
 - `pnpm rag:stats` 查看文档数、chunk 数、source URL 数、最新 chunk 更新时间和最近一次 ingestion run。
 - `pnpm rag:evaluate` 运行便宜的 deterministic golden QA 子集；`pnpm rag:evaluate -- --provider` 使用正式 Agent/pgvector/OpenAI-compatible provider 做人工全链路评估。
+- `pnpm rag:evaluate -- --report-out .rag/quality-report.json` 生成不含回答正文的版本化发布前报告；加 `--baseline .rag/quality-baseline.json` 会拒绝用例通过率、Recall、MRR 或 nDCG 回退。Provider 模式还会在 P95 延迟或总 Token 相对基线增加超过 20% 时失败。
+- `pnpm rag:evaluate -- --provider --case <golden-name>` 可按精确用例名做低成本诊断抽检；可重复传入，未知名称失败关闭。局部抽检不能与 `--baseline` 联用，也不能替代全量发布门禁。
 - `pnpm rag:evaluate -- --provider --judge` 在人工验收时额外使用 `EVAL_JUDGE_MODEL` 评分；judge 不进入默认 `pnpm check`，也不会回退复用 `OPENAI_MODEL`。
 - `pnpm rag:evaluate -- --failures-out .rag/eval-failures.jsonl` 把失败项写成已脱敏、必须人工审核的 JSONL，不会直接修改 golden QA。
 - `pnpm rag:ask` 从命令行调用客服 Agent。
@@ -308,7 +340,7 @@ EVAL_JUDGE_MODEL=your-judge-model pnpm rag:evaluate -- --provider --judge
 pnpm rag:evaluate -- --provider --failures-out .rag/provider-failures.jsonl
 ```
 
-LLM judge 只是辅助信号，不能替代 deterministic gate 和人工核验。失败 JSONL 与 `pnpm rag:feedback:backlog` 一样属于 review queue；审核者应核对官方来源、补齐精确 facts/chunk IDs/引用要求，再把去隐私后的稳定案例加入 `docs/eval/golden-qa.jsonl`。完整规则见 [docs/eval/README.md](docs/eval/README.md)。
+LLM judge 只是辅助信号，不能替代 deterministic gate 和人工核验。失败 JSONL 与 `pnpm rag:feedback:backlog` 一样属于 review queue；审核者应核对官方来源、补齐精确 facts/chunk IDs/引用要求并添加审核签名，再用 `pnpm rag:feedback:promote -- .rag/reviewed-feedback.jsonl --reviewer <id>` 将去隐私后的稳定案例受控晋升到 Golden QA。该命令不会写知识库。完整规则见 [docs/eval/README.md](docs/eval/README.md)。
 
 Provider-backed 评测只使用进程内质量追踪记录，不向外部追踪平台上传请求、知识片段或回答内容；进程结束后记录即释放。
 
@@ -329,6 +361,8 @@ pnpm run telegram:dev
 配置 `TELEGRAM_BOT_TOKEN` 后，Bot 会通过 long polling 接收消息，并以 `channel: "telegram"` 调用同一套 LangGraph 客服 Agent。私聊文本直接触发回答；group/supergroup 中的普通消息只用于静默学习观察，只有 Bot 命令、精确 `@BotUsername` 或直接回复当前 Bot 的消息才触发客服回答。Bot 通过 `getMe` 获取并缓存自身 ID/username；身份暂不可用时群聊回答失败关闭并在后续消息重试，不会退化为回复所有群消息。
 
 设置 `TELEGRAM_AUTO_LEARNING_ENABLED=true` 后，group/supergroup 会在内存中保留最多 `TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES` 条同一 reply 对话链；当前管理员回复用户时，Bot 会让 Knowledge Curator 分析多轮上下文，自动生成、决定并排队群聊知识。原始群聊不会整批持久化，关闭开关会立即清除该群的内存上下文；匿名管理员、Bot、`sender_chat` 和无法验证身份的回复不会入库。要采集普通群消息，需要关闭 BotFather Privacy Mode，或把 Bot 设为群管理员，并授予查询管理员列表所需权限；即使 Bot 能看到全群消息，客服回答门禁仍只接受命令、@ 提及和对 Bot 的回复。图片附件公网 URL、轮询超时和重试间隔都有默认处理。
+
+Bot 同时订阅 `edited_message`：编辑管理员答案会先撤回旧候选；已发布来源还会写持久 tombstone，使旧 chunks 立即退出统计和检索，再重新评估新内容。Telegram Bot API 不提供通用删除事件；管理员可在客服工作台按群 ID / 消息 ID 确认删除并执行同样的安全撤回，定期导出可作为删除对账来源。
 
 Bot 菜单中的 `/learning` 显示本群自动学习状态、上下文上限、候选/发布进度和最近分析时间。当前群管理员可用 `/learning_on`、`/learning_off` 持久化开关；身份由 Telegram `getChatAdministrators` 或有效期内的 `owner` / `administrator` 可信作者记录验证，变更写入独立设置表和追加式审计事件。该入口只存在于 Telegram，Web 聊天页不采集对话用于知识演进。
 
@@ -363,6 +397,8 @@ GET /api/knowledge-refresh-status
 POST /api/chat
 POST /api/chat/stream
 POST /api/feedback
+POST /api/support/escalate
+GET /api/support/status?sessionId=...
 ```
 
 请求示例：
@@ -382,6 +418,19 @@ GET /assets/*
 
 用于返回产品文档中的视频、图片等静态资源。
 
+外部复用使用认证和版本化接口：
+
+```http
+GET  /api/v1/openapi.json
+POST /api/v1/chat
+POST /api/v1/chat/stream
+POST /api/v1/feedback
+POST /api/v1/support/escalate
+```
+
+运行 `pnpm agent:api-key:create -- partner-service` 生成只显示一次的 Key 和
+`XXYY_AGENT_API_KEYS_JSON` 哈希记录。`packages/agent-sdk` 提供 `createXxyyAgentClient()`，封装问答、SSE、反馈和转人工；未配置 Key 时 `/api/v1` 失败关闭。
+
 受保护的知识管理面：
 
 ```http
@@ -397,13 +446,17 @@ GET /admin/api/publications
 POST /admin/api/publications/:id/retry
 GET|POST /admin/api/trusted-authors
 POST /admin/api/imports/telegram
+GET /admin/api/support/metrics
+GET|PATCH /admin/api/support/tickets/:id
+GET|POST /admin/api/support/conversations/:id/messages
+GET /admin/api/support/knowledge-gaps
 ```
 
 `/admin/api/*` 必须使用 `Authorization: Bearer <token>`，并按 `viewer`、`reviewer`、`publisher`、`admin` 实施 RBAC。管理令牌只保存 SHA-256 哈希；未配置 `KNOWLEDGE_ADMIN_TOKENS_JSON` 时管理 API 返回 `503`，公开聊天不受影响。管理页面主要用于自动治理可观测与紧急恢复；日常发布不依赖人工登录。页面使用同源请求、严格 CSP、`no-store` 和独立限流，不给公开 `/api/chat` 增加鉴权。
 
 通过 `pnpm run app:dev` 或 `pnpm run api:dev` 启动的 API 会为 `/api/chat` 和 `/api/chat/stream` 输出 JSON line 结构化日志，包含 channel、intent、agentRoute、引用数、耗时、状态码、错误码、消息长度和脱敏截断后的消息预览等字段。日志只记录 `sessionId/userId` 是否存在，不打印用户 ID 明文，并会脱敏密钥、交易哈希、地址、邮箱和手机号等敏感片段。
 
-API 默认限制 JSON 请求体最大 `65536` 字节，并对 `/api/chat`、`/api/chat/stream` 和 `/api/feedback` 按客户端地址做 `60` 次 / `60000` 毫秒的基础限流。默认不信任 `x-forwarded-for` / `x-real-ip`；只有服务确实位于可信反向代理后，才设置 `TRUST_PROXY=true`。客服问答和反馈接口不要求鉴权。Web 的 👍/👎 会写入 `rag_feedback`；Web/Telegram 中无引用的产品问答也会自动记录为 `automatic_low_evidence`，只进入离线评测和质量告警，不会进入知识自动发布路径。跨域接入前端时配置 `API_CORS_ORIGIN`，支持单个 origin、逗号分隔多个 origin 或 `*`。公开部署前请先阅读 [production readiness](docs/production-readiness.md)。
+API 默认限制 JSON 请求体最大 `65536` 字节，并对聊天、反馈、转人工和人工回复轮询按客户端地址做基础限流。默认不信任 `x-forwarded-for` / `x-real-ip`；只有服务确实位于可信反向代理后，才设置 `TRUST_PROXY=true`。同源客服问答和反馈接口不要求鉴权，`/api/v1` 外部接口要求独立 Bearer Key。Web 的 👍/👎 会写入 `rag_feedback`；Web/Telegram 中无引用的产品问答也会自动记录为 `automatic_low_evidence`，只进入后台知识缺口和离线评测队列，不会直接进入知识自动发布路径。完整客服系统 Goal、数据流与限制见 [docs/agent-customer-service-goal.md](docs/agent-customer-service-goal.md)。跨域接入前端时配置 `API_CORS_ORIGIN`，支持单个 origin、逗号分隔多个 origin 或 `*`。公开部署前请先阅读 [production readiness](docs/production-readiness.md)。
 
 ## 边界
 

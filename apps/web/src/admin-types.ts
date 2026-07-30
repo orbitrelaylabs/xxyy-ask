@@ -3,6 +3,8 @@ export type AdminPermission =
   | 'candidate:review'
   | 'import:telegram'
   | 'publication:request'
+  | 'support:manage'
+  | 'support:read'
   | 'trusted_author:manage';
 
 export type CandidateStatus = 'approved' | 'pending' | 'published' | 'rejected';
@@ -17,6 +19,135 @@ export interface AdminPrincipal {
 export interface AdminSession {
   permissions: AdminPermission[];
   principal: AdminPrincipal;
+}
+
+export type SupportTicketStatus = 'closed' | 'in_progress' | 'open' | 'resolved' | 'waiting_user';
+export type SupportTicketPriority = 'high' | 'low' | 'normal' | 'urgent';
+
+export interface SupportTicket {
+  conversationId: string;
+  createdAt: string;
+  id: string;
+  priority: SupportTicketPriority;
+  reason:
+    | 'account_or_private_data'
+    | 'explicit_human_request'
+    | 'low_evidence'
+    | 'negative_feedback'
+    | 'other'
+    | 'repeated_unresolved';
+  status: SupportTicketStatus;
+  subject: string;
+  updatedAt: string;
+  assignedTo?: string;
+  resolution?: string;
+  resolvedAt?: string;
+}
+
+export interface SupportOperationsMetrics {
+  activeConversationCount: number;
+  openTicketCount: number;
+  unassignedTicketCount: number;
+  waitingUserTicketCount: number;
+}
+
+export interface SupportConversation {
+  channel: 'cli' | 'telegram' | 'web';
+  createdAt: string;
+  externalSessionId: string;
+  id: string;
+  lastMessageAt: string;
+  status: 'closed' | 'escalated' | 'open' | 'resolved';
+  updatedAt: string;
+  summary?: string;
+  userIdHash?: string;
+}
+
+export interface SupportConversationMessage {
+  content: string;
+  conversationId: string;
+  createdAt: string;
+  id: string;
+  role: 'assistant' | 'support_agent' | 'system' | 'user';
+  citationCount?: number;
+  intent?: string;
+  requestId?: string;
+}
+
+export interface KnowledgeGapRecord {
+  answer: string;
+  channel: 'cli' | 'telegram' | 'web';
+  citationCount: number;
+  createdAt: string;
+  intent: string;
+  question: string;
+  rating: 'negative' | 'positive';
+  diagnosis: {
+    category: 'boundary' | 'classification' | 'generation' | 'knowledge' | 'retrieval';
+    knowledgeCandidateEligible: false;
+    reason: string;
+    recommendedAction: string;
+  };
+  quality: {
+    evidence: {
+      answerStatus: 'complete' | 'conflict' | 'insufficient' | 'partial';
+      citationCount: number;
+      conflictCount: number;
+      coverageState: 'none' | 'partial' | 'unknown';
+      observedSourceTypes: Array<'admin_verified' | 'official_docs' | 'x_updates'>;
+      sourceObservation: 'available' | 'unavailable';
+      stopReason:
+        | 'answer_completed'
+        | 'evidence_conflict'
+        | 'insufficient_evidence'
+        | 'partial_answer';
+    };
+    queryPlan: {
+      maxSearches: number;
+      queries: Array<{
+        preferredSourceTypes: Array<'admin_verified' | 'official_docs' | 'x_updates'>;
+        query: string;
+        facet?: string;
+      }>;
+      requiredFacets: string[];
+      strategy: 'clarify' | 'multi_query' | 'single';
+      version: '1';
+    };
+    retrievalPolicy: {
+      anchorDocumentIds: string[];
+      diversity: 'balanced' | 'none';
+      preferredSourceTypes: Array<'admin_verified' | 'official_docs' | 'x_updates'>;
+      temporalScope: 'current' | 'explicit_range' | 'historical' | 'unspecified';
+      version: '1';
+    };
+    understanding: {
+      ambiguity: {
+        requiresClarification: boolean;
+        clarificationQuestion?: string;
+        reason?: string;
+      };
+      confidence: number;
+      kind: string;
+      subject: 'customer_agent' | 'unknown' | 'xxyy_product';
+      temporalScope: 'current' | 'explicit_range' | 'historical' | 'unspecified';
+      version: '1';
+    };
+    version: '1';
+  };
+  comment?: string;
+  sessionId?: string;
+}
+
+export interface QualityTrend {
+  answerStatusCounts: Record<'complete' | 'conflict' | 'insufficient' | 'partial', number>;
+  categoryCounts: Record<
+    'boundary' | 'classification' | 'generation' | 'knowledge' | 'retrieval',
+    number
+  >;
+  sampleSize: number;
+  version: '1';
+  newestAt?: string;
+  oldestAt?: string;
 }
 
 export interface KnowledgeCandidate {

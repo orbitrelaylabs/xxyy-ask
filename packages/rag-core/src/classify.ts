@@ -43,6 +43,7 @@ const privateCredentialPatterns = [
 const productOperationPatterns = [
   /如何.*(买入|卖出|交易|挂单|swap|设置)/u,
   /怎么.*(买入|卖出|交易|挂单|swap|设置|操作|登录|导出|导入|生成|升级)/u,
+  /(?:如何|怎么|怎样).{0,24}(?:使用|配置|开启|关闭)/u,
   /(swap|挂单|交易).*怎么操作/u,
   /操作.*(买入|卖出|交易|挂单|swap)/u,
   /(?:手机|手机版|手机上|移动端|app).{0,16}(?:怎么用|如何用|怎么打开|如何打开|怎么添加|如何添加|怎么登录|如何登录)/u,
@@ -58,6 +59,12 @@ const publicTransactionReferencePatterns = [
 
 const unsupportedDeepOnchainAnalysisPatterns = [
   /池子查询|池子|链上取证|调用追踪|trace|分析(?:一下)?.{0,12}链上交易|(?:分析|解析).*(?:\/tx\/|\b0x[a-f0-9]{64}\b)|被夹|夹子|三明治(?:攻击)?|sandwich|\bmev\b|front[- ]?run|back[- ]?run/u,
+];
+
+const agentCapabilityPatterns = [
+  /(?:你|您|这个|当前)(?:这个)?(?:客服|机器人|bot|agent|助手)?[^。！？?]{0,10}(?:能做什么|可以做什么|能干什么|支持哪些功能|有哪些功能|有什么能力|服务范围)/u,
+  /(?:客服|机器人|bot|agent|助手)[^。！？?]{0,10}(?:能做什么|可以做什么|能干什么|支持哪些功能|有哪些功能|有什么能力|服务范围)/u,
+  /\bwhat\s+can\s+you\s+do\b|\b(?:your|assistant|bot)\s+capabilit(?:y|ies)\b/iu,
 ];
 
 const productSupportDomainPattern =
@@ -193,6 +200,14 @@ export function classifyQuestion(question: string): Classification {
       'onchain_transaction',
       0.94,
       'queries supplied public transaction reference',
+    );
+  }
+
+  if (agentCapabilityPatterns.some((pattern) => pattern.test(normalized))) {
+    return createClassification(
+      'agent_capabilities',
+      0.94,
+      'asks about the customer-support Agent capabilities',
     );
   }
 

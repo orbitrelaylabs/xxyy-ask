@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  chatResponseSchema,
   chatStreamEventSchema,
   knowledgeSourceCatalog,
   supportedAgentRoutes,
@@ -57,6 +58,10 @@ describe('chat contract', () => {
   it('allows channel-neutral chat responses with citations', () => {
     const request: ChatRequest = {
       channel: 'web',
+      history: [
+        { content: 'XXYY Pro 有哪些权益？', role: 'user' },
+        { content: '这里是相关权益。', role: 'assistant' },
+      ],
       message: 'XXYY Pro 有什么权益？',
       requestId: 'req-contract-1',
       sessionId: 'session-1',
@@ -90,10 +95,32 @@ describe('chat contract', () => {
     };
 
     expect(request.channel).toBe('web');
+    expect(request.history).toHaveLength(2);
     expect(request.requestId).toBe('req-contract-1');
     expect(response.citations[0]?.title).toBe('Pro');
     expect(response.attachments?.[0]?.kind).toBe('video');
     expect(response.tokenUsage?.totalTokens).toBe(156);
+  });
+
+  it('supports explicit answer completeness states without breaking older responses', () => {
+    expect(
+      chatResponseSchema.parse({
+        answer: '当前知识库存在冲突。',
+        answerStatus: 'conflict',
+        citations: [],
+        confidence: 0.2,
+        intent: 'product_qa',
+      }),
+    ).toMatchObject({ answerStatus: 'conflict' });
+    expect(
+      chatStreamEventSchema.parse({
+        type: 'metadata',
+        answerStatus: 'partial',
+        citations: [],
+        confidence: 0.4,
+        intent: 'product_qa',
+      }),
+    ).toMatchObject({ answerStatus: 'partial' });
   });
 
   it('allows image attachments for product knowledge responses', () => {

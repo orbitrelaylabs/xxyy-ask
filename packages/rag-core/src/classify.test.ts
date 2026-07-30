@@ -10,6 +10,7 @@ describe('classifyQuestion', () => {
     ['钱包监控上限历史更新记录在哪里？', 'product_qa'],
     ['如何设置 Telegram 钱包监控？', 'how_to'],
     ['怎么操作订单查询？', 'how_to'],
+    ['新功能怎么使用？', 'how_to'],
     ['如何在 XXYY 买入代币？', 'how_to'],
     ['XXYY 的 Swap 交易怎么操作买入和卖出？', 'how_to'],
     ['如何设置挂单买入？', 'how_to'],
@@ -54,6 +55,10 @@ describe('classifyQuestion', () => {
     ['小币种资产怎么不显示', 'how_to'],
     ['哪里看赚了多少倍', 'how_to'],
     ['我想盯几个地址，有啥提醒能配', 'product_qa'],
+    ['你支持哪些功能？', 'agent_capabilities'],
+    ['这个客服 Agent 能做什么？', 'agent_capabilities'],
+    ['What can you do?', 'agent_capabilities'],
+    ['支持哪些功能', 'product_qa'],
     ['帮我查一下钱包余额和账户交易记录', 'realtime_account_query'],
     [
       '查询 https://robinhoodchain.blockscout.com/tx/0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',

@@ -159,7 +159,16 @@ describe('createProductTools', () => {
     ).resolves.toMatchObject({
       chunks: [{ id: 'copy-trading-launch' }],
     });
-    expect(retrieve).toHaveBeenCalledWith('XXYY支持跟单么', { topK: 8 });
+    expect(retrieve).toHaveBeenCalledWith(
+      'XXYY支持跟单么',
+      expect.objectContaining({
+        policy: expect.objectContaining({
+          preferredSourceTypes: ['admin_verified', 'official_docs', 'x_updates'],
+          version: '1',
+        }),
+        topK: 8,
+      }),
+    );
   });
 
   it('normalizes citation file paths, truncates excerpts, and limits citations for search results', async () => {
@@ -289,7 +298,13 @@ describe('createProductTools', () => {
       topK: 999,
     });
 
-    expect(retrieve).toHaveBeenCalledWith('XXYY Pro 权益', { topK: 160 });
+    expect(retrieve).toHaveBeenCalledWith(
+      'XXYY Pro 权益',
+      expect.objectContaining({
+        policy: expect.objectContaining({ version: '1' }),
+        topK: 160,
+      }),
+    );
   });
 });
 

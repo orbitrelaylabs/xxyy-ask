@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { ChatStreamEvent, Classification } from '@xxyy/shared';
 
@@ -14,6 +14,42 @@ const classification: Classification = {
 };
 
 describe('createOpenAiAnswerProvider', () => {
+  it('returns a neutral partial how-to answer without calling the model for X-only evidence', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const provider = createOpenAiAnswerProvider({
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example/v1',
+      fetchImpl,
+      model: 'gpt-test',
+    });
+    const index = createFixtureIndex([
+      {
+        id: 'x_updates:auto-stop-loss:chunk:0001',
+        title: '自动止盈止损上线',
+        sourceType: 'x_updates',
+        sourceUrl: 'https://x.com/useXXYYio/status/1',
+        file: '/docs/x-updates.md',
+        text: '🔥XXYY重磅升级：自动止盈止损上线啦！在XXYY提前设置好条件，勾选自动止盈止损，每笔交易都会自动创建挂单执行！看看如何一键设置，轻松交易。',
+      },
+    ]);
+
+    const response = await provider.answer({
+      classification,
+      question: '如何设置止损？',
+      retrievedChunks: retrieve('如何设置止损？', index),
+    });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(response).toMatchObject({
+      answerStatus: 'partial',
+      intent: 'how_to',
+    });
+    expect(response.answer).toContain('勾选自动止盈止损');
+    expect(response.answer).toContain('只能给出部分步骤');
+    expect(response.answer).not.toContain('重磅');
+    expect(response.answer).not.toContain('轻松交易');
+  });
+
   it('generates a grounded answer through an OpenAI-compatible chat completion API', async () => {
     const requests: unknown[] = [];
     const fetchImpl: typeof fetch = (_input, init) => {
@@ -120,6 +156,7 @@ describe('createOpenAiAnswerProvider', () => {
 
     expect(response).toEqual({
       answer: '当前知识库没有明确说明 XXYY 返佣的到账时间。',
+      answerStatus: 'insufficient',
       citations: [],
       confidence: 0.25,
       intent: 'product_qa',
@@ -129,6 +166,51 @@ describe('createOpenAiAnswerProvider', () => {
         totalTokens: 114,
       },
     });
+  });
+
+  it('does not call the LLM when current numeric facts conflict', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() => {
+      throw new Error('LLM must not run for unresolved evidence conflicts');
+    });
+    const { records, tracer } = createInMemoryQualityTracer();
+    const provider = createOpenAiAnswerProvider({
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example/v1',
+      fetchImpl,
+      model: 'gpt-test',
+      tracer,
+    });
+    const response = await provider.answer({
+      classification,
+      question: 'XXYY Pro 钱包监控最多支持多少个钱包？',
+      retrievedChunks: [
+        createRetrievedChunk({
+          id: 'monitor-2000',
+          text: 'XXYY Pro 当前最多可以监控 2000 个钱包。',
+          title: 'XXYY Pro 钱包监控上限',
+        }),
+        createRetrievedChunk({
+          id: 'monitor-3000',
+          text: 'XXYY Pro 当前最多可以监控 3000 个钱包。',
+          title: 'XXYY Pro 钱包监控上限',
+        }),
+      ],
+    });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(response).toMatchObject({
+      answerStatus: 'conflict',
+      citations: expect.arrayContaining([
+        expect.objectContaining({ title: 'XXYY Pro 钱包监控上限' }),
+      ]),
+      confidence: 0.2,
+      intent: classification.intent,
+    });
+    expect(response.answer).toContain('2000、3000');
+    expect(records.map((record) => record.name)).toEqual([
+      'rag.grounding_selection',
+      'rag.fact_extraction',
+    ]);
   });
 
   it('asks the LLM to preserve relevant option lists deterministically', async () => {
@@ -346,7 +428,7 @@ describe('createOpenAiAnswerProvider', () => {
 
     const prompt = requests[0]?.messages?.map((message) => message.content).join('\n') ?? '';
     expect(prompt).toContain('[1] 钱包监控长篇背景说明');
-    expect(prompt).toContain('已省略');
+    expect(prompt.length).toBeLessThan(15_000);
     expect(prompt).toContain('[2] 钱包监控上限');
     expect(prompt).toContain('关键限制：钱包监控最多支持5000个地址');
   });
@@ -413,6 +495,81 @@ describe('createOpenAiAnswerProvider', () => {
     ).toMatchObject({
       quarantinedSegmentCount: 1,
     });
+  });
+
+  it('keeps supported partial facts and citations when only one requested dimension is missing', async () => {
+    const provider = createOpenAiAnswerProvider({
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example/v1',
+      fetchImpl: () =>
+        Promise.resolve(
+          jsonResponse({
+            choices: [
+              {
+                message: {
+                  content: '交易设置支持滑点。当前知识库未明确说明默认数值。',
+                },
+              },
+            ],
+          }),
+        ),
+      model: 'gpt-test',
+    });
+
+    const response = await provider.answer({
+      classification: {
+        confidence: 0.78,
+        intent: 'product_qa',
+        reason: 'product question',
+      },
+      question: '交易设置是什么？',
+      retrievedChunks: [
+        createRetrievedChunk({
+          id: 'trade-settings',
+          text: '交易设置支持滑点。',
+          title: '交易设置',
+        }),
+      ],
+    });
+
+    expect(response).toMatchObject({
+      answerStatus: 'partial',
+      citations: [expect.objectContaining({ title: '交易设置' })],
+      intent: 'product_qa',
+    });
+  });
+
+  it('sends only extracted grounded facts to the answer model', async () => {
+    let requestBody: { messages?: Array<{ content?: string }> } | undefined;
+    const provider = createOpenAiAnswerProvider({
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example/v1',
+      fetchImpl: (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as typeof requestBody;
+        return Promise.resolve(
+          jsonResponse({
+            choices: [{ message: { content: 'XXYY Pro 提供独享服务器和节点。' } }],
+          }),
+        );
+      },
+      model: 'gpt-test',
+    });
+
+    await provider.answer({
+      classification,
+      question: 'XXYY Pro 有哪些权益？',
+      retrievedChunks: [
+        createRetrievedChunk({
+          id: 'pro-facts',
+          text: 'XXYY Pro 提供独享服务器和节点。营销背景：欢迎留言并祝大家发财。',
+          title: 'XXYY Pro 权益',
+        }),
+      ],
+    });
+
+    const prompt = requestBody?.messages?.map((message) => message.content).join('\n') ?? '';
+    expect(prompt).toContain('XXYY Pro 提供独享服务器和节点');
+    expect(prompt).not.toContain('欢迎留言并祝大家发财');
   });
 
   it('redacts sensitive user text before sending the answer prompt to the LLM', async () => {
@@ -1007,7 +1164,9 @@ describe('createOpenAiAnswerProvider', () => {
     });
 
     expect(attempts).toBe(2);
-    expect(response.answer).toBe('XXYY Pro 权益包括独享服务器和节点。');
+    expect(response.answer).toBe(
+      'XXYY Pro 权益包括独享服务器和节点、监控2000个钱包、收藏1000个代币。',
+    );
   });
 
   it('falls back to grounded context when the LLM request is rate limited', async () => {
@@ -1266,7 +1425,9 @@ describe('createOpenAiAnswerProvider', () => {
     });
 
     expect(attempts).toBe(2);
-    expect(response.answer).toBe('XXYY Pro 权益包括独享服务器和节点。');
+    expect(response.answer).toBe(
+      'XXYY Pro 权益包括独享服务器和节点、监控2000个钱包、收藏1000个代币。',
+    );
   });
 
   it('streams grounded answer deltas through an OpenAI-compatible chat completion API', async () => {
@@ -1381,6 +1542,7 @@ describe('createOpenAiAnswerProvider', () => {
     ).toBe('当前知识库没有明确说明 XXYY 返佣的到账时间。');
     expect(events.at(-1)).toEqual({
       type: 'metadata',
+      answerStatus: 'insufficient',
       citations: [],
       confidence: 0.25,
       intent: 'product_qa',
@@ -1434,7 +1596,9 @@ describe('createOpenAiAnswerProvider', () => {
       [Symbol.asyncIterator]();
 
     const firstPromise = iterator.next();
-    await Promise.resolve();
+    for (let attempt = 0; attempt < 10 && streamController === undefined; attempt += 1) {
+      await Promise.resolve();
+    }
     if (streamController === undefined) {
       throw new Error('Expected streaming response body to be initialized');
     }
@@ -1700,13 +1864,14 @@ describe('createOpenAiAnswerProvider', () => {
     expect(response.answer).toContain('独享服务器和节点');
     expect(records.map((record) => record.name)).toEqual([
       'rag.grounding_selection',
+      'rag.fact_extraction',
       'llm.answer',
       'rag.claim_grounding',
     ]);
     expect(records[0]).toMatchObject({
       outputs: { chunks: [expect.objectContaining({ id: 'pro-current' })] },
     });
-    expect(records[1]).toMatchObject({
+    expect(records[2]).toMatchObject({
       inputs: {
         citationCount: 1,
         model: 'gpt-test',
@@ -1722,7 +1887,7 @@ describe('createOpenAiAnswerProvider', () => {
         tokenUsage: { completionTokens: 10, promptTokens: 20, totalTokens: 30 },
       },
     });
-    expect(records[1]?.inputs?.contextPacking).toMatchObject({ includedChunkCount: 1 });
+    expect(records[2]?.inputs?.contextPacking).toMatchObject({ includedChunkCount: 1 });
     const serialized = JSON.stringify(records);
     expect(serialized).not.toContain('raw secret question');
     expect(serialized).not.toContain('raw secret chunk content');

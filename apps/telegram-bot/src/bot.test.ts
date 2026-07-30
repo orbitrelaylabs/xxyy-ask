@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ChatResponse, ChatStreamEvent } from '@xxyy/shared';
+import type { ChatRequest, ChatResponse, ChatStreamEvent } from '@xxyy/shared';
 
 import {
   TelegramBotConfigurationError,
@@ -239,6 +239,44 @@ describe('createTelegramBot', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it('reprocesses edited group replies for knowledge governance without sending a new answer', async () => {
+    const ask = vi.fn(() => Promise.resolve(createResponse()));
+    const sendMessage = createSendMessageMock();
+    const captureReply = vi.fn(() => Promise.resolve(false));
+    const bot = createTelegramBot({
+      api: {
+        getUpdates: vi.fn(),
+        sendMessage,
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      knowledgeAutomation: {
+        captureReply,
+        getLearningStatus: vi.fn(() => Promise.resolve(createLearningStatus())),
+        setLearningEnabled: vi.fn(),
+      },
+    });
+    const editedMessage = {
+      chat: { id: -100123, type: 'supergroup' as const },
+      from: { id: 123 },
+      message_id: 11,
+      reply_to_message: {
+        chat: { id: -100123, type: 'supergroup' as const },
+        from: { id: 456 },
+        message_id: 10,
+        text: 'XXYY 如何设置价格提醒？',
+      },
+      text: '编辑后的管理员答案。',
+    };
+
+    await bot.handleUpdate({ edited_message: editedMessage, update_id: 11 });
+
+    expect(captureReply).toHaveBeenCalledWith(editedMessage, { edited: true });
+    expect(ask).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it('observes ordinary group messages for learning without answering them', async () => {
     const ask = vi.fn(() => Promise.resolve(createResponse()));
     const sendMessage = createSendMessageMock();
@@ -307,6 +345,7 @@ describe('createTelegramBot', () => {
       expect.objectContaining({
         message: 'XXYY Pro 有哪些权益？',
         requestId: 'telegram:-100123:31',
+        sessionId: 'telegram:-100123:topic:main:user:456',
       }),
     );
     expect(sendMessage).toHaveBeenCalledWith(
@@ -370,6 +409,183 @@ describe('createTelegramBot', () => {
     expect(ask).toHaveBeenCalledOnce();
     expect(ask).toHaveBeenCalledWith(expect.objectContaining({ message: '还支持哪些功能？' }));
     expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it('isolates group history sessions by topic and user', async () => {
+    const ask = vi.fn((_request: ChatRequest) => Promise.resolve(createResponse()));
+    const bot = createTelegramBot({
+      api: {
+        getMe: vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' })),
+        getUpdates: vi.fn(),
+        sendMessage: createSendMessageMock(),
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+    });
+
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'supergroup' },
+        from: { id: 456 },
+        message_id: 34,
+        message_thread_id: 7,
+        text: '@xxyy_ask_bot 支持哪些功能？',
+      },
+      update_id: 34,
+    });
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'supergroup' },
+        from: { id: 789 },
+        message_id: 35,
+        message_thread_id: 7,
+        text: '@xxyy_ask_bot 支持哪些功能？',
+      },
+      update_id: 35,
+    });
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, type: 'supergroup' },
+        from: { id: 456 },
+        message_id: 36,
+        message_thread_id: 8,
+        text: '@xxyy_ask_bot 支持哪些功能？',
+      },
+      update_id: 36,
+    });
+
+    expect(ask.mock.calls.map(([request]) => request.sessionId)).toEqual([
+      'telegram:-100123:topic:7:user:456',
+      'telegram:-100123:topic:7:user:789',
+      'telegram:-100123:topic:8:user:456',
+    ]);
+  });
+
+  it('adds a bounded same-user reply chain to the request history', async () => {
+    const ask = vi.fn((_request: ChatRequest) => Promise.resolve(createResponse()));
+    const bot = createTelegramBot({
+      api: {
+        getMe: vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' })),
+        getUpdates: vi.fn(),
+        sendMessage: createSendMessageMock(),
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+    });
+    const originalQuestion = {
+      chat: { id: -100123, type: 'supergroup' as const },
+      from: { id: 456 },
+      message_id: 40,
+      text: 'XXYY Pro 有哪些权益？api key: sk-sensitive123',
+    };
+    const botAnswer = {
+      chat: originalQuestion.chat,
+      from: { id: 999, is_bot: true },
+      message_id: 41,
+      reply_to_message: originalQuestion,
+      text: 'XXYY Pro 提供进阶权益。',
+    };
+
+    await bot.handleUpdate({
+      message: {
+        chat: originalQuestion.chat,
+        from: { id: 456 },
+        message_id: 42,
+        reply_to_message: botAnswer,
+        text: '那免费版呢？',
+      },
+      update_id: 42,
+    });
+
+    expect(ask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        history: [
+          {
+            content: 'XXYY Pro 有哪些权益？api key: [sensitive_credential]',
+            role: 'user',
+          },
+          { content: 'XXYY Pro 提供进阶权益。', role: 'assistant' },
+        ],
+        sessionId: 'telegram:-100123:topic:main:user:456',
+      }),
+    );
+  });
+
+  it('does not import another group member reply chain into the current user history', async () => {
+    const ask = vi.fn((_request: ChatRequest) => Promise.resolve(createResponse()));
+    const bot = createTelegramBot({
+      api: {
+        getMe: vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' })),
+        getUpdates: vi.fn(),
+        sendMessage: createSendMessageMock(),
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+    });
+    const otherUserQuestion = {
+      chat: { id: -100123, type: 'supergroup' as const },
+      from: { id: 456 },
+      message_id: 43,
+      text: 'XXYY Pro 有哪些权益？',
+    };
+
+    await bot.handleUpdate({
+      message: {
+        chat: otherUserQuestion.chat,
+        from: { id: 789 },
+        message_id: 45,
+        reply_to_message: {
+          chat: otherUserQuestion.chat,
+          from: { id: 999, is_bot: true },
+          message_id: 44,
+          reply_to_message: otherUserQuestion,
+          text: 'XXYY Pro 提供进阶权益。',
+        },
+        text: '那免费版呢？',
+      },
+      update_id: 45,
+    });
+
+    expect(ask).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        history: expect.anything(),
+      }),
+    );
+    expect(ask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'telegram:-100123:topic:main:user:789',
+      }),
+    );
+  });
+
+  it('does not answer an edited customer message a second time', async () => {
+    const ask = vi.fn((_request: ChatRequest) => Promise.resolve(createResponse()));
+    const getMe = vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' }));
+    const bot = createTelegramBot({
+      api: {
+        getMe,
+        getUpdates: vi.fn(),
+        sendMessage: createSendMessageMock(),
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+    });
+
+    await bot.handleUpdate({
+      edited_message: {
+        chat: { id: -100123, type: 'supergroup' },
+        from: { id: 456 },
+        message_id: 46,
+        text: '@xxyy_ask_bot 支持哪些功能？',
+      },
+      update_id: 46,
+    });
+
+    expect(ask).not.toHaveBeenCalled();
   });
 
   it('ignores commands addressed to another bot in a group', async () => {

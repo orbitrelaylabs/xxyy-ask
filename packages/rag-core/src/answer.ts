@@ -18,6 +18,8 @@ import {
   textMatchesAllSupportEntities,
   textMatchesSupportEntity,
 } from './support-entity.js';
+import { isCapabilityOverviewQuestion } from './product-question.js';
+import type { GroundedFactConflict } from './grounded-facts.js';
 
 const GROUNDED_INTENTS = new Set<Intent>(['product_qa', 'how_to']);
 const MAX_CITATIONS = 3;
@@ -40,6 +42,7 @@ const ANSWER_STOP_TOKENS = new Set([
   '当前',
   '现在',
 ]);
+const GENERIC_SETUP_ANCHOR_TOKENS = new Set(['功能', '交易', '设置', '钱包', '页面']);
 const VIDEO_LINK_PATTERN = /\[([^\]]+)\]\((\/assets\/[^)\s]+\.mp4)\)/giu;
 const IMAGE_LINK_PATTERN =
   /!\[([^\]]*)\]\((\/assets\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|svg|gif|avif))(?:\s+["'][^"']*["'])?\)/giu;
@@ -60,6 +63,7 @@ export function createGroundedAnswer(
 
   if (retrievedChunks.length === 0) {
     return {
+      answerStatus: 'insufficient',
       answer: `暂未找到与「${question}」直接相关的资料。请补充具体功能名或模块。`,
       intent: classification.intent,
       citations: [],
@@ -85,7 +89,8 @@ export function createGroundedAnswer(
           question,
           chunk,
           cleanEvidenceSentence(
-            createRelevantExcerpt(question, chunk.text, perChunkEvidenceLength),
+            createDocumentOverviewExcerpt(question, chunk, perChunkEvidenceLength) ??
+              createRelevantExcerpt(question, chunk.text, perChunkEvidenceLength),
           ),
         ),
       ),
@@ -103,6 +108,7 @@ export function createGroundedAnswer(
     standardSupportAnswer ?? createSupportConclusion(question, groundingChunks);
   const answerChunks = supportConclusion === undefined ? fallbackEvidenceChunks : groundingChunks;
   const citations = createCitationsForQuestion(question, answerChunks);
+  const partialHowTo = hasOnlyXHowToEvidence(classification, answerChunks);
   const evidenceAnswer = truncateAnswerText(
     answerEvidence.join(isStructuredAnswerQuestion(question) ? '\n' : ' '),
     MAX_FALLBACK_ANSWER_LENGTH,
@@ -113,27 +119,64 @@ export function createGroundedAnswer(
       : '';
   const structuredSubjectPrefix =
     isStructuredAnswerQuestion(question) &&
-    fallbackEvidenceChunks.length > 1 &&
-    fallbackEvidenceChunks.every(
-      (chunk) => chunk.metadata.title === fallbackEvidenceChunks[0]?.metadata.title,
-    )
+    (isCompleteDocumentOverview(fallbackEvidenceChunks[0]) ||
+      (fallbackEvidenceChunks.length > 1 &&
+        fallbackEvidenceChunks.every(
+          (chunk) => chunk.metadata.title === fallbackEvidenceChunks[0]?.metadata.title,
+        )))
       ? `${fallbackEvidenceChunks[0]?.metadata.title}：\n`
       : '';
 
   return withOptionalAttachments(
     {
-      answer:
-        supportConclusion ??
-        `${answerPrefix}${structuredSubjectPrefix}${evidenceAnswer.length > 0 ? evidenceAnswer : insufficientKnowledgeText(question)}`,
+      answerStatus: partialHowTo ? 'partial' : 'complete',
+      answer: partialHowTo
+        ? createPartialHowToAnswer(question, answerChunks)
+        : (supportConclusion ??
+          `${answerPrefix}${structuredSubjectPrefix}${evidenceAnswer.length > 0 ? evidenceAnswer : insufficientKnowledgeText(question)}`),
       intent: classification.intent,
       citations,
-      confidence: calculateGroundedConfidence(
-        classification.confidence,
-        answerChunks[0]?.score ?? 0,
-      ),
+      confidence: partialHowTo
+        ? Math.min(
+            0.55,
+            calculateGroundedConfidence(classification.confidence, answerChunks[0]?.score ?? 0),
+          )
+        : calculateGroundedConfidence(classification.confidence, answerChunks[0]?.score ?? 0),
     },
     createQuestionRelevantAttachments(question, answerChunks),
   );
+}
+
+export function hasOnlyXHowToEvidence(
+  classification: Classification,
+  chunks: readonly RetrievedChunk[],
+): boolean {
+  return (
+    classification.intent === 'how_to' &&
+    chunks.length > 0 &&
+    chunks.every((chunk) => chunk.metadata.sourceType === 'x_updates')
+  );
+}
+
+function createPartialHowToAnswer(question: string, chunks: readonly RetrievedChunk[]): string {
+  const actionSegments = chunks
+    .flatMap((chunk) => chunk.text.split(/[。！？!?\n]+/u))
+    .map((segment) => cleanEvidenceSentence(segment))
+    .filter(
+      (segment) =>
+        /点击|进入|选择|勾选|设置|打开|输入|保存|确认|创建|添加|启用|关闭/u.test(segment) &&
+        !/重磅|上线|欢迎|看看|轻松|省时|守住|不用麻烦|机会多多|感谢|发财/u.test(segment),
+    )
+    .map((segment) => segment.replace(/^[\s:：,，;；-]+/u, '').trim())
+    .filter((segment) => segment.length > 0);
+  const uniqueActions = [...new Set(actionSegments)].slice(0, 3);
+  const fallback = cleanEvidenceSentence(
+    createRelevantExcerpt(question, chunks[0]?.text ?? '', MAX_ANSWER_EVIDENCE_LENGTH),
+  );
+  const confirmed = uniqueActions.length > 0 ? uniqueActions.join('；') : fallback;
+  return confirmed.length > 0
+    ? `当前资料只确认以下操作要点：${confirmed}。知识库暂未提供完整入口路径或全部参数，因此只能给出部分步骤。`
+    : `当前资料只确认该功能已经上线，但没有足够的正式操作步骤。请补充具体入口或等待知识库完善。`;
 }
 
 export function selectGroundingChunks(
@@ -147,7 +190,8 @@ export function selectGroundingChunks(
     question,
     filterTemporalGroundingChunks(question, deduplicateGroundingChunks(safeRetrievedChunks)),
   );
-  const highRankedChunks = deduplicatedChunks.slice(0, MAX_CITATIONS);
+  const groundingCandidates = prioritizeCapabilityOverviewSources(question, deduplicatedChunks);
+  const highRankedChunks = groundingCandidates.slice(0, MAX_CITATIONS);
 
   if (isDirectSourceQuestion(question)) {
     const directXPostChunk = selectBestDirectXPostChunk(
@@ -166,8 +210,8 @@ export function selectGroundingChunks(
     // evidence chunk may use context from another chunk of the exact same
     // source, but unrelated sources cannot jointly satisfy a multi-entity
     // support question.
-    const evidenceByScope = createSupportEvidenceByScope(deduplicatedChunks);
-    const candidates = deduplicatedChunks
+    const evidenceByScope = createSupportEvidenceByScope(groundingCandidates);
+    const candidates = groundingCandidates
       .map((chunk) => ({
         chunk,
         entityMatches: supportEntityTokens.filter((entity) =>
@@ -191,9 +235,9 @@ export function selectGroundingChunks(
     return candidates.slice(0, MAX_CITATIONS);
   }
 
-  if (isSupportQuestionText(question)) {
+  if (isSupportQuestionText(question) && !isCapabilityOverviewQuestion(question)) {
     const supportKeywords = supportEvidenceKeywords(question);
-    const candidates = deduplicatedChunks
+    const candidates = groundingCandidates
       .map((chunk) => ({
         chunk,
         coverage: supportKeywords.filter((keyword) =>
@@ -209,6 +253,10 @@ export function selectGroundingChunks(
     }
   }
 
+  if (isCapabilityOverviewQuestion(question)) {
+    return groundingCandidates.slice(0, MAX_STRUCTURED_GROUNDING_CHUNKS);
+  }
+
   const standardAnswerChunk = highRankedChunks.find(
     (chunk) => /标准客服回答：/u.test(chunk.text) && standardAnswerMatchesQuestion(chunk, question),
   );
@@ -221,10 +269,45 @@ export function selectGroundingChunks(
   }
 
   if (isStructuredAnswerQuestion(question)) {
-    return selectStructuredGroundingChunks(question, deduplicatedChunks);
+    return selectStructuredGroundingChunks(question, groundingCandidates);
   }
 
   return highRankedChunks;
+}
+
+function prioritizeCapabilityOverviewSources(
+  question: string,
+  chunks: RetrievedChunk[],
+): RetrievedChunk[] {
+  if (!isCapabilityOverviewQuestion(question)) {
+    return chunks;
+  }
+
+  const authoritative = chunks.filter((chunk) => chunk.metadata.sourceType !== 'x_updates');
+  const authoritativeCatalog = authoritative.filter(
+    (chunk) =>
+      /(?:当前支持的产品功能总览|当前功能总览|产品功能目录)/u.test(
+        `${chunk.metadata.title}\n${chunk.text}`,
+      ) && /标准客服回答：/u.test(chunk.text),
+  );
+  const otherAuthoritative = authoritative.filter(
+    (chunk) => !authoritativeCatalog.some((catalogChunk) => catalogChunk.id === chunk.id),
+  );
+  const currentXUpdates = chunks.filter(
+    (chunk) =>
+      chunk.metadata.sourceType === 'x_updates' &&
+      (chunk.metadata.status === undefined || chunk.metadata.status === 'current'),
+  );
+  if (authoritative.length === 0) {
+    return currentXUpdates.slice(0, 1).map((chunk, index) => ({ ...chunk, rank: index + 1 }));
+  }
+
+  return [...authoritativeCatalog, ...otherAuthoritative, ...currentXUpdates.slice(0, 1)].map(
+    (chunk, index) => ({
+      ...chunk,
+      rank: index + 1,
+    }),
+  );
 }
 
 function filterStandardAnswerGroundingChunks(
@@ -239,6 +322,13 @@ function filterStandardAnswerGroundingChunks(
 }
 
 function standardAnswerMatchesQuestion(chunk: RetrievedChunk, question: string): boolean {
+  if (
+    isCapabilityOverviewQuestion(question) &&
+    /(?:当前支持的产品功能总览|当前功能总览|产品功能目录)/u.test(chunk.metadata.title)
+  ) {
+    return true;
+  }
+
   if (titleMatchesQuestion(chunk.metadata.title, question)) {
     return true;
   }
@@ -421,6 +511,7 @@ function groundingSourceSpecificity(chunk: RetrievedChunk): number {
 
 export function createInsufficientKnowledgeAnswer(question: string, intent: Intent): ChatResponse {
   return {
+    answerStatus: 'insufficient',
     answer: insufficientKnowledgeText(question),
     citations: [],
     confidence: 0.25,
@@ -428,8 +519,35 @@ export function createInsufficientKnowledgeAnswer(question: string, intent: Inte
   };
 }
 
+export function createConflictingKnowledgeAnswer(
+  classification: Classification,
+  conflicts: readonly GroundedFactConflict[],
+  retrievedChunks: RetrievedChunk[],
+): ChatResponse {
+  const conflict = conflicts[0];
+  if (conflict === undefined) {
+    return createInsufficientKnowledgeAnswer('当前问题', classification.intent);
+  }
+  return {
+    answerStatus: 'conflict',
+    answer: `当前知识库对“${conflict.subject}”存在同范围的当前值冲突（${conflict.values.join('、')}），无法可靠给出唯一结论。相关证据已保留，需要先由知识治理确认后再更新正式答案。`,
+    citations: createCitationsFromChunks(retrievedChunks),
+    confidence: 0.2,
+    intent: classification.intent,
+  };
+}
+
 export function shouldUseDeterministicSupportAnswer(question: string): boolean {
-  return isSupportQuestionText(question);
+  return (
+    isSupportQuestionText(question) ||
+    /表示什么|是什么意思|是指什么|怎么计算|如何计算/u.test(question) ||
+    /添加到主屏幕|添加到桌面|手机上怎么用|add\s+to\s+home\s+screen|how\s+does\b.+\bwork/iu.test(
+      question,
+    ) ||
+    /(?:可以|能|可)?设置(?:哪些|什么)|哪些.{0,8}(?:参数|配置项|规则)|有哪些.{0,8}(?:区域|部分|模块)|包括哪些/u.test(
+      question,
+    )
+  );
 }
 
 function withOptionalAttachments(
@@ -1021,7 +1139,8 @@ export function createCitationsForAnswer(
       ...createCitation(chunk),
       excerpt: withCitationPublicationDate(
         chunk,
-        createRelevantExcerpt(relevanceQuery, chunk.text),
+        createDocumentOverviewExcerpt(question, chunk, MAX_EXCERPT_LENGTH) ??
+          createRelevantExcerpt(relevanceQuery, chunk.text),
       ),
     }));
 }
@@ -1032,7 +1151,11 @@ function createCitationsForQuestion(
 ): Citation[] {
   return retrievedChunks.slice(0, MAX_STRUCTURED_GROUNDING_CHUNKS).map((chunk) => ({
     ...createCitation(chunk),
-    excerpt: withCitationPublicationDate(chunk, createRelevantExcerpt(question, chunk.text)),
+    excerpt: withCitationPublicationDate(
+      chunk,
+      createDocumentOverviewExcerpt(question, chunk, MAX_EXCERPT_LENGTH) ??
+        createRelevantExcerpt(question, chunk.text),
+    ),
   }));
 }
 
@@ -1085,7 +1208,12 @@ function selectFallbackEvidenceChunks(
   question: string,
   chunks: RetrievedChunk[],
 ): RetrievedChunk[] {
-  const firstChunk = chunks[0];
+  const firstChunk =
+    (isInstallationOrSetupQuestion(question)
+      ? setupAnchorTitleMatchesQuestion(question, chunks[0])
+        ? chunks[0]
+        : selectStrongestFallbackChunk(question, chunks)
+      : undefined) ?? chunks[0];
   if (firstChunk === undefined) {
     return [];
   }
@@ -1110,6 +1238,9 @@ function selectFallbackEvidenceChunks(
   }
 
   if (isStructuredAnswerQuestion(question) && !requiresMultipleGroundingSources(question)) {
+    if (isCompleteDocumentOverview(anchor)) {
+      return [anchor];
+    }
     const sameDocumentChunks = ordered.filter((chunk) => chunk.documentId === anchor.documentId);
     if (
       sameDocumentChunks.length > 1 &&
@@ -1127,9 +1258,13 @@ function selectFallbackEvidenceChunks(
   if (requiresMultipleGroundingSources(question)) {
     const selected: RetrievedChunk[] = [];
     const seenScopes = new Set<string>();
-    for (const chunk of ordered) {
+    const sameDocumentChunks = ordered.filter((chunk) => chunk.documentId === anchor.documentId);
+    for (const chunk of [
+      ...sameDocumentChunks,
+      ...ordered.filter((chunk) => chunk.documentId !== anchor.documentId),
+    ]) {
       const scope = fallbackEvidenceScopeKey(chunk);
-      if (seenScopes.has(scope)) {
+      if (seenScopes.has(scope) && chunk.documentId !== anchor.documentId) {
         continue;
       }
       seenScopes.add(scope);
@@ -1143,6 +1278,46 @@ function selectFallbackEvidenceChunks(
 
   const sameDocumentChunks = ordered.filter((chunk) => chunk.documentId === anchor.documentId);
   return sameDocumentChunks.slice(0, MAX_FALLBACK_EVIDENCE_CHUNKS);
+}
+
+function setupAnchorTitleMatchesQuestion(
+  question: string,
+  chunk: RetrievedChunk | undefined,
+): boolean {
+  if (chunk === undefined) {
+    return false;
+  }
+  const questionTokens = new Set(meaningfulAnswerTokens(question));
+  const titleTokens = meaningfulAnswerTokens(chunk.metadata.title);
+  return titleTokens.some(
+    (token) => !GENERIC_SETUP_ANCHOR_TOKENS.has(token) && questionTokens.has(token),
+  );
+}
+
+function selectStrongestFallbackChunk(
+  question: string,
+  chunks: readonly RetrievedChunk[],
+): RetrievedChunk | undefined {
+  const queryTokens = meaningfulAnswerTokens(question);
+  return chunks
+    .map((chunk) => ({
+      chunk,
+      score:
+        groundingEvidenceStrength(chunk, question, queryTokens, undefined) +
+        operationalInstructionStrength(question, chunk.text) +
+        reciprocalGroundingRank(chunk.rank),
+    }))
+    .sort((left, right) => right.score - left.score || left.chunk.rank - right.chunk.rank)[0]
+    ?.chunk;
+}
+
+function operationalInstructionStrength(question: string, text: string): number {
+  if (!isInstallationOrSetupQuestion(question)) {
+    return 0;
+  }
+  const proceduralMarkers =
+    text.match(/提前设置|勾选|点击|进入|选择|每笔|自动.{0,12}(?:挂单|执行)/gu)?.length ?? 0;
+  return Math.min(4, proceduralMarkers);
 }
 
 function isAuthoredOfficialKnowledgeChunk(chunk: RetrievedChunk): boolean {
@@ -1231,6 +1406,44 @@ function createRelevantExcerpt(
     .filter((segment): segment is string => segment !== undefined)
     .join(' ');
   return truncateExcerpt(excerpt, maximumLength);
+}
+
+function createDocumentOverviewExcerpt(
+  question: string,
+  chunk: RetrievedChunk,
+  maximumLength: number,
+): string | undefined {
+  if (
+    !/区域|部分|模块/u.test(question) ||
+    !/Document overview|页面概览/iu.test(chunk.metadata.headingPath.join(' '))
+  ) {
+    return undefined;
+  }
+  const lines = chunk.text
+    .split(/\n+/u)
+    .map((line) =>
+      line
+        .replace(/^Document overview\s*\/\s*页面概览[：:]\s*/iu, '')
+        .replace(/^[^\p{L}\p{N}]+/gu, '')
+        .trim(),
+    )
+    .filter((line) => line.length > 0);
+  const directoryStart = lines.findIndex((line) => /包含的子功能|功能目录页/u.test(line));
+  const sectionLines = (directoryStart < 0 ? lines : lines.slice(0, directoryStart)).filter(
+    (line, index, values) => index === 0 || line !== values[index - 1],
+  );
+  if (sectionLines.length < 4) {
+    return undefined;
+  }
+  return truncateExcerpt(sectionLines.join('\n'), maximumLength);
+}
+
+function isCompleteDocumentOverview(chunk: RetrievedChunk | undefined): boolean {
+  return (
+    chunk !== undefined &&
+    /Document overview|页面概览/iu.test(chunk.metadata.headingPath.join(' ')) &&
+    (chunk.text.match(/交易设置|新交易对|即将打满|已经发射/gu)?.length ?? 0) >= 4
+  );
 }
 
 function truncateExcerpt(text: string, maximumLength: number): string {
@@ -1382,7 +1595,7 @@ function selectStructuredGroundingChunks(
       .sort((left, right) => right.score - left.score || left.chunk.rank - right.chunk.rank)
       .map((candidate) => candidate.chunk);
     return (
-      /功能目录页|具体说明见/u.test(anchorChunk.text)
+      /功能目录页|具体说明见/u.test(anchorChunk.text) && !isCompleteDocumentOverview(anchorChunk)
         ? orderedSameDocumentChunks
         : [anchorChunk, ...orderedSameDocumentChunks]
     ).slice(0, MAX_STRUCTURED_GROUNDING_CHUNKS);

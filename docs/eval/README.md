@@ -2,7 +2,7 @@
 
 `golden-qa.jsonl` is the cheap deterministic regression set that runs in `pnpm check`.
 Keep it stable, source-grounded, and focused on customer-support behavior.
-The current set contains 48 reviewed cases, including current-vs-historical conflicts,
+The current set contains 55 reviewed cases, including current-vs-historical conflicts,
 colloquial support questions, constraint preservation, boundary replies, and citation stability.
 
 ## Record format
@@ -95,6 +95,16 @@ pnpm check
 
 Use `pnpm rag:evaluate -- --provider` only for human review before releases or model/retriever changes; it may call configured external providers.
 
+During diagnosis, run one or more exact reviewed cases without paying for the entire suite:
+
+```bash
+pnpm rag:evaluate -- --provider \
+  --case order-management-types \
+  --case broad-current-capability-overview
+```
+
+`--case` matches the Golden QA `name` exactly, rejects unknown names, and is recorded in `--report-out` reports. It cannot be combined with `--baseline`, because a partial sample is not comparable to a full-suite baseline. Passing a selected sample is diagnostic evidence only and does not replace the full release gate.
+
 To measure the production pgvector + embedding retrieval path without involving the Agent planner or answer model, run:
 
 ```bash
@@ -126,7 +136,28 @@ Use feedback backlog export to turn stored negative feedback and no-citation fee
 pnpm rag:feedback:backlog
 ```
 
-The command reads `rag_feedback` and prints JSONL records with `_review` metadata. Treat these as a triage queue: a reviewer must fill in precise `mustContain`, `mustNotContain`, expected citations, and source URLs before moving a draft into `golden-qa.jsonl`.
+The command reads `rag_feedback` and prints JSONL records with `_review` metadata. Treat these as a triage queue: a reviewer must fill in precise `mustContain`, `mustNotContain`, expected citations, source URLs, or another executable assertion. Do not copy the observed answer into assertions without checking it against an official source.
+
+Save and review the queue under `.rag/`. After source verification and privacy review, add an explicit approval to every accepted record:
+
+```json
+{
+  "_review": {
+    "source": "rag_feedback",
+    "approved": true,
+    "reviewer": "admin:alice",
+    "reviewedAt": "2026-07-30T12:00:00.000Z"
+  }
+}
+```
+
+Then use the controlled promotion command:
+
+```bash
+pnpm rag:feedback:promote -- .rag/reviewed-feedback.jsonl --reviewer admin:alice
+```
+
+The command requires the CLI reviewer to match every record, rejects unapproved or assertion-free drafts, strips `_review` and `observedAnswer`, deduplicates by case name and normalized question, and atomically writes only the allowlisted Golden QA fields to `docs/eval/golden-qa.jsonl`. A name collision with different assertions fails closed. Promotion does not publish knowledge or write pgvector.
 
 Web 的 👍/👎 通过 `/api/feedback` 写入该表。Web 和 Telegram 的无引用产品回答会以 `automatic_low_evidence` 评论自动写入；这些记录仍然只生成待审核草稿，不会自动进入 golden QA 或知识库。
 
@@ -145,3 +176,59 @@ The file contains only failing cases and bounded observations, is redacted, and 
 5. Run `pnpm rag:evaluate` and `pnpm check`; only then promote the case to golden QA.
 
 Postgres + pgvector remains the default retrieval backend. Elasticsearch should be considered only after measured lexical/hybrid recall failures cannot be corrected with the existing hybrid query/reranker. Neo4j should be considered only when the product requires multi-hop relationship queries with a maintained graph schema. Neither is justified merely to add observability or improve answer prose.
+
+## Shadow and gray rollout gate
+
+Offline Golden QA passing is necessary but does not authorize production traffic expansion. Before a
+Shadow or gray observation window, an owner must approve the exact channels, mode, percentage,
+window, quality thresholds, P95 latency budget, and provider cost/token budgets. The approval
+timestamp must precede the observation window.
+
+Enable bounded runtime observations for Web API and Telegram:
+
+```bash
+ANSWER_QUALITY_OBSERVABILITY_ENABLED=true
+```
+
+Collect only JSON lines whose `event` is `answer_quality_rollout`. These observations contain no
+question, answer, concrete answer fingerprint, user, session, or request identifiers. They do include
+bounded comparisons for answer-fingerprint equality, source types, citation counts, routes, statuses,
+latency, and tokens. Copy `docs/eval/answer-quality-rollout-gate.template.json` to an ignored `.rag/`
+control path, replace every policy and window value with the approved values, and keep its
+`observations` array empty.
+
+The remaining evidence must be supplied independently:
+
+- `review` records a source-verified human sample from the same observations. Any customer-boundary
+  regression fails the gate.
+- `billing` comes from the provider billing or usage export for exactly the same window and channels.
+  `requestCount` means customer requests and must exactly equal the observation count. Runtime
+  `totalTokens` can be partial and is not authoritative billing evidence.
+- Every approved channel must meet its own minimum sample size, error rate, completion rate, Shadow
+  error rate, and P95 budget. The report also shows answer and source-type difference rates. Evidence
+  from an unapproved channel or a successful Shadow event without its bounded comparison fails the
+  gate.
+
+Build the evidence artifact from the approved control and an extracted JSONL file:
+
+```bash
+pnpm rag:rollout:evidence -- \
+  .rag/answer-quality-rollout-control.json \
+  .rag/answer-quality-rollout-observations.jsonl \
+  --out .rag/answer-quality-rollout-evidence.json
+```
+
+The preparation command accepts only files under `.rag/`, strips the log-only `event` field, sorts
+events by timestamp, and rejects malformed lines, unknown/privacy-sensitive fields, duplicates,
+pre-populated observations, empty input, or input above 50 MiB. It does not make a rollout decision.
+Then run the fail-closed gate and persist its redacted report:
+
+```bash
+pnpm rag:rollout:gate -- .rag/answer-quality-rollout-evidence.json \
+  --report-out .rag/answer-quality-rollout-report.json
+```
+
+Exit code `0` means the supplied observation window satisfies the approved policy. Exit code `1`
+means traffic must not be expanded. The checked-in template intentionally fails until real approval,
+observations, review, and billing evidence are supplied. Keep evidence and reports under `.rag/`;
+do not commit them.

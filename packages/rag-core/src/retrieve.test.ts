@@ -72,6 +72,38 @@ describe('retrieve', () => {
     expect(results[1]?.id).toBe('x_updates:pro:chunk:0001');
   });
 
+  it('pins governed anchor documents before candidate truncation', () => {
+    const index = createFixtureIndex([
+      {
+        id: 'official_docs:feature:chunk:0001',
+        title: '钱包监控',
+        sourceType: 'official_docs',
+        text: '钱包监控支持 Telegram 通知。',
+      },
+      {
+        id: 'official_docs:capability-overview:chunk:0001',
+        title: '当前功能目录',
+        sourceType: 'official_docs',
+        text: '经治理的当前产品能力目录。',
+      },
+    ]);
+
+    const results = retrieve('钱包监控 Telegram 通知', index, {
+      policy: {
+        anchorDocumentIds: ['official_docs:capability-overview'],
+        diversity: 'balanced',
+        preferredSourceTypes: ['official_docs'],
+        temporalScope: 'current',
+        version: '1',
+      },
+      topK: 1,
+    });
+
+    expect(results.map((chunk) => chunk.id)).toEqual([
+      'official_docs:capability-overview:chunk:0001',
+    ]);
+  });
+
   it('returns an empty list for blank questions or empty indexes', () => {
     expect(retrieve('   ', createFixtureIndex([]))).toEqual([]);
     expect(retrieve('Pro', createFixtureIndex([]))).toEqual([]);

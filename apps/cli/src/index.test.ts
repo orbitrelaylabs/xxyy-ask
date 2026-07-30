@@ -11,12 +11,16 @@ import { createInMemoryQualityTracer } from '@xxyy/rag-core';
 import type { SourceDocument } from '@xxyy/shared';
 
 import {
+  applyQualityReleaseGates,
+  createEvaluationReleaseReport,
+  createEvaluationRetrievalInput,
   createDefaultCliIo,
   collectEvaluationTraceObservation,
   formatChatResponse,
   formatAdminVerifiedKnowledgeDocument,
   formatEvaluationReport,
   formatFeedbackEvalBacklog,
+  formatFeedbackGoldenPromotionSummary,
   formatIngestSummary,
   formatKnowledgeCandidateList,
   formatKnowledgePublicationSummary,
@@ -26,8 +30,10 @@ import {
   formatSyncXUpdatesSummary,
   formatTelegramKnowledgeImportSummary,
   parseCliArgs,
+  promoteReviewedFeedbackCases,
   resolveWorkspaceCwd,
   runCli,
+  selectEvaluationCases,
 } from './index.js';
 
 describe('parseCliArgs', () => {
@@ -62,10 +68,61 @@ describe('parseCliArgs', () => {
     expect(parseCliArgs(['stats'])).toEqual({ command: 'stats' });
     expect(parseCliArgs(['sync:x'])).toEqual({ command: 'sync:x' });
     expect(parseCliArgs(['feedback:backlog'])).toEqual({ command: 'feedback:backlog' });
+    expect(
+      parseCliArgs(['feedback:promote', '--', '.rag/reviewed.jsonl', '--reviewer', 'admin:alice']),
+    ).toEqual({
+      command: 'feedback:promote',
+      file: '.rag/reviewed.jsonl',
+      reviewer: 'admin:alice',
+    });
+    expect(
+      parseCliArgs([
+        'rollout:evidence',
+        '--',
+        '.rag/rollout-control.json',
+        '.rag/rollout-observations.jsonl',
+        '--out',
+        '.rag/rollout-evidence.json',
+      ]),
+    ).toEqual({
+      command: 'rollout:evidence',
+      controlFile: '.rag/rollout-control.json',
+      observationsFile: '.rag/rollout-observations.jsonl',
+      out: '.rag/rollout-evidence.json',
+    });
+    expect(
+      parseCliArgs([
+        'rollout:gate',
+        '--',
+        '.rag/rollout-evidence.json',
+        '--report-out',
+        '.rag/rollout-report.json',
+      ]),
+    ).toEqual({
+      command: 'rollout:gate',
+      file: '.rag/rollout-evidence.json',
+      reportOut: '.rag/rollout-report.json',
+    });
     expect(parseCliArgs(['evaluate'])).toEqual({
       command: 'evaluate',
       judge: false,
       providerBacked: false,
+      retrievalOnly: false,
+    });
+    expect(
+      parseCliArgs([
+        'evaluate',
+        '--provider',
+        '--case',
+        'order-management-types',
+        '--case',
+        'broad-current-capability-overview',
+      ]),
+    ).toEqual({
+      caseNames: ['order-management-types', 'broad-current-capability-overview'],
+      command: 'evaluate',
+      judge: false,
+      providerBacked: true,
       retrievalOnly: false,
     });
     expect(parseCliArgs(['evaluate', '--provider'])).toEqual({
@@ -88,6 +145,66 @@ describe('parseCliArgs', () => {
       judge: false,
       providerBacked: true,
       retrievalOnly: true,
+    });
+    expect(
+      parseCliArgs([
+        'evaluate',
+        '--report-out',
+        '.rag/quality-report.json',
+        '--baseline',
+        '.rag/quality-baseline.json',
+      ]),
+    ).toEqual({
+      baseline: '.rag/quality-baseline.json',
+      command: 'evaluate',
+      judge: false,
+      providerBacked: false,
+      reportOut: '.rag/quality-report.json',
+      retrievalOnly: false,
+    });
+  });
+
+  it('rejects unsafe or incomplete feedback promotion arguments', () => {
+    expect(
+      parseCliArgs(['feedback:promote', '../reviewed.jsonl', '--reviewer', 'admin:alice']),
+    ).toMatchObject({
+      command: 'help',
+      error: 'Reviewed feedback file must be under .rag/.',
+    });
+    expect(parseCliArgs(['feedback:promote', '.rag/reviewed.jsonl'])).toMatchObject({
+      command: 'help',
+      error: '--reviewer is required.',
+    });
+  });
+
+  it('rejects unsafe or incomplete rollout gate paths', () => {
+    expect(parseCliArgs(['rollout:gate', '../evidence.json'])).toMatchObject({
+      command: 'help',
+      error: 'Rollout evidence file must be under .rag/.',
+    });
+    expect(
+      parseCliArgs(['rollout:gate', '.rag/evidence.json', '--report-out', 'report.json']),
+    ).toMatchObject({
+      command: 'help',
+      error: '--report-out must be a file under .rag/.',
+    });
+    expect(
+      parseCliArgs([
+        'rollout:evidence',
+        '.rag/control.json',
+        '../observations.jsonl',
+        '--out',
+        '.rag/evidence.json',
+      ]),
+    ).toMatchObject({
+      command: 'help',
+      error: 'Rollout observations file must be under .rag/.',
+    });
+    expect(
+      parseCliArgs(['rollout:evidence', '.rag/control.json', '.rag/observations.jsonl']),
+    ).toMatchObject({
+      command: 'help',
+      error: '--out is required.',
     });
   });
 
@@ -283,10 +400,40 @@ describe('parseCliArgs', () => {
       command: 'help',
       error: '--failures-out must be a file under .rag/.',
     });
+    expect(parseCliArgs(['evaluate', '--report-out', 'report.json'])).toMatchObject({
+      command: 'help',
+      error: '--report-out must be a file under .rag/.',
+    });
+    expect(
+      parseCliArgs(['evaluate', '--case', 'pro-benefits', '--baseline', '.rag/baseline.json']),
+    ).toMatchObject({
+      command: 'help',
+      error: '--baseline cannot be combined with --case.',
+    });
     expect(parseCliArgs(['evaluate', '--unknown'])).toMatchObject({
       command: 'help',
       error: 'Unknown rag:evaluate option: --unknown',
     });
+  });
+
+  it('selects exact Golden QA cases and fails closed for unknown names', () => {
+    const cases = [
+      {
+        expectedIntent: 'product_qa' as const,
+        name: 'case-a',
+        request: { channel: 'cli' as const, message: 'A' },
+      },
+      {
+        expectedIntent: 'how_to' as const,
+        name: 'case-b',
+        request: { channel: 'cli' as const, message: 'B' },
+      },
+    ];
+
+    expect(selectEvaluationCases(cases, ['case-b'])).toEqual([cases[1]]);
+    expect(() => selectEvaluationCases(cases, ['case-missing'])).toThrow(
+      'Unknown Golden QA case(s): case-missing.',
+    );
   });
 
   it('rejects unknown commands', () => {
@@ -294,6 +441,86 @@ describe('parseCliArgs', () => {
       command: 'help',
       error: 'Unknown command: unknown',
     });
+  });
+});
+
+describe('quality release report', () => {
+  it('captures runtime, retrieval and pass-rate metrics without answer text', () => {
+    const report = createEvaluationReleaseReport(
+      {
+        passed: 2,
+        results: [],
+        retrievalSummary: {
+          annotatedCaseCount: 2,
+          averageNdcgAtK: 0.95,
+          averagePrecisionAtK: 0.4,
+          averageRecallAtK: 1,
+          meanReciprocalRank: 0.9,
+          totalForbiddenHits: 0,
+        },
+        runtimeSummary: {
+          modelResponseCount: 2,
+          p50LatencyMs: 100,
+          p95LatencyMs: 200,
+          totalTokens: 300,
+        },
+        total: 2,
+      },
+      true,
+    );
+
+    expect(report).toMatchObject({
+      metrics: {
+        casePassRate: 1,
+        p95LatencyMs: 200,
+        recallAtK: 1,
+        totalTokens: 300,
+      },
+      mode: 'provider',
+      schemaVersion: '1',
+    });
+    expect(JSON.stringify(report)).not.toContain('answer');
+  });
+
+  it('fails on quality regression and latency or token growth above twenty percent', () => {
+    const baseline = {
+      generatedAt: '2026-07-01T00:00:00.000Z',
+      gates: { passed: true, reasons: [] },
+      metrics: {
+        casePassRate: 1,
+        meanReciprocalRank: 0.92,
+        ndcgAtK: 0.94,
+        p95LatencyMs: 100,
+        recallAtK: 1,
+        totalTokens: 1000,
+      },
+      mode: 'provider' as const,
+      passedCases: 10,
+      schemaVersion: '1' as const,
+      totalCases: 10,
+    };
+    const result = applyQualityReleaseGates(
+      {
+        ...baseline,
+        generatedAt: '2026-07-02T00:00:00.000Z',
+        metrics: {
+          ...baseline.metrics,
+          meanReciprocalRank: 0.9,
+          p95LatencyMs: 121,
+          totalTokens: 1201,
+        },
+      },
+      baseline,
+    );
+
+    expect(result.gates.passed).toBe(false);
+    expect(result.gates.reasons).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('MRR regressed'),
+        expect.stringContaining('P95 latency increased'),
+        expect.stringContaining('total tokens increased'),
+      ]),
+    );
   });
 });
 
@@ -454,10 +681,12 @@ describe('CLI output formatting', () => {
 
     expect(collectEvaluationTraceObservation(records, 'eval:case-1')).toEqual({
       retrievedChunkIds: ['chunk-current'],
+      searchCount: 1,
       toolNames: ['search_product_docs'],
     });
     expect(collectEvaluationTraceObservation(records, 'eval:missing')).toEqual({
       retrievedChunkIds: [],
+      searchCount: 0,
       toolNames: [],
     });
   });
@@ -677,6 +906,132 @@ describe('CLI output formatting', () => {
     });
   });
 
+  it('promotes only explicitly reviewed feedback into deduplicated Golden QA', async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), 'xxyy-feedback-promotion-'));
+    await mkdir(path.join(cwd, '.rag'), { recursive: true });
+    await mkdir(path.join(cwd, 'docs', 'eval'), { recursive: true });
+    await writeFile(
+      path.join(cwd, 'docs', 'eval', 'golden-qa.jsonl'),
+      `${JSON.stringify({
+        boundaryExpected: false,
+        expectedIntent: 'product_qa',
+        mustContain: ['独享服务器'],
+        name: 'existing-case',
+        question: 'XXYY Pro 有哪些权益？',
+      })}\n`,
+      'utf8',
+    );
+    await writeFile(
+      path.join(cwd, '.rag', 'reviewed.jsonl'),
+      `${JSON.stringify({
+        _review: {
+          approved: true,
+          observedAnswer: '这段线上回答不能进入 Golden。',
+          reviewedAt: '2026-07-30T12:00:00.000Z',
+          reviewer: 'admin:alice',
+          source: 'rag_feedback',
+        },
+        boundaryExpected: false,
+        expectedAnswerStatus: 'complete',
+        expectedIntent: 'how_to',
+        mustContain: ['价格上涨', '有效时间'],
+        name: 'feedback-reviewed-limit-order',
+        question: '如何设置挂单？',
+      })}\n`,
+      'utf8',
+    );
+
+    const first = await promoteReviewedFeedbackCases({
+      cwd,
+      file: '.rag/reviewed.jsonl',
+      reviewer: 'admin:alice',
+    });
+    const second = await promoteReviewedFeedbackCases({
+      cwd,
+      file: '.rag/reviewed.jsonl',
+      reviewer: 'admin:alice',
+    });
+    const output = await readFile(path.join(cwd, 'docs', 'eval', 'golden-qa.jsonl'), 'utf8');
+    const records = output
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+    expect(first).toEqual({
+      inputCount: 1,
+      promotedCount: 1,
+      skippedDuplicateCount: 0,
+      target: path.join('docs', 'eval', 'golden-qa.jsonl'),
+    });
+    expect(second).toMatchObject({ promotedCount: 0, skippedDuplicateCount: 1 });
+    expect(records).toHaveLength(2);
+    expect(records[1]).toMatchObject({
+      expectedAnswerStatus: 'complete',
+      expectedIntent: 'how_to',
+      mustContain: ['价格上涨', '有效时间'],
+      name: 'feedback-reviewed-limit-order',
+      question: '如何设置挂单？',
+    });
+    expect(records[1]).not.toHaveProperty('_review');
+    expect(records[1]).not.toHaveProperty('observedAnswer');
+    expect(formatFeedbackGoldenPromotionSummary(first)).toContain('1/1 promoted');
+  });
+
+  it('rejects unapproved feedback and candidates without a reviewed oracle', async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), 'xxyy-feedback-rejection-'));
+    await mkdir(path.join(cwd, '.rag'), { recursive: true });
+    await mkdir(path.join(cwd, 'docs', 'eval'), { recursive: true });
+    await writeFile(path.join(cwd, 'docs', 'eval', 'golden-qa.jsonl'), '', 'utf8');
+    const reviewedPath = path.join(cwd, '.rag', 'reviewed.jsonl');
+    await writeFile(
+      reviewedPath,
+      `${JSON.stringify({
+        _review: {
+          approved: false,
+          reviewedAt: '2026-07-30T12:00:00.000Z',
+          reviewer: 'admin:alice',
+          source: 'rag_feedback',
+        },
+        expectedIntent: 'product_qa',
+        mustContain: ['雷达扫链'],
+        name: 'unapproved',
+        question: '雷达扫链从哪里进入？',
+      })}\n`,
+      'utf8',
+    );
+    await expect(
+      promoteReviewedFeedbackCases({
+        cwd,
+        file: '.rag/reviewed.jsonl',
+        reviewer: 'admin:alice',
+      }),
+    ).rejects.toThrow('approved=true');
+
+    await writeFile(
+      reviewedPath,
+      `${JSON.stringify({
+        _review: {
+          approved: true,
+          reviewedAt: '2026-07-30T12:00:00.000Z',
+          reviewer: 'admin:alice',
+          source: 'rag_feedback',
+        },
+        boundaryExpected: false,
+        expectedIntent: 'product_qa',
+        name: 'missing-oracle',
+        question: '雷达扫链从哪里进入？',
+      })}\n`,
+      'utf8',
+    );
+    await expect(
+      promoteReviewedFeedbackCases({
+        cwd,
+        file: '.rag/reviewed.jsonl',
+        reviewer: 'admin:alice',
+      }),
+    ).rejects.toThrow('at least one reviewed assertion');
+  });
+
   it('formats retrieval and judge summaries only when present', () => {
     const output = formatEvaluationReport({
       judgeSummary: {
@@ -746,6 +1101,19 @@ describe('CLI output formatting', () => {
     expect(output).toContain('[FAIL] missing evidence (recall 0.000000, forbidden 0)');
     expect(output).toContain('expected: expected:chunk');
     expect(output).toContain('retrieved: other:chunk');
+  });
+
+  it('uses the production query plan and retrieval policy for retrieval evaluation', () => {
+    const input = createEvaluationRetrievalInput('支持哪些功能');
+
+    expect(input.query).toBe('XXYY 当前支持的产品功能总览 交易 钱包监控 数据分析 移动端');
+    expect(input.policy).toMatchObject({
+      anchorDocumentIds: ['official_docs:pages/00-current-capability-overview'],
+      diversity: 'balanced',
+      preferredSourceTypes: ['admin_verified', 'official_docs', 'x_updates'],
+      temporalScope: 'current',
+      version: '1',
+    });
   });
 
   it('formats knowledge stats for retained stats command', () => {
@@ -917,6 +1285,185 @@ function createKnowledgeCandidate(overrides: Partial<KnowledgeCandidate> = {}): 
 }
 
 describe('runCli', () => {
+  it('prepares strict rollout evidence from bounded JSONL observations', async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), 'xxyy-rollout-evidence-'));
+    await mkdir(path.join(cwd, '.rag'), { recursive: true });
+    const control = await readFile(
+      path.join(process.cwd(), 'docs/eval/answer-quality-rollout-gate.template.json'),
+      'utf8',
+    );
+    await writeFile(path.join(cwd, '.rag', 'control.json'), control, 'utf8');
+    await writeFile(
+      path.join(cwd, '.rag', 'observations.jsonl'),
+      `${JSON.stringify({
+        answerFingerprintEqual: false,
+        answerStatus: 'complete',
+        channel: 'web',
+        citationCount: 2,
+        citationCountDelta: 1,
+        configVersion: '1',
+        event: 'answer_quality_rollout',
+        intent: 'product_qa',
+        intentEqual: true,
+        mode: 'shadow',
+        observedAt: '2026-01-01T00:00:00.000Z',
+        optimizedPercentage: 5,
+        outcome: 'success',
+        primaryLatencyMs: 1_000,
+        primarySourceTypes: ['official_docs'],
+        primaryVariant: 'legacy',
+        schemaVersion: '1',
+        shadowAnswerStatus: 'partial',
+        shadowCitationCount: 1,
+        shadowLatencyMs: 1_100,
+        shadowSourceTypes: ['x_updates'],
+        shadowVariant: 'optimized',
+        sourceTypesEqual: false,
+      })}\n`,
+      'utf8',
+    );
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    const exitCode = await runCli(
+      [
+        'rollout:evidence',
+        '.rag/control.json',
+        '.rag/observations.jsonl',
+        '--out',
+        '.rag/evidence.json',
+      ],
+      {
+        cwd,
+        env: {},
+        stderr: {
+          write: (message: string) => {
+            stderr.push(message);
+            return true;
+          },
+        },
+        stdout: {
+          write: (message: string) => {
+            stdout.push(message);
+            return true;
+          },
+        },
+      },
+    );
+
+    const evidence = JSON.parse(
+      await readFile(path.join(cwd, '.rag', 'evidence.json'), 'utf8'),
+    ) as {
+      observations: Array<Record<string, unknown>>;
+    };
+    expect(exitCode).toBe(0);
+    expect(stdout.join('')).toContain('Prepared 1 rollout observations');
+    expect(stderr.join('')).toBe('');
+    expect(evidence.observations).toHaveLength(1);
+    expect(evidence.observations[0]).toMatchObject({
+      answerFingerprintEqual: false,
+      primarySourceTypes: ['official_docs'],
+      shadowSourceTypes: ['x_updates'],
+    });
+    expect(evidence.observations[0]).not.toHaveProperty('event');
+  });
+
+  it('evaluates a complete rollout evidence window and writes a machine-readable report', async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), 'xxyy-rollout-gate-'));
+    await mkdir(path.join(cwd, '.rag'), { recursive: true });
+    const now = Date.now();
+    const isoBefore = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
+    await writeFile(
+      path.join(cwd, '.rag', 'evidence.json'),
+      JSON.stringify({
+        billing: {
+          measurementSource: 'provider-billing-export',
+          requestCount: 1,
+          totalCostUsd: 0.01,
+          totalModelTokens: 500,
+        },
+        observations: [
+          {
+            answerFingerprintEqual: false,
+            answerStatus: 'complete',
+            channel: 'web',
+            citationCountDelta: 0,
+            configVersion: '1',
+            intentEqual: true,
+            mode: 'shadow',
+            observedAt: isoBefore(30),
+            optimizedPercentage: 5,
+            outcome: 'success',
+            primaryLatencyMs: 1_000,
+            primarySourceTypes: [],
+            primaryVariant: 'legacy',
+            schemaVersion: '1',
+            shadowLatencyMs: 1_100,
+            shadowSourceTypes: [],
+            shadowVariant: 'optimized',
+            sourceTypesEqual: true,
+          },
+        ],
+        policy: {
+          approvalId: 'approval-1',
+          approvedAt: isoBefore(120),
+          approvedBy: 'support-owner',
+          channels: ['web'],
+          expectedMode: 'shadow',
+          expectedOptimizedPercentage: { web: 5 },
+          maxAverageCostUsd: 0.02,
+          maxAverageModelTokens: 1_000,
+          maxP95LatencyMs: 2_000,
+          maxPrimaryErrorRate: 0.01,
+          maxShadowErrorRate: 0.01,
+          minCompleteRate: 0.95,
+          minReviewedPassRate: 0.95,
+          minReviewedSamples: 1,
+          minSampleSizePerChannel: 1,
+          minWindowMinutes: 30,
+        },
+        review: {
+          boundaryRegressionCount: 0,
+          passedSamples: 1,
+          reviewedSamples: 1,
+        },
+        schemaVersion: '1',
+        windowEndedAt: isoBefore(1),
+        windowStartedAt: isoBefore(60),
+      }),
+      'utf8',
+    );
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    const exitCode = await runCli(
+      ['rollout:gate', '.rag/evidence.json', '--report-out', '.rag/rollout-report.json'],
+      {
+        cwd,
+        env: {},
+        stderr: {
+          write: (message: string) => {
+            stderr.push(message);
+            return true;
+          },
+        },
+        stdout: {
+          write: (message: string) => {
+            stdout.push(message);
+            return true;
+          },
+        },
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stdout.join('')).toContain('Answer-quality rollout gate: PASS');
+    expect(stderr.join('')).toBe('');
+    expect(
+      JSON.parse(await readFile(path.join(cwd, '.rag', 'rollout-report.json'), 'utf8')),
+    ).toMatchObject({ passed: true, schemaVersion: '1' });
+  });
+
   it('returns boundary answers without planner configuration for obvious private lookups', async () => {
     const stdout: string[] = [];
     const stderr: string[] = [];
@@ -984,6 +1531,7 @@ describe('runCli', () => {
       (options: CreateCustomerAgentChatServiceOptions) => {
         expect(Object.keys(options).sort()).toEqual([
           'answerProvider',
+          'answerQualityRollout',
           'config',
           'productCapabilityCaller',
           'retriever',

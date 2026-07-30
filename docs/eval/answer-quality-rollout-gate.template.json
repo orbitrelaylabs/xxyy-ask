@@ -1,0 +1,38 @@
+{
+  "billing": {
+    "measurementSource": "",
+    "requestCount": 0,
+    "totalCostUsd": 0,
+    "totalModelTokens": 0
+  },
+  "observations": [],
+  "policy": {
+    "approvalId": "",
+    "approvedAt": "2026-01-01T00:00:00.000Z",
+    "approvedBy": "",
+    "channels": ["web", "telegram"],
+    "expectedMode": "shadow",
+    "expectedOptimizedPercentage": {
+      "web": 5,
+      "telegram": 5
+    },
+    "maxAverageCostUsd": 0,
+    "maxAverageModelTokens": 0,
+    "maxP95LatencyMs": 0,
+    "maxPrimaryErrorRate": 0,
+    "maxShadowErrorRate": 0,
+    "minCompleteRate": 1,
+    "minReviewedPassRate": 1,
+    "minReviewedSamples": 20,
+    "minSampleSizePerChannel": 100,
+    "minWindowMinutes": 1440
+  },
+  "review": {
+    "boundaryRegressionCount": 0,
+    "passedSamples": 0,
+    "reviewedSamples": 0
+  },
+  "schemaVersion": "1",
+  "windowEndedAt": "2026-01-01T00:00:00.000Z",
+  "windowStartedAt": "2026-01-01T00:00:00.000Z"
+}

@@ -107,6 +107,7 @@ function streamChatResponse(response: ChatResponse): AsyncIterable<ChatStreamEve
       : []),
     {
       type: 'metadata',
+      ...(response.answerStatus === undefined ? {} : { answerStatus: response.answerStatus }),
       ...(response.attachments === undefined ? {} : { attachments: response.attachments }),
       citations: response.citations,
       confidence: response.confidence,

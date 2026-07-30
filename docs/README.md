@@ -3,6 +3,8 @@
 ## 项目状态
 
 - [目标产品需求与总体设计](target-product-design.md)
+- [Agent 回答质量优化 Goal](agent-answer-quality-goal.md)
+- [完整 Agent 客服系统 Goal](agent-customer-service-goal.md)
 - [业务架构](architecture.md)
 - [知识来源与分类](knowledge-sources.md)
 - [开发质量门禁](development-workflow.md)

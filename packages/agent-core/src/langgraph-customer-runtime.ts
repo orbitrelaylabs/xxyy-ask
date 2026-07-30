@@ -10,18 +10,28 @@ import type {
 } from '@xxyy/shared';
 import {
   classifyQuestion,
+  createInitialProductSearchQuery,
+  createProductQueryPlan,
+  createStandaloneProductQuestion,
   createBoundaryAnswer,
+  detectGroundedFactConflicts,
   filterQuestionRelevantAttachments,
+  extractGroundedFacts,
   createInsufficientKnowledgeAnswer,
   createSupportConclusionFromEvidence,
   hasProductDomainSignal,
   LlmConfigurationError,
   noopQualityTracer,
   redactSensitiveSupportText,
+  selectGroundingChunks,
   type AnswerProvider,
   type QualityTracer,
   type RetrievedChunk,
+  shouldBlockOnGroundedFactConflicts,
   shouldUseDeterministicSupportAnswer,
+  selectNextProductQuery,
+  understandProductQuestion,
+  validateGroundedFactScope,
   VectorStoreConfigurationError,
 } from '@xxyy/rag-core';
 
@@ -62,7 +72,10 @@ export interface CustomerAgentRuntime {
   stream(request: ChatRequest): AsyncIterable<ChatStreamEvent>;
 }
 
+export type AnswerQualityVariant = 'legacy' | 'optimized';
+
 export interface CreateLangGraphCustomerRuntimeOptions {
+  answerQualityVariant?: AnswerQualityVariant;
   answerProvider?: AnswerProvider;
   maxSteps?: number;
   planner: PlannerModel;
@@ -87,11 +100,17 @@ export function createLangGraphCustomerRuntime(
   options: CreateLangGraphCustomerRuntimeOptions,
 ): CustomerAgentRuntime {
   const maxSteps = options.maxSteps ?? AGENT_MAX_STEPS_DEFAULT;
+  const answerQualityVariant = options.answerQualityVariant ?? 'optimized';
   const graph = createCustomerGraph(options);
   const tracer = options.tracer ?? noopQualityTracer;
 
   async function askInternal(request: ChatRequest): Promise<ChatResponse> {
-    const guardedResponse = await tracePreGuard(request, tracer, options.registry);
+    const guardedResponse = await tracePreGuard(
+      request,
+      tracer,
+      options.registry,
+      answerQualityVariant,
+    );
     if (guardedResponse !== undefined) {
       return guardedResponse;
     }
@@ -104,7 +123,12 @@ export function createLangGraphCustomerRuntime(
   }
 
   async function* streamInternal(request: ChatRequest): AsyncIterable<ChatStreamEvent> {
-    const guardedResponse = await tracePreGuard(request, tracer, options.registry);
+    const guardedResponse = await tracePreGuard(
+      request,
+      tracer,
+      options.registry,
+      answerQualityVariant,
+    );
     if (guardedResponse !== undefined) {
       yield* streamChatResponse(guardedResponse);
       return;
@@ -115,30 +139,34 @@ export function createLangGraphCustomerRuntime(
 
   return {
     ask(request) {
-      return tracer.run(createRequestSpan(request), () => askInternal(request));
+      return tracer.run(createRequestSpan(request, answerQualityVariant), () =>
+        askInternal(request),
+      );
     },
 
     stream(request) {
-      return tracer.stream(createRequestStreamSpan(request), () => streamInternal(request));
+      return tracer.stream(createRequestStreamSpan(request, answerQualityVariant), () =>
+        streamInternal(request),
+      );
     },
   };
 }
 
-function createRequestSpan(request: ChatRequest) {
+function createRequestSpan(request: ChatRequest, answerQualityVariant: AnswerQualityVariant) {
   return {
     inputs: requestSummary(request),
-    metadata: requestMetadata(request),
+    metadata: requestMetadata(request, answerQualityVariant),
     name: 'chat.request',
     output: summarizeResponse,
     runType: 'chain' as const,
   };
 }
 
-function createRequestStreamSpan(request: ChatRequest) {
+function createRequestStreamSpan(request: ChatRequest, answerQualityVariant: AnswerQualityVariant) {
   return {
     event: summarizeStreamEvent,
     inputs: requestSummary(request),
-    metadata: requestMetadata(request),
+    metadata: requestMetadata(request, answerQualityVariant),
     name: 'chat.request',
     output: (events: readonly Record<string, unknown>[]) => ({
       eventCount: events.length,
@@ -151,19 +179,27 @@ function createRequestStreamSpan(request: ChatRequest) {
 function requestSummary(request: ChatRequest): Record<string, unknown> {
   return {
     channel: request.channel,
+    historyMessageCount: request.history?.length ?? 0,
     messageLength: request.message.length,
     sessionIdPresent: request.sessionId !== undefined,
     userIdPresent: request.userId !== undefined,
   };
 }
 
-function requestMetadata(request: ChatRequest): Record<string, unknown> {
-  return request.requestId === undefined ? {} : { requestId: request.requestId };
+function requestMetadata(
+  request: ChatRequest,
+  answerQualityVariant: AnswerQualityVariant,
+): Record<string, unknown> {
+  return {
+    answerQualityVariant,
+    ...(request.requestId === undefined ? {} : { requestId: request.requestId }),
+  };
 }
 
 function summarizeResponse(response: ChatResponse): Record<string, unknown> {
   return {
     ...(response.agentRoute === undefined ? {} : { agentRoute: response.agentRoute }),
+    ...(response.answerStatus === undefined ? {} : { answerStatus: response.answerStatus }),
     attachmentCount: response.attachments?.length ?? 0,
     citationCount: response.citations.length,
     intent: response.intent,
@@ -175,6 +211,7 @@ function summarizeStreamEvent(event: ChatStreamEvent): Record<string, unknown> {
   if (event.type === 'metadata') {
     return {
       ...(event.agentRoute === undefined ? {} : { agentRoute: event.agentRoute }),
+      ...(event.answerStatus === undefined ? {} : { answerStatus: event.answerStatus }),
       attachmentCount: event.attachments?.length ?? 0,
       citationCount: event.citations.length,
       intent: event.intent,
@@ -188,12 +225,40 @@ async function tracePreGuard(
   request: ChatRequest,
   tracer: QualityTracer,
   registry: ToolRegistry,
+  answerQualityVariant: AnswerQualityVariant,
 ): Promise<ChatResponse | undefined> {
   const classification = await tracer.run(
     {
-      inputs: { messageLength: request.message.length },
+      inputs: { answerQualityVariant, messageLength: request.message.length },
       name: 'agent.classify',
-      output: (result) => ({ confidence: result.confidence, intent: result.intent }),
+      output: (result) => {
+        const standaloneQuestion = productQuestionForRequest(request);
+        const contextualClassification =
+          standaloneQuestion === request.message ? result : classifyQuestion(standaloneQuestion);
+        const understanding = understandProductQuestion(
+          standaloneQuestion,
+          contextualClassification,
+        );
+        const queryPlan = createProductQueryPlan(
+          request.message,
+          standaloneQuestion,
+          understanding,
+        );
+        return {
+          ambiguityRequiresClarification: understanding.ambiguity.requiresClarification,
+          confidence: result.confidence,
+          contextualIntent: contextualClassification.intent,
+          fineGrainedIntent: understanding.kind,
+          intent: result.intent,
+          queryCount: queryPlan.queries.length,
+          queryPlanVersion: queryPlan.version,
+          queryStrategy: queryPlan.strategy,
+          requiredFacetCount: queryPlan.requiredFacets.length,
+          standaloneQuestionChanged: standaloneQuestion !== request.message,
+          subject: understanding.subject,
+          temporalScope: understanding.temporalScope,
+        };
+      },
       runType: 'chain',
     },
     () => Promise.resolve(classifyQuestion(request.message)),
@@ -276,7 +341,11 @@ async function* streamRuntimeRequest(
     state = applyStatePatch(state, await toolExecutorNode(state, options.registry));
     state = applyStatePatch(
       state,
-      await traceObserveNode(state, options.tracer ?? noopQualityTracer),
+      await traceObserveNode(
+        state,
+        options.tracer ?? noopQualityTracer,
+        options.answerQualityVariant ?? 'optimized',
+      ),
     );
     if (shouldComposeProductAnswer(state)) {
       yield {
@@ -368,10 +437,11 @@ function isBoundaryUnknownReason(reason: string): boolean {
 
 function createCustomerGraph(options: CreateLangGraphCustomerRuntimeOptions) {
   const tracer = options.tracer ?? noopQualityTracer;
+  const answerQualityVariant = options.answerQualityVariant ?? 'optimized';
   return new StateGraph(AgentStateAnnotation)
     .addNode('planner', (state) => plannerNode(state, options))
     .addNode('tool_executor', (state) => toolExecutorNode(state, options.registry))
-    .addNode('observe', (state) => traceObserveNode(state, tracer))
+    .addNode('observe', (state) => traceObserveNode(state, tracer, answerQualityVariant))
     .addNode('answer_composer', (state) =>
       traceAnswerComposerNode(state, options.answerProvider, tracer),
     )
@@ -397,12 +467,28 @@ async function plannerNode(
     };
   }
 
-  const deterministicPlan = deterministicInitialPlan(state, options.registry);
+  const deterministicPlan = deterministicInitialPlan(
+    state,
+    options.registry,
+    options.answerQualityVariant ?? 'optimized',
+  );
   if (deterministicPlan !== undefined) {
     return {
       currentStep: state.currentStep + 1,
       plan: deterministicPlan,
       route: normalizeAgentRoute(deterministicPlan.route),
+    };
+  }
+
+  const deterministicContinuation =
+    options.answerQualityVariant === 'legacy'
+      ? undefined
+      : deterministicProductContinuationPlan(state, options.registry);
+  if (deterministicContinuation !== undefined) {
+    return {
+      currentStep: state.currentStep + 1,
+      plan: deterministicContinuation,
+      route: 'product_answer',
     };
   }
 
@@ -476,12 +562,15 @@ async function plannerNode(
 function deterministicInitialPlan(
   state: LangGraphAgentState,
   registry: ToolRegistry,
+  answerQualityVariant: AnswerQualityVariant,
 ): AgentPlan | undefined {
   if (state.toolCalls.length > 0 || state.evidence.length > 0) {
     return undefined;
   }
 
-  const classification = classifyQuestion(state.request.message);
+  const productQuestion = productQuestionForRequest(state.request);
+  const classification = classifyQuestion(productQuestion);
+  const understanding = understandProductQuestion(productQuestion, classification);
   const registeredToolNames = new Set(registry.list().map((tool) => tool.name));
   if (
     classification.intent === 'onchain_transaction' &&
@@ -493,6 +582,19 @@ function deterministicInitialPlan(
       reason: 'deterministic public transaction reference classification',
       route: 'chain_answer',
       toolName: PUBLIC_TRANSACTION_TOOL_NAME,
+    };
+  }
+
+  if (
+    classification.intent === 'agent_capabilities' &&
+    registeredToolNames.has('describe_agent_capabilities')
+  ) {
+    return {
+      input: {},
+      kind: 'tool',
+      reason: 'deterministic customer-support Agent capability classification',
+      route: 'agent_answer',
+      toolName: 'describe_agent_capabilities',
     };
   }
 
@@ -509,15 +611,68 @@ function deterministicInitialPlan(
     return undefined;
   }
 
+  const initialQuery =
+    answerQualityVariant === 'legacy'
+      ? productQuestion
+      : (createProductQueryPlan(state.request.message, productQuestion, understanding).queries[0]
+          ?.query ?? createInitialProductSearchQuery(productQuestion, understanding));
   return {
     input:
-      toolName === 'search_product_docs'
-        ? { query: state.request.message }
-        : { question: state.request.message },
+      toolName === 'search_product_docs' ? { query: initialQuery } : { question: productQuestion },
     kind: 'tool',
     reason: `deterministic ${classification.intent} classification`,
     route: 'product_answer',
     toolName,
+  };
+}
+
+function deterministicProductContinuationPlan(
+  state: LangGraphAgentState,
+  registry: ToolRegistry,
+): AgentPlan | undefined {
+  if (
+    state.observation?.shouldContinue !== true ||
+    state.observation.questionKind !== 'capability_overview' ||
+    registry.get('search_product_docs') === undefined
+  ) {
+    return undefined;
+  }
+
+  const standaloneQuestion = productQuestionForRequest(state.request);
+  const understanding = understandProductQuestion(
+    state.request.message,
+    classifyQuestion(state.request.message),
+  );
+  const queryPlan = createProductQueryPlan(
+    state.request.message,
+    standaloneQuestion,
+    understanding,
+  );
+  const searchedQueries = state.toolCalls.flatMap((toolCall) => {
+    if (toolCall.toolName !== 'search_product_docs' || !isRecord(toolCall.input)) {
+      return [];
+    }
+    const query = nonEmptyString(toolCall.input.query);
+    return query === undefined ? [] : [query];
+  });
+  if (searchedQueries.length >= queryPlan.maxSearches) {
+    return undefined;
+  }
+  const nextQuery = selectNextProductQuery(
+    queryPlan,
+    state.observation.missingFacets,
+    searchedQueries,
+  );
+  if (nextQuery === undefined) {
+    return undefined;
+  }
+
+  return {
+    input: { query: nextQuery },
+    kind: 'tool',
+    reason: `deterministic capability overview facet search: ${state.observation.missingFacets.join(', ')}`,
+    route: 'product_answer',
+    toolName: 'search_product_docs',
   };
 }
 
@@ -555,6 +710,7 @@ async function toolExecutorNode(
   }
 
   let output: unknown;
+  const executionErrors: string[] = [];
   const toolInput = inputForToolExecution(plan, state);
   try {
     output = await registry.execute(
@@ -566,15 +722,38 @@ async function toolExecutorNode(
     if (isProductConfigurationError(error)) {
       throw error;
     }
-    return {
-      errors: [`Tool ${plan.toolName} failed: ${errorMessageFrom(error)}`],
-      finalResponse: toolFailureResponse(plan.toolName),
-      route: 'clarify',
-    };
+    executionErrors.push(`Tool ${plan.toolName} failed: ${errorMessageFrom(error)}`);
+    if (plan.toolName !== 'search_product_docs') {
+      return {
+        errors: executionErrors,
+        finalResponse: toolFailureResponse(plan.toolName),
+        route: 'clarify',
+      };
+    }
+    try {
+      output = await registry.execute(
+        plan.toolName,
+        toolInput,
+        toolContextFromRequest(state.request),
+      );
+    } catch (retryError) {
+      if (isProductConfigurationError(retryError)) {
+        throw retryError;
+      }
+      return {
+        errors: [
+          ...executionErrors,
+          `Tool ${plan.toolName} retry failed: ${errorMessageFrom(retryError)}`,
+        ],
+        finalResponse: toolFailureResponse(plan.toolName),
+        route: 'clarify',
+      };
+    }
   }
   const evidence = evidenceFromToolOutput(plan.toolName, output);
 
   return {
+    ...(executionErrors.length === 0 ? {} : { errors: executionErrors }),
     evidence: [evidence],
     route: routeForToolName(plan.toolName),
     toolCalls: [
@@ -594,7 +773,10 @@ async function toolExecutorNode(
   };
 }
 
-function observeNode(state: LangGraphAgentState): Partial<AgentState> {
+function observeNode(
+  state: LangGraphAgentState,
+  answerQualityVariant: AnswerQualityVariant,
+): Partial<AgentState> {
   const evidence = state.evidence.at(-1);
   if (evidence === undefined) {
     return {};
@@ -606,7 +788,7 @@ function observeNode(state: LangGraphAgentState): Partial<AgentState> {
     };
   }
 
-  const observation = createEvidenceObservation(state);
+  const observation = createEvidenceObservation(state, answerQualityVariant);
   if (observation.sufficient || observation.shouldContinue) {
     return { observation };
   }
@@ -626,10 +808,12 @@ function observeNode(state: LangGraphAgentState): Partial<AgentState> {
 function traceObserveNode(
   state: LangGraphAgentState,
   tracer: QualityTracer,
+  answerQualityVariant: AnswerQualityVariant,
 ): Promise<Partial<AgentState>> {
   return tracer.run(
     {
       inputs: {
+        answerQualityVariant,
         evidenceCount: state.evidence.length,
         searchAttemptCount: searchEvidenceList(state.evidence).length,
       },
@@ -639,18 +823,30 @@ function traceObserveNode(
         ...(patch.observation === undefined
           ? {}
           : {
+              authoritativeCitationCount: patch.observation.authoritativeCitationCount,
+              authoritativeOverviewCitationCount:
+                patch.observation.authoritativeOverviewCitationCount,
               complexity: patch.observation.complexity,
+              conflictCount: patch.observation.conflicts.length,
+              coverage: patch.observation.coverage,
+              currentEvidenceCount: patch.observation.currentEvidenceCount,
               distinctCitationCount: patch.observation.distinctCitationCount,
+              historicalEvidenceCount: patch.observation.historicalEvidenceCount,
               latestNewEvidenceCount: patch.observation.latestNewEvidenceCount,
               missingFacetCount: patch.observation.missingFacets.length,
+              nextAction: patch.observation.nextAction,
+              questionKind: patch.observation.questionKind,
               shouldContinue: patch.observation.shouldContinue,
+              sourceTypes: patch.observation.sourceTypes,
               stopReason: patch.observation.stopReason,
               sufficient: patch.observation.sufficient,
+              version: patch.observation.version,
+              xCitationCount: patch.observation.xCitationCount,
             }),
       }),
       runType: 'chain',
     },
-    () => Promise.resolve(observeNode(state)),
+    () => Promise.resolve(observeNode(state, answerQualityVariant)),
   );
 }
 
@@ -659,7 +855,7 @@ function inputForToolExecution(
   state: LangGraphAgentState,
 ) {
   if (plan.toolName === 'answer_product_question') {
-    return { question: state.request.message };
+    return { question: productQuestionForRequest(state.request) };
   }
 
   if (plan.toolName === 'search_product_docs') {
@@ -670,7 +866,7 @@ function inputForToolExecution(
 }
 
 function inputForSearchProductDocs(input: unknown, state: LangGraphAgentState) {
-  const fallbackQuery = state.request.message;
+  const fallbackQuery = productQuestionForRequest(state.request);
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return { question: fallbackQuery, query: fallbackQuery };
   }
@@ -683,7 +879,10 @@ function inputForSearchProductDocs(input: unknown, state: LangGraphAgentState) {
   );
   const missingFacets = state.observation?.missingFacets ?? [];
   const query = !hasPreviousSearch
-    ? fallbackQuery
+    ? proposedQuery === fallbackQuery ||
+      isAllowedSearchQueryRewrite(state.request.message, proposedQuery, [])
+      ? proposedQuery
+      : fallbackQuery
     : isAllowedSearchQueryRewrite(fallbackQuery, proposedQuery, missingFacets)
       ? proposedQuery
       : (state.observation?.suggestedQuery ?? fallbackQuery);
@@ -694,6 +893,16 @@ function inputForSearchProductDocs(input: unknown, state: LangGraphAgentState) {
     query: query.slice(0, 240),
     ...(topK === undefined ? {} : { topK }),
   };
+}
+
+function productQuestionForRequest(request: ChatRequest): string {
+  return createStandaloneProductQuestion(
+    request.message,
+    (request.history?.slice(-10) ?? []).map((message) => ({
+      ...message,
+      content: redactSensitiveSupportText(message.content).slice(0, 800),
+    })),
+  );
 }
 
 function normalizePlannerPlan(plan: AgentPlan, state: LangGraphAgentState): AgentPlan {
@@ -767,8 +976,10 @@ async function answerComposerNode(
         }
         return {
           errors: [`Answer composer failed: ${errorMessageFrom(error)}`],
-          finalResponse: toolFailureResponse('answer_composer'),
-          route: 'clarify',
+          finalResponse: withAgentRoute(
+            responseFromSearchEvidenceList(searchEvidence, state.request.message),
+            'product_answer',
+          ),
         };
       }
       return {
@@ -829,14 +1040,25 @@ function summarizeState(state: LangGraphAgentState): string {
       state.observation === undefined
         ? undefined
         : {
+            authoritativeCitationCount: state.observation.authoritativeCitationCount,
+            authoritativeOverviewCitationCount:
+              state.observation.authoritativeOverviewCitationCount,
             complexity: state.observation.complexity,
+            conflictCount: state.observation.conflicts.length,
+            coverage: state.observation.coverage,
             coveredFacets: state.observation.coveredFacets.map(redactSensitiveSupportText),
+            currentEvidenceCount: state.observation.currentEvidenceCount,
             distinctCitationCount: state.observation.distinctCitationCount,
+            historicalEvidenceCount: state.observation.historicalEvidenceCount,
             latestNewEvidenceCount: state.observation.latestNewEvidenceCount,
             missingFacets: state.observation.missingFacets.map(redactSensitiveSupportText),
+            nextAction: state.observation.nextAction,
+            questionKind: state.observation.questionKind,
             shouldContinue: state.observation.shouldContinue,
+            sourceTypes: state.observation.sourceTypes,
             stopReason: state.observation.stopReason,
             sufficient: state.observation.sufficient,
+            xCitationCount: state.observation.xCitationCount,
             ...(state.observation.suggestedQuery === undefined
               ? {}
               : {
@@ -953,7 +1175,12 @@ async function* streamProductAnswer(
       if (isProductConfigurationError(error)) {
         throw error;
       }
-      yield* streamChatResponse(withAgentRoute(toolFailureResponse('answer_composer'), 'clarify'));
+      yield* streamChatResponse(
+        withAgentRoute(
+          responseFromSearchEvidenceList(evidenceList, state.request.message),
+          'product_answer',
+        ),
+      );
       return;
     }
     for (const event of bufferedEvents) {
@@ -1135,6 +1362,7 @@ function responseFromSearchEvidenceList(
       excerpts.length === 0
         ? '当前知识库没有找到直接相关的产品资料。'
         : (supportConclusion ?? `根据知识库，${excerpts.join(' ')}`),
+    answerStatus: excerpts.length === 0 ? 'insufficient' : 'complete',
     citations,
     confidence: Number(Math.min(0.9, Math.max(0.55, confidence / 10)).toFixed(2)),
     intent: 'product_qa',
@@ -1159,7 +1387,10 @@ function searchEvidenceList(evidenceList: AgentEvidence[]): AgentEvidence[] {
   return evidenceList.filter((evidence) => evidence.kind === 'search_results');
 }
 
-function createEvidenceObservation(state: LangGraphAgentState): EvidenceObservation {
+function createEvidenceObservation(
+  state: LangGraphAgentState,
+  answerQualityVariant: AnswerQualityVariant,
+): EvidenceObservation {
   const searchEvidence = searchEvidenceList(state.evidence);
   const searchCalls = state.toolCalls.filter(
     (toolCall) => toolCall.toolName === 'search_product_docs',
@@ -1178,9 +1409,14 @@ function createEvidenceObservation(state: LangGraphAgentState): EvidenceObservat
         return id === undefined ? [] : [id];
       }),
       citationKeys: evidence.output.citations.map(citationKey),
+      citationSourceTypes: evidence.output.citations.map((citation) => citation.sourceType),
+      currentEvidenceCount: evidence.output.chunks.filter(
+        (chunk) => !isHistoricalEvidenceChunk(chunk),
+      ).length,
       evidenceTexts: evidence.output.citations.map(
         (citation) => `${citation.title}\n${citation.excerpt}`,
       ),
+      historicalEvidenceCount: evidence.output.chunks.filter(isHistoricalEvidenceChunk).length,
       query:
         isRecord(queryInput) && nonEmptyString(queryInput.query) !== undefined
           ? (nonEmptyString(queryInput.query) ?? '')
@@ -1188,7 +1424,69 @@ function createEvidenceObservation(state: LangGraphAgentState): EvidenceObservat
     };
   });
 
-  return observeProductEvidence(state.request.message, attempts, state.maxSteps);
+  const productQuestion = productQuestionForRequest(state.request);
+  const understanding = understandProductQuestion(
+    productQuestion,
+    classifyQuestion(productQuestion),
+  );
+  const queryPlan = createProductQueryPlan(state.request.message, productQuestion, understanding);
+  const maxSearches =
+    understanding.kind === 'capability_overview'
+      ? Math.min(state.maxSteps, queryPlan.maxSearches)
+      : state.maxSteps;
+  const observation = observeProductEvidence(productQuestion, attempts, maxSearches);
+  const groundingChunks = selectGroundingChunks(
+    productQuestion,
+    collectedRetrievedChunks(searchEvidence),
+  );
+  const factReport = extractGroundedFacts(productQuestion, groundingChunks);
+  const scopeValidation = validateGroundedFactScope(productQuestion, factReport.facts);
+  const scopedConflicts = detectGroundedFactConflicts(
+    scopeValidation.acceptedFacts,
+    groundingChunks,
+  );
+  if (
+    scopedConflicts.length === 0 ||
+    !shouldBlockOnGroundedFactConflicts(productQuestion, scopeValidation)
+  ) {
+    if (answerQualityVariant === 'legacy' && observation.distinctCitationCount > 0) {
+      return {
+        ...observation,
+        conflicts: [],
+        nextAction: 'answer',
+        shouldContinue: false,
+        sufficient: true,
+      };
+    }
+    return observation;
+  }
+
+  const stopReason =
+    attempts.length >= maxSearches
+      ? 'max_steps'
+      : attempts.length >= 2 && observation.latestNewEvidenceCount === 0
+        ? 'no_new_evidence'
+        : undefined;
+  const { stopReason: _stopReason, suggestedQuery: _suggestedQuery, ...base } = observation;
+  const conflictSubject = scopedConflicts[0]?.subject ?? '当前事实';
+  return {
+    ...base,
+    conflicts: scopedConflicts,
+    nextAction: stopReason === undefined ? 'continue_search' : 'partial_answer',
+    shouldContinue: stopReason === undefined,
+    ...(stopReason === undefined ? {} : { stopReason }),
+    sufficient: false,
+    ...(stopReason === undefined
+      ? { suggestedQuery: `XXYY ${conflictSubject} 当前 官方文档` }
+      : {}),
+  };
+}
+
+function isHistoricalEvidenceChunk(chunk: unknown): boolean {
+  if (!isRecord(chunk) || !isRecord(chunk.metadata)) {
+    return false;
+  }
+  return chunk.metadata.status === 'historical';
 }
 
 function responseForStoppedSearch(
@@ -1208,6 +1506,17 @@ function responseForStoppedSearch(
     .map((evidence) => evidence.output);
   const citations = uniqueCitations(outputs.flatMap((output) => output.citations));
   if (citations.length > 0) {
+    const conflict = observation?.conflicts[0];
+    if (conflict !== undefined) {
+      return {
+        agentRoute: 'product_answer',
+        answerStatus: 'conflict',
+        answer: `当前知识库对“${conflict.subject}”存在同范围的当前值冲突（${conflict.values.join('、')}），无法可靠给出唯一结论。相关证据已保留，需要先由知识治理确认后再更新正式答案。`,
+        citations,
+        confidence: 0.2,
+        intent: classificationForProductAnswer(state.request.message).intent,
+      };
+    }
     const missing = observation?.missingFacets ?? [];
     const missingMessage =
       missing.length === 0
@@ -1216,6 +1525,7 @@ function responseForStoppedSearch(
     const attachments = uniqueAttachments(outputs.flatMap((output) => output.attachments ?? []));
     return {
       agentRoute: 'product_answer',
+      answerStatus: 'partial',
       answer: `当前知识库找到了一部分相关资料，${missingMessage}，暂时无法可靠给出完整结论。${fallbackMessage}`,
       citations,
       confidence: 0.4,
@@ -1424,6 +1734,7 @@ async function* streamChatResponse(response: ChatResponse): AsyncIterable<ChatSt
   yield {
     type: 'metadata',
     ...(response.agentRoute === undefined ? {} : { agentRoute: response.agentRoute }),
+    ...(response.answerStatus === undefined ? {} : { answerStatus: response.answerStatus }),
     ...(response.attachments === undefined ? {} : { attachments: response.attachments }),
     citations: response.citations,
     confidence: response.confidence,

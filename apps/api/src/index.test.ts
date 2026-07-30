@@ -15,6 +15,7 @@ import {
   VectorStoreConfigurationError,
   VectorStoreUnavailableError,
 } from '@xxyy/rag-core';
+import type { PgSupportOperationsStore } from '@xxyy/rag-core';
 
 import {
   createRateLimiter,
@@ -472,6 +473,73 @@ describe('createRequestHandler', () => {
     });
   });
 
+  it('publishes an OpenAPI contract for the versioned Agent API', async () => {
+    const response = await callHandler(createRequestHandler(), {
+      method: 'GET',
+      url: '/api/v1/openapi.json',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      info: { title: 'XXYY Agent API', version: '1.0.0' },
+      openapi: '3.1.0',
+      paths: {
+        '/chat': { post: { operationId: 'ask' } },
+        '/support/escalate': { post: { operationId: 'escalate' } },
+      },
+    });
+  });
+
+  it('fails closed and requires bearer authentication on versioned Agent routes', async () => {
+    const unconfigured = await callHandler(createRequestHandler(), {
+      body: { message: 'XXYY Pro 权益？' },
+      method: 'POST',
+      url: '/api/v1/chat',
+    });
+    expect(unconfigured.statusCode).toBe(503);
+
+    const ask = vi.fn(() =>
+      Promise.resolve({
+        answer: 'Pro 权益',
+        citations: [],
+        confidence: 0.8,
+        intent: 'product_qa' as const,
+      }),
+    );
+    const handler = createRequestHandler({
+      agentApiAuthenticator: {
+        configured: true,
+        authenticate: (authorization) =>
+          authorization === 'Bearer valid-integration-token'
+            ? { id: 'integration:test' }
+            : undefined,
+      },
+      getChatService: () =>
+        Promise.resolve({
+          ask,
+          stream() {
+            throw new Error('stream is not expected');
+          },
+        }),
+    });
+    const unauthorized = await callHandler(handler, {
+      body: { message: 'XXYY Pro 权益？' },
+      method: 'POST',
+      url: '/api/v1/chat',
+    });
+    const authorized = await callHandler(handler, {
+      body: { message: 'XXYY Pro 权益？' },
+      headers: { authorization: 'Bearer valid-integration-token' },
+      method: 'POST',
+      url: '/api/v1/chat',
+    });
+
+    expect(unauthorized.statusCode).toBe(401);
+    expect(unauthorized.headers['WWW-Authenticate']).toBe('Bearer');
+    expect(authorized.statusCode).toBe(200);
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ message: 'XXYY Pro 权益？' }));
+  });
+
   it('records uncited product answers as a review backlog signal', async () => {
     const recordFeedback = vi.fn(() => Promise.resolve());
     const handler = createRequestHandler({
@@ -506,6 +574,51 @@ describe('createRequestHandler', () => {
         question: '一个尚未覆盖的产品问题',
         rating: 'negative',
         sessionId: 'session-low-evidence',
+      }),
+    );
+  });
+
+  it('records conflicting evidence as a distinct review backlog signal', async () => {
+    const recordFeedback = vi.fn(() => Promise.resolve());
+    const handler = createRequestHandler({
+      recordFeedback,
+      getChatService: () =>
+        Promise.resolve({
+          ask() {
+            return Promise.resolve({
+              answer: '当前知识库存在同范围数值冲突。',
+              answerStatus: 'conflict',
+              citations: [
+                {
+                  excerpt: '最多 2000 个。',
+                  file: 'docs/monitor.md',
+                  sourceType: 'official_docs',
+                  title: '钱包监控',
+                },
+              ],
+              confidence: 0.2,
+              intent: 'product_qa',
+            });
+          },
+          stream() {
+            throw new Error('stream should not be used');
+          },
+        }),
+    });
+
+    const response = await callHandler(handler, {
+      body: { message: '钱包监控上限是多少？', sessionId: 'session-conflict' },
+      method: 'POST',
+      url: '/api/chat',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(recordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        citationCount: 1,
+        comment: 'automatic_evidence_conflict',
+        rating: 'negative',
+        sessionId: 'session-conflict',
       }),
     );
   });
@@ -871,6 +984,200 @@ describe('createRequestHandler', () => {
     expect(JSON.parse(response.body)).toEqual(chatResponse);
   });
 
+  it('loads bounded server-side history and persists both sides of a chat turn', async () => {
+    const appendMessage = vi.fn(() =>
+      Promise.resolve({
+        content: 'stored',
+        conversationId: 'support_conversation_1',
+        createdAt: '2026-07-29T00:00:00.000Z',
+        id: 'support_message_1',
+        role: 'user' as const,
+      }),
+    );
+    const supportStore = {
+      appendMessage,
+      ensureConversation: vi.fn(() =>
+        Promise.resolve({
+          channel: 'web' as const,
+          createdAt: '2026-07-29T00:00:00.000Z',
+          externalSessionId: '0198f34c-8a2e-7b11-9234-123456789abc',
+          id: 'support_conversation_1',
+          lastMessageAt: '2026-07-29T00:00:00.000Z',
+          status: 'open' as const,
+          updatedAt: '2026-07-29T00:00:00.000Z',
+        }),
+      ),
+      getRecentMessages: vi.fn(() =>
+        Promise.resolve([
+          {
+            content: 'XXYY Pro 有哪些权益？',
+            conversationId: 'support_conversation_1',
+            createdAt: '2026-07-29T00:00:00.000Z',
+            id: 'support_message_history_1',
+            role: 'user' as const,
+          },
+          {
+            content: 'Pro 提供进阶权益。',
+            conversationId: 'support_conversation_1',
+            createdAt: '2026-07-29T00:00:01.000Z',
+            id: 'support_message_history_2',
+            role: 'assistant' as const,
+          },
+        ]),
+      ),
+    } as unknown as PgSupportOperationsStore;
+    const handler = createRequestHandler({
+      createRequestId: () => 'req-history-1',
+      getSupportOperationsStore: () => Promise.resolve(supportStore),
+      getChatService: () =>
+        Promise.resolve({
+          ask(request) {
+            expect(request.history).toEqual([
+              { content: 'XXYY Pro 有哪些权益？', role: 'user' },
+              { content: 'Pro 提供进阶权益。', role: 'assistant' },
+            ]);
+            return Promise.resolve({
+              answer: '可以在会员页面升级。',
+              citations: [],
+              confidence: 0.8,
+              intent: 'how_to',
+            });
+          },
+          stream() {
+            throw new Error('stream should not be used for non-stream requests');
+          },
+        }),
+    });
+
+    const response = await callHandler(handler, {
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        channel: 'web',
+        message: '那怎么升级？',
+        sessionId: '0198f34c-8a2e-7b11-9234-123456789abc',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(appendMessage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        content: '那怎么升级？',
+        role: 'user',
+      }),
+    );
+    expect(appendMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        content: '可以在会员页面升级。',
+        role: 'assistant',
+      }),
+    );
+  });
+
+  it('creates an idempotent support ticket only through explicit escalation', async () => {
+    const createTicket = vi.fn(() =>
+      Promise.resolve({
+        conversationId: 'support_conversation_1',
+        createdAt: '2026-07-29T00:00:00.000Z',
+        id: 'support_ticket_1',
+        priority: 'high' as const,
+        reason: 'explicit_human_request' as const,
+        status: 'open' as const,
+        subject: '需要人工协助',
+        updatedAt: '2026-07-29T00:00:00.000Z',
+      }),
+    );
+    const supportStore = {
+      createTicket,
+      ensureConversation: vi.fn(() =>
+        Promise.resolve({
+          channel: 'web' as const,
+          createdAt: '2026-07-29T00:00:00.000Z',
+          externalSessionId: '0198f34c-8a2e-7b11-9234-123456789abc',
+          id: 'support_conversation_1',
+          lastMessageAt: '2026-07-29T00:00:00.000Z',
+          status: 'open' as const,
+          updatedAt: '2026-07-29T00:00:00.000Z',
+        }),
+      ),
+    } as unknown as PgSupportOperationsStore;
+    const handler = createRequestHandler({
+      getSupportOperationsStore: () => Promise.resolve(supportStore),
+    });
+
+    const response = await callHandler(handler, {
+      method: 'POST',
+      url: '/api/support/escalate',
+      body: {
+        channel: 'web',
+        priority: 'high',
+        reason: 'explicit_human_request',
+        sessionId: '0198f34c-8a2e-7b11-9234-123456789abc',
+        subject: '需要人工协助',
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(JSON.parse(response.body)).toMatchObject({
+      ticket: { id: 'support_ticket_1', status: 'open' },
+    });
+    expect(createTicket).toHaveBeenCalledWith({
+      conversationId: 'support_conversation_1',
+      priority: 'high',
+      reason: 'explicit_human_request',
+      subject: '需要人工协助',
+    });
+  });
+
+  it('returns only human support replies for a high-entropy session id', async () => {
+    const supportStore = {
+      getConversationByExternalSessionId: vi.fn(() =>
+        Promise.resolve({
+          channel: 'web' as const,
+          createdAt: '2026-07-29T00:00:00.000Z',
+          externalSessionId: '0198f34c-8a2e-7b11-9234-123456789abc',
+          id: 'support_conversation_1',
+          lastMessageAt: '2026-07-29T00:00:00.000Z',
+          status: 'escalated' as const,
+          updatedAt: '2026-07-29T00:00:00.000Z',
+        }),
+      ),
+      getRecentMessages: vi.fn(() =>
+        Promise.resolve([
+          {
+            content: 'private user question',
+            conversationId: 'support_conversation_1',
+            createdAt: '2026-07-29T00:00:00.000Z',
+            id: 'message-user',
+            role: 'user' as const,
+          },
+          {
+            content: '人工客服回复',
+            conversationId: 'support_conversation_1',
+            createdAt: '2026-07-29T00:01:00.000Z',
+            id: 'message-support',
+            role: 'support_agent' as const,
+          },
+        ]),
+      ),
+    } as unknown as PgSupportOperationsStore;
+    const response = await callHandler(
+      createRequestHandler({
+        getSupportOperationsStore: () => Promise.resolve(supportStore),
+      }),
+      {
+        method: 'GET',
+        url: '/api/support/status?sessionId=0198f34c-8a2e-7b11-9234-123456789abc',
+      },
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('人工客服回复');
+    expect(response.body).not.toContain('private user question');
+  });
+
   it('builds the default chat service from the Customer Agent Runtime factory', async () => {
     vi.resetModules();
 
@@ -975,6 +1282,7 @@ describe('createRequestHandler', () => {
       }
       expect(Object.keys(serviceOptions).sort()).toEqual([
         'answerProvider',
+        'answerQualityRollout',
         'config',
         'productCapabilityCaller',
         'publicChainCapabilityCaller',
