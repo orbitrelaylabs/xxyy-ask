@@ -21,11 +21,6 @@ export async function readChatStream(
       const event = parseSseBlock(block);
       if (event !== undefined) {
         onEvent(event);
-        // Even if multiple SSE frames arrive in one network chunk, yield a paint
-        // frame so answer text appears progressively instead of all at once.
-        if (event.event === 'answer_delta' || event.event === 'status') {
-          await waitForPaint();
-        }
       }
     }
   }
@@ -35,20 +30,6 @@ export async function readChatStream(
   if (finalEvent !== undefined) {
     onEvent(finalEvent);
   }
-}
-
-function waitForPaint(): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-      setTimeout(resolve, 0);
-      return;
-    }
-    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-      window.requestAnimationFrame(() => resolve());
-      return;
-    }
-    setTimeout(resolve, 16);
-  });
 }
 
 function parseSseBlock(block: string): ChatStreamEvent | undefined {

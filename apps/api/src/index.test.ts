@@ -491,11 +491,19 @@ describe('createRequestHandler', () => {
   });
 
   it('fails closed and requires bearer authentication on versioned Agent routes', async () => {
-    const unconfigured = await callHandler(createRequestHandler(), {
-      body: { message: 'XXYY Pro 权益？' },
-      method: 'POST',
-      url: '/api/v1/chat',
-    });
+    const unconfigured = await callHandler(
+      createRequestHandler({
+        agentApiAuthenticator: {
+          configured: false,
+          authenticate: () => undefined,
+        },
+      }),
+      {
+        body: { message: 'XXYY Pro 权益？' },
+        method: 'POST',
+        url: '/api/v1/chat',
+      },
+    );
     expect(unconfigured.statusCode).toBe(503);
 
     const ask = vi.fn(() =>
