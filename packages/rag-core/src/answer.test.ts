@@ -619,7 +619,7 @@ describe('createGroundedAnswer', () => {
         id: 'wallet-note-post',
         sourceType: 'x_updates',
         sourceUrl: 'https://x.com/useXXYYio/status/2030954722350575916',
-        text: '钱包备注支持最多 1 万条，快速捕捉前排地址。',
+        text: '🔥 Base 扫链页面上线，筛选代币更方便 ⚡ BSC 扫链支持 Fourmeme Agent 模式筛选 📝 钱包备注支持最多 1 万条，快速捕捉前排地址。',
         title: 'X Post 2030954722350575916',
       }),
       createRetrievedChunk({
@@ -637,6 +637,8 @@ describe('createGroundedAnswer', () => {
     );
 
     expect(response.answer).toContain('钱包备注支持最多 1 万条');
+    expect(response.answer).not.toContain('Base 扫链');
+    expect(response.answer).not.toContain('Fourmeme');
     expect(response.answer).not.toContain('跟单功能上线');
     expect(response.citations).toEqual([
       {
@@ -726,16 +728,17 @@ describe('createGroundedAnswer', () => {
   it('keeps only strong P1/P2/P3 evidence for trade-setting preset questions', () => {
     const retrieved = [
       createRetrievedChunk({
-        id: 'p123-summary',
-        sourceType: 'x_updates',
-        text: '支持 P1/P2/P3 交易设置档位，不同买卖和挂单场景可使用不同 gas 与滑点。',
-        title: 'XXYY X 历史推文产品更新汇总',
+        id: 'generic-trade-settings',
+        rank: 1,
+        text: '交易设置支持自定义滑点、交易模式和交易 Fee。',
+        title: '交易设置',
       }),
       createRetrievedChunk({
         id: 'p123-post',
+        rank: 2,
         sourceType: 'x_updates',
         sourceUrl: 'https://x.com/useXXYYio/status/2026285686907883612',
-        text: '交易设置多档位切换 P1 P2 P3，买卖/挂单支持不同gas与滑点。',
+        text: 'XXYY 大更新：交易更灵活，新增浅色模式 ☀️ 交易设置多档位切换 P1 P2 P3，买卖/挂单支持不同gas与滑点 ⚡ 快速识别 Pump 返现币。',
         title: 'X Post 2026285686907883612',
       }),
       createRetrievedChunk({
@@ -752,13 +755,18 @@ describe('createGroundedAnswer', () => {
       retrieved,
     );
 
-    expect(response.answer).toContain('P1/P2/P3');
     expect(response.answer).toContain('P1 P2 P3');
+    expect(response.answer).toContain('gas');
+    expect(response.answer).toContain('滑点');
     expect(response.answer).not.toContain('全面提速');
-    expect(response.citations).toHaveLength(2);
-    expect(response.citations.map((citation) => citation.title)).toEqual([
-      'XXYY X 历史推文产品更新汇总',
-      'X Post 2026285686907883612',
+    expect(response.answer).not.toContain('交易 Fee');
+    expect(response.answer).not.toContain('新增浅色模式');
+    expect(response.answer).not.toContain('返现币');
+    expect(response.citations).toEqual([
+      expect.objectContaining({
+        sourceUrl: 'https://x.com/useXXYYio/status/2026285686907883612',
+        title: 'X Post 2026285686907883612',
+      }),
     ]);
   });
 

@@ -806,6 +806,50 @@ describe('createOpenAiAnswerProvider', () => {
     expect(response.citations).toHaveLength(2);
   });
 
+  it('answers direct-source questions deterministically with both the fact and source', async () => {
+    const requests: unknown[] = [];
+    const provider = createOpenAiAnswerProvider({
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example/v1',
+      fetchImpl: (_input, init) => {
+        requests.push(init);
+        return Promise.resolve(
+          jsonResponse({
+            choices: [{ message: { content: '是这条推文：X Post 2030954722350575916。' } }],
+          }),
+        );
+      },
+      model: 'gpt-test',
+    });
+
+    const response = await provider.answer({
+      classification: {
+        confidence: 0.8,
+        intent: 'product_qa',
+        reason: 'product question',
+      },
+      question: '钱包备注支持最多 1 万条是哪条推文？',
+      retrievedChunks: [
+        createRetrievedChunk({
+          id: 'wallet-note-post',
+          sourceType: 'x_updates',
+          sourceUrl: 'https://x.com/useXXYYio/status/2030954722350575916',
+          text: '钱包备注支持最多 1 万条，快速捕捉前排地址。',
+          title: 'X Post 2030954722350575916',
+        }),
+      ],
+    });
+
+    expect(requests).toEqual([]);
+    expect(response.answer).toContain('钱包备注支持最多 1 万条');
+    expect(response.answer).toContain('X Post 2030954722350575916');
+    expect(response.citations).toEqual([
+      expect.objectContaining({
+        sourceUrl: 'https://x.com/useXXYYio/status/2030954722350575916',
+      }),
+    ]);
+  });
+
   it('does not ask the LLM to answer support questions without direct entity evidence', async () => {
     const requests: unknown[] = [];
     const fetchImpl: typeof fetch = (_input, init) => {

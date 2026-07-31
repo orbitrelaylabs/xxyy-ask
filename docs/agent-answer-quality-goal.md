@@ -590,6 +590,21 @@ Agent、API 和 Telegram Bot 不直接发布正式知识。对话样本先进入
   optimized 请求与 rollout event 已验证。
 - 审批、原始 JSONL、证据包和门禁报告仅保存在忽略目录 `.rag/`，不会进入仓库。
 
+### 2026-07-31 问答准确率专项复验
+
+- 按“本地优先、暂缓 MCP/Skill 扩展”的范围重新执行 Provider 全链路基线，定位到两个后段
+  证据使用问题：来源定位题只返回推文编号而遗漏事实；包含 `P1/P2/P3` 的精确实体题被泛化
+  的“交易设置”文档覆盖。
+- 来源定位题改为使用已选定证据生成“事实 + 来源”的确定性回答，避免模型压缩掉用户问题中
+  要确认的事实；包含多个字母数字编号的结构化问题，只有同时覆盖全部编号的证据才能进入
+  最终 grounding，精确实体优先于泛化标题。
+- 修复前 Provider full-chain 为 `53/55`；定向复验 `2/2`、全量复验 `55/55`，质量发布
+  门禁通过。全量 Recall@6 `1.0`、forbidden hit `0`、P50 `3.97s`、P95 `8.05s`，回答
+  模型响应 `4` 次、合计 `6290` tokens。
+- `pnpm check` 通过：Web build、format check、24 个 workspace package typecheck、
+  `1248` tests（另有 `2` skipped）和 deterministic Golden QA `55/55` 全部通过。
+- MCP、Skill、链上能力、知识发布和生产部署配置均未修改。
+
 ## 代码落点
 
 | 模块                      | 主要职责                                                                         |

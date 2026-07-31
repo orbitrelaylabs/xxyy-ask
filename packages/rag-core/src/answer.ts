@@ -113,6 +113,10 @@ export function createGroundedAnswer(
     answerEvidence.join(isStructuredAnswerQuestion(question) ? '\n' : ' '),
     MAX_FALLBACK_ANSWER_LENGTH,
   );
+  const directSourceAnswer =
+    isDirectSourceQuestion(question) && fallbackEvidenceChunks[0] !== undefined
+      ? createDirectSourceAnswer(evidenceAnswer, fallbackEvidenceChunks[0])
+      : undefined;
   const answerPrefix =
     classification.intent === 'how_to'
       ? `操作要点：${evidenceAnswer.includes('\n') ? '\n' : ''}`
@@ -132,7 +136,8 @@ export function createGroundedAnswer(
       answerStatus: partialHowTo ? 'partial' : 'complete',
       answer: partialHowTo
         ? createPartialHowToAnswer(question, answerChunks)
-        : (supportConclusion ??
+        : (directSourceAnswer ??
+          supportConclusion ??
           `${answerPrefix}${structuredSubjectPrefix}${evidenceAnswer.length > 0 ? evidenceAnswer : insufficientKnowledgeText(question)}`),
       intent: classification.intent,
       citations,
@@ -539,6 +544,7 @@ export function createConflictingKnowledgeAnswer(
 
 export function shouldUseDeterministicSupportAnswer(question: string): boolean {
   return (
+    isDirectSourceQuestion(question) ||
     isSupportQuestionText(question) ||
     /表示什么|是什么意思|是指什么|怎么计算|如何计算/u.test(question) ||
     /添加到主屏幕|添加到桌面|手机上怎么用|add\s+to\s+home\s+screen|how\s+does\b.+\bwork/iu.test(
@@ -548,6 +554,15 @@ export function shouldUseDeterministicSupportAnswer(question: string): boolean {
       question,
     )
   );
+}
+
+function createDirectSourceAnswer(evidence: string, chunk: RetrievedChunk): string {
+  const sourceTitle = chunk.metadata.title.trim();
+  const fact = evidence.replace(/[。！？!?]+$/u, '').trim();
+  if (fact.length === 0) {
+    return `对应来源是 ${sourceTitle}。`;
+  }
+  return `${fact}。对应来源是 ${sourceTitle}。`;
 }
 
 function withOptionalAttachments(
@@ -1359,7 +1374,7 @@ function createRelevantExcerpt(
   }
 
   const segments = text
-    .split(/\n+|(?<=[。！？!?；;])\s*/u)
+    .split(/\n+|(?<=[。！？!?；;])\s*|[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F]+/u)
     .map((segment) => segment.replace(/\s+/gu, ' ').trim())
     .filter((segment) => segment.length > 0);
   if (segments.length <= 1) {
@@ -1377,6 +1392,20 @@ function createRelevantExcerpt(
   const best = ranked[0];
   if (best === undefined) {
     return truncateExcerpt(text, maximumLength);
+  }
+  if (isDirectSourceQuestion(question)) {
+    return truncateExcerpt(best.segment, maximumLength);
+  }
+  if (extractExactQuestionIdentifiers(question).length >= 2) {
+    const followingSegment = segments[best.index + 1];
+    if (
+      followingSegment !== undefined &&
+      evidenceSegmentScore(followingSegment, queryTokens, question) > 0 &&
+      best.segment.length + 1 + followingSegment.length <= maximumLength
+    ) {
+      return `${best.segment} ${followingSegment}`;
+    }
+    return truncateExcerpt(best.segment, maximumLength);
   }
 
   const selectedIndexes = [best.index];
@@ -1556,6 +1585,31 @@ function selectStructuredGroundingChunks(
     return [];
   }
   const queryTokens = meaningfulAnswerTokens(question);
+  const exactIdentifierTokens = extractExactQuestionIdentifiers(question);
+  const exactIdentifierChunks =
+    exactIdentifierTokens.length >= 2
+      ? chunks
+          .filter((chunk) => {
+            const evidenceTokens = new Set(tokenize(toEvidenceText(chunk)));
+            return exactIdentifierTokens.every((token) => evidenceTokens.has(token));
+          })
+          .map((chunk) => ({
+            chunk,
+            score:
+              groundingEvidenceStrength(chunk, question, queryTokens, undefined) +
+              reciprocalGroundingRank(chunk.rank) * 2,
+          }))
+          .sort(
+            (left, right) =>
+              right.score - left.score ||
+              groundingSourceSpecificity(right.chunk) - groundingSourceSpecificity(left.chunk) ||
+              left.chunk.rank - right.chunk.rank,
+          )
+          .map((candidate) => candidate.chunk)
+      : [];
+  if (exactIdentifierChunks.length > 0) {
+    return exactIdentifierChunks.slice(0, MAX_STRUCTURED_GROUNDING_CHUNKS);
+  }
   const preferredAuthoredAnchor = shouldPreferAuthoredTitleAnchor(question)
     ? chunks.find(
         (chunk) =>
@@ -1609,6 +1663,17 @@ function selectStructuredGroundingChunks(
     .map((candidate) => candidate.chunk)
     .slice(0, MAX_STRUCTURED_GROUNDING_CHUNKS - 1);
   return [anchorChunk, ...remaining];
+}
+
+function extractExactQuestionIdentifiers(question: string): string[] {
+  return [
+    ...new Set(
+      Array.from(
+        question.normalize('NFKC').matchAll(/\b[A-Za-z][A-Za-z0-9._-]*\d[A-Za-z0-9._-]*\b/gu),
+        (match) => (match[0] ?? '').toLowerCase(),
+      ).filter((token) => token.length >= 2),
+    ),
+  ];
 }
 
 function groundingEvidenceStrength(
