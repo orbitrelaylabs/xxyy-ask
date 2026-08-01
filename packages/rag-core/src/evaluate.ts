@@ -4,6 +4,7 @@ import type { ChatService } from './chat-service.js';
 import type { AnswerQualityScores } from './answer-quality-judge.js';
 import { classifyQuestion } from './classify.js';
 import {
+  createProductQueryPlan,
   createStandaloneProductQuestion,
   understandProductQuestion,
   type ProductQuestionKind,
@@ -33,6 +34,8 @@ export interface EvaluationCase {
   expectedPartialAnswer?: boolean;
   expectedSearchCountRange?: [number, number];
   expectedStandaloneQuestionTerms?: string[];
+  expectedSubquestionCount?: number;
+  expectedSubquestionTerms?: string[];
   expectedSubject?: 'customer_agent' | 'unknown' | 'xxyy_product';
   expectedToolNames?: string[];
   forbiddenChunkIds?: string[];
@@ -129,6 +132,11 @@ export async function evaluateCases(
       standaloneQuestion,
       classifyQuestion(standaloneQuestion),
     );
+    const queryPlan = createProductQueryPlan(
+      testCase.request.message,
+      standaloneQuestion,
+      understanding,
+    );
     const failureReasons = collectFailureReasons({
       actualAnswerStatus: response.answerStatus,
       actualIntent: response.intent,
@@ -149,6 +157,7 @@ export async function evaluateCases(
         citation.sourceType === undefined ? [] : [citation.sourceType],
       ),
       standaloneQuestion,
+      subquestions: queryPlan.subquestions.map((subquestion) => subquestion.question),
       testCase,
       toolNames,
     });
@@ -235,6 +244,7 @@ function collectFailureReasons(input: {
   sourceUrls: string[];
   sourceTypes: SourceType[];
   standaloneQuestion: string;
+  subquestions: string[];
   testCase: EvaluationCase;
   toolNames: string[];
 }): string[] {
@@ -290,6 +300,20 @@ function collectFailureReasons(input: {
   for (const term of input.testCase.expectedStandaloneQuestionTerms ?? []) {
     if (!normalizedTextIncludes(input.standaloneQuestion, term)) {
       failures.push(`standalone question missing term: ${term}`);
+    }
+  }
+
+  if (
+    input.testCase.expectedSubquestionCount !== undefined &&
+    input.subquestions.length !== input.testCase.expectedSubquestionCount
+  ) {
+    failures.push(
+      `subquestion count ${input.subquestions.length} != ${input.testCase.expectedSubquestionCount}`,
+    );
+  }
+  for (const term of input.testCase.expectedSubquestionTerms ?? []) {
+    if (!input.subquestions.some((subquestion) => normalizedTextIncludes(subquestion, term))) {
+      failures.push(`subquestions missing term: ${term}`);
     }
   }
 

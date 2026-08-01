@@ -138,6 +138,22 @@ interface RecordIngestionRunInput {
 
 export type FeedbackRating = 'positive' | 'negative';
 
+export const feedbackFailureReasons = [
+  'off_topic',
+  'incomplete',
+  'outdated',
+  'incorrect',
+  'incorrect_steps',
+  'unsupported_citation',
+  'too_verbose',
+  'context_misunderstood',
+  'knowledge_missing',
+  'knowledge_conflict',
+  'other',
+] as const;
+
+export type FeedbackFailureReason = (typeof feedbackFailureReasons)[number];
+
 export interface RecordFeedbackInput {
   answer: string;
   channel: ChatChannel;
@@ -147,6 +163,7 @@ export interface RecordFeedbackInput {
   rating: FeedbackRating;
   answerStatus?: AnswerStatus;
   comment?: string;
+  failureReason?: FeedbackFailureReason;
   sessionId?: string;
   sourceTypes?: SourceType[];
 }
@@ -173,6 +190,7 @@ export interface FeedbackRecord {
   rating: FeedbackRating;
   answerStatus?: AnswerStatus;
   comment?: string;
+  failureReason?: FeedbackFailureReason;
   sessionId?: string;
   sourceTypes?: SourceType[];
 }
@@ -238,6 +256,7 @@ interface FeedbackRecordRow {
   citation_count: number;
   comment: string | null;
   created_at: string;
+  failure_reason: FeedbackFailureReason | null;
   intent: Intent;
   question: string;
   rating: FeedbackRating;
@@ -549,6 +568,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
           ),
           source_types jsonb,
           comment text,
+          failure_reason text,
           created_at timestamptz not null default now()
         )
       `,
@@ -559,7 +579,30 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
         alter table rag_feedback
           add column if not exists answer_status text
             check (answer_status in ('complete', 'partial', 'insufficient', 'conflict')),
-          add column if not exists source_types jsonb
+          add column if not exists source_types jsonb,
+          add column if not exists failure_reason text
+      `,
+      );
+      await queryDatabase(
+        options.client,
+        `
+        alter table rag_feedback
+          drop constraint if exists rag_feedback_failure_reason_check,
+          add constraint rag_feedback_failure_reason_check check (
+            failure_reason is null or failure_reason in (
+              'off_topic',
+              'incomplete',
+              'outdated',
+              'incorrect',
+              'incorrect_steps',
+              'unsupported_citation',
+              'too_verbose',
+              'context_misunderstood',
+              'knowledge_missing',
+              'knowledge_conflict',
+              'other'
+            )
+          )
       `,
       );
       await queryDatabase(
@@ -987,6 +1030,7 @@ async function getLatestFeedback(
       citation_count,
       comment,
       created_at::text as created_at,
+      failure_reason,
       intent,
       question,
       rating,
@@ -1012,6 +1056,9 @@ async function getLatestFeedback(
     question: row.question,
     rating: row.rating,
     ...(row.comment === null ? {} : { comment: row.comment }),
+    ...(row.failure_reason === null || row.failure_reason === undefined
+      ? {}
+      : { failureReason: row.failure_reason }),
     ...(row.session_id === null ? {} : { sessionId: row.session_id }),
     ...(row.source_types === null || row.source_types === undefined
       ? {}
@@ -1029,9 +1076,9 @@ async function recordFeedback(client: PgClientLike, input: RecordFeedbackInput):
     `
     insert into rag_feedback (
       channel, session_id, rating, question, answer, intent, citation_count, comment,
-      answer_status, source_types
+      answer_status, source_types, failure_reason
     )
-    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     `,
     [
       input.channel,
@@ -1044,6 +1091,7 @@ async function recordFeedback(client: PgClientLike, input: RecordFeedbackInput):
       comment,
       input.answerStatus ?? null,
       input.sourceTypes === undefined ? null : [...new Set(input.sourceTypes)],
+      input.failureReason ?? null,
     ],
   );
 }

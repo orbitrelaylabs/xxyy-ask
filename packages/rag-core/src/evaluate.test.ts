@@ -36,6 +36,8 @@ describe('evaluateCases', () => {
           expectedPartialAnswer: false,
           expectedSearchCountRange: [1, 2],
           expectedStandaloneQuestionTerms: ['支持', '功能'],
+          expectedSubquestionCount: 3,
+          expectedSubquestionTerms: ['功能总览', '交易', '钱包'],
           expectedSubject: 'xxyy_product',
           maximumXSourceCount: 0,
           minimumFacetCoverage: 1,

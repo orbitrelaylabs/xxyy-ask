@@ -18,6 +18,34 @@ describe('strict knowledge automation policy', () => {
     });
   });
 
+  it('accepts a high-quality adjacent verified administrator answer', () => {
+    expect(
+      evaluateKnowledgeCandidateAutomation(
+        candidate({ extractionMethod: 'deterministic_adjacent_admin_message' }),
+      ),
+    ).toMatchObject({ decision: 'approve' });
+  });
+
+  it('leaves manual-review inbox candidates pending', async () => {
+    const review = vi.fn();
+    const controller = createKnowledgeAutomationController({
+      candidateStore: {
+        get: () => Promise.resolve(undefined),
+        list: () => Promise.resolve([]),
+        review,
+      },
+      publicationJobStore: {
+        request: () => Promise.reject(new Error('not used')),
+        retry: () => Promise.reject(new Error('not used')),
+      },
+    });
+
+    const result = await controller.process([candidate({ riskFlags: ['manual_review_required'] })]);
+
+    expect(review).not.toHaveBeenCalled();
+    expect(result.decisions).toEqual([]);
+  });
+
   it('fails closed on stale administrator checks, unknown risks, conflicts, and unsafe content', () => {
     const decision = evaluateKnowledgeCandidateAutomation(
       candidate({

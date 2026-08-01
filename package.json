@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "admin:token:create": "node scripts/create-knowledge-admin-token.mjs",
     "agent:smoke": "node scripts/agent-smoke.mjs",
     "agent:api-key:create": "node scripts/create-agent-api-key.mjs",
     "app:down": "docker compose down",

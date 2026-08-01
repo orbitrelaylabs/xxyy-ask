@@ -15,6 +15,7 @@ import { createPublicOnchainMcpClient } from '@xxyy/chain-analysis-mcp';
 import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxyy/knowledge';
 import {
   createOpenAiAnswerProvider,
+  feedbackFailureReasons,
   createPgFeedbackStore,
   createPgSupportOperationsStore,
   createLazyRetriever,
@@ -53,10 +54,6 @@ import { renderAdminPage, renderChatPage } from '@xxyy/web';
 
 import { createAgentApiAuthenticator, type AgentApiAuthenticator } from './agent-api-auth.js';
 import {
-  createKnowledgeAdminAuthenticator,
-  type KnowledgeAdminAuthenticator,
-} from './knowledge-admin-auth.js';
-import {
   handleKnowledgeAdminApi,
   isKnowledgeAdminApiPath,
   type KnowledgeAdminServices,
@@ -89,7 +86,6 @@ type ApiEnv = RagEnv &
       | 'KNOWLEDGE_ADMIN_MAX_BODY_BYTES'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_MAX'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS'
-      | 'KNOWLEDGE_ADMIN_TOKENS_JSON'
       | 'KNOWLEDGE_AUTO_REFRESH_ENABLED'
       | 'KNOWLEDGE_AUTO_REFRESH_INCREMENTAL_DAILY_AT'
       | 'KNOWLEDGE_AUTO_REFRESH_RECEIPT_FILE'
@@ -138,7 +134,6 @@ export interface CreateRequestHandlerOptions {
   getKnowledgeAdminServices?: () => Promise<KnowledgeAdminServices>;
   getSupportOperationsStore?: () => Promise<PgSupportOperationsStore>;
   agentApiAuthenticator?: AgentApiAuthenticator;
-  knowledgeAdminAuthenticator?: KnowledgeAdminAuthenticator;
   logger?: ApiLogger;
   now?: () => number;
   recordFeedback?: FeedbackRecorder;
@@ -239,9 +234,6 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
   const getSupportOperationsStore =
     options.getSupportOperationsStore ??
     (isTestRuntime(env) ? undefined : createCachedSupportOperationsStoreLoader(config));
-  const knowledgeAdminAuthenticator =
-    options.knowledgeAdminAuthenticator ??
-    createKnowledgeAdminAuthenticator(env.KNOWLEDGE_ADMIN_TOKENS_JSON);
   const agentApiAuthenticator =
     options.agentApiAuthenticator ?? createAgentApiAuthenticator(env.XXYY_AGENT_API_KEYS_JSON);
   const recordFeedback =
@@ -261,9 +253,16 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
   const staticAssetsDir = options.staticAssetsDir ?? createDefaultStaticAssetsDir(options, env);
   const webAssetsDir = options.webAssetsDir ?? createDefaultWebAssetsDir(options, env);
   const rateLimiter = createRateLimiter(apiConfig, now);
-  const adminRateLimiter = createRateLimiter(
+  const adminMutationRateLimiter = createRateLimiter(
     {
       rateLimitMax: apiConfig.adminRateLimitMax,
+      rateLimitWindowMs: apiConfig.adminRateLimitWindowMs,
+    },
+    now,
+  );
+  const adminReadRateLimiter = createRateLimiter(
+    {
+      rateLimitMax: Math.min(Number.MAX_SAFE_INTEGER, apiConfig.adminRateLimitMax * 10),
       rateLimitWindowMs: apiConfig.adminRateLimitWindowMs,
     },
     now,
@@ -277,6 +276,8 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
     }
 
     if (isKnowledgeAdminApiPath(requestUrl.pathname)) {
+      const adminRateLimiter =
+        request.method === 'GET' ? adminReadRateLimiter : adminMutationRateLimiter;
       const rateLimitResult = adminRateLimiter.check(clientAddress(request, apiConfig));
       if (!rateLimitResult.allowed) {
         response.setHeader('Cache-Control', 'no-store');
@@ -377,7 +378,6 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
 
       if (isKnowledgeAdminApiPath(requestUrl.pathname)) {
         await handleKnowledgeAdminApi({
-          authenticator: knowledgeAdminAuthenticator,
           getServices: getKnowledgeAdminServices,
           maxBodyBytes: apiConfig.adminMaxBodyBytes,
           request,
@@ -697,6 +697,7 @@ async function recordAutomaticLowEvidence(
     channel: request.channel,
     citationCount: response.citations.length,
     comment,
+    failureReason: automaticFailureReason(response.citations.length, response.answerStatus),
     intent: response.intent,
     question: request.message,
     rating: 'negative',
@@ -733,6 +734,7 @@ async function recordAutomaticLowEvidenceFromStream(
     channel: request.channel,
     citationCount: summary.citationCount ?? 0,
     comment,
+    failureReason: automaticFailureReason(summary.citationCount ?? 0, summary.answerStatus),
     intent: summary.intent,
     question: request.message,
     rating: 'negative',
@@ -776,6 +778,15 @@ function automaticQualityComment(
     return 'automatic_partial_answer';
   }
   return isLowEvidenceProductAnswer(intent, citationCount) ? 'automatic_low_evidence' : undefined;
+}
+
+function automaticFailureReason(
+  citationCount: number,
+  answerStatus: ChatResponse['answerStatus'],
+): NonNullable<RecordFeedbackInput['failureReason']> {
+  if (answerStatus === 'conflict') return 'knowledge_conflict';
+  if (answerStatus === 'partial') return 'incomplete';
+  return citationCount === 0 ? 'knowledge_missing' : 'other';
 }
 
 function loadApiRuntimeConfig(env: ApiEnv): ApiRuntimeConfig {
@@ -1602,6 +1613,18 @@ function parseFeedbackPayload(value: unknown): RecordFeedbackInput {
   }
 
   const comment = parseOptionalString(record.comment, 'comment')?.trim();
+  const failureReason = parseOptionalString(record.failureReason, 'failureReason')?.trim();
+  if (
+    failureReason !== undefined &&
+    !feedbackFailureReasons.includes(failureReason as (typeof feedbackFailureReasons)[number])
+  ) {
+    throw new BadRequestError(
+      `failureReason must be one of: ${feedbackFailureReasons.join(', ')}.`,
+    );
+  }
+  if (record.rating === 'positive' && failureReason !== undefined) {
+    throw new BadRequestError('failureReason is only valid for negative feedback.');
+  }
   const sessionId = parseOptionalString(record.sessionId, 'sessionId')?.trim();
   return {
     answer,
@@ -1611,6 +1634,11 @@ function parseFeedbackPayload(value: unknown): RecordFeedbackInput {
     question,
     rating: record.rating,
     ...(comment === undefined || comment.length === 0 ? {} : { comment }),
+    ...(failureReason === undefined
+      ? {}
+      : {
+          failureReason: failureReason as NonNullable<RecordFeedbackInput['failureReason']>,
+        }),
     ...(sessionId === undefined || sessionId.length === 0 ? {} : { sessionId }),
   };
 }
@@ -1702,6 +1730,21 @@ function createAgentApiOpenApiDocument(): Record<string, unknown> {
             userId: { type: 'string' },
           },
         },
+        FeedbackRequest: {
+          type: 'object',
+          required: ['answer', 'citationCount', 'intent', 'question', 'rating'],
+          properties: {
+            answer: { minLength: 1, type: 'string' },
+            channel: { enum: supportedChannels, type: 'string' },
+            citationCount: { minimum: 0, type: 'integer' },
+            comment: { type: 'string' },
+            failureReason: { enum: feedbackFailureReasons, type: 'string' },
+            intent: { enum: supportedIntents, type: 'string' },
+            question: { minLength: 1, type: 'string' },
+            rating: { enum: ['positive', 'negative'], type: 'string' },
+            sessionId: { type: 'string' },
+          },
+        },
         Error: {
           type: 'object',
           required: ['error', 'message'],
@@ -1744,6 +1787,12 @@ function createAgentApiOpenApiDocument(): Record<string, unknown> {
       '/feedback': {
         post: {
           operationId: 'recordFeedback',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/FeedbackRequest' } },
+            },
+          },
           security: bearerSecurity,
           responses: { '204': { description: 'Feedback recorded.' } },
         },

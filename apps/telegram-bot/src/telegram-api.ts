@@ -59,7 +59,7 @@ export function createTelegramApiClient(options: CreateTelegramApiClientOptions)
 
     getUpdates(input) {
       return callTelegramMethod(fetchImpl, apiBaseUrl, options.botToken, 'getUpdates', {
-        allowed_updates: ['message', 'edited_message'],
+        allowed_updates: ['message', 'edited_message', 'my_chat_member'],
         limit: input.limit,
         ...(input.offset === undefined ? {} : { offset: input.offset }),
         timeout: input.timeout,

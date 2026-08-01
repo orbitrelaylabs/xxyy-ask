@@ -23,7 +23,9 @@
 
 Phase 0–6 已在用户指定的本地部署范围完成，包括版本化问题理解与 Query Plan、Evidence
 Report、Telegram 有界上下文、质量治理、Shadow、10% 本地 Web 灰度、回滚演练和扩量到
-optimized 100%。本状态不表示外部生产环境、真实付费 Provider 或真实 Telegram 群流量已经
+optimized 100%。2026-08-01 又完成了普通复合问题拆解、逐子问题检索与证据矩阵、逐项回答
+校验、结构化负反馈原因和对应 Golden QA，完整方案不再只对功能总览这一条 P0 路径生效。
+本状态不表示外部生产环境、真实付费 Provider 或真实 Telegram 群流量已经
 灰度；如果未来扩大到外部部署，必须重新审批预算并完成独立观察窗口。
 
 本文是 [完整 Agent 客服系统 Goal](agent-customer-service-goal.md) 的回答质量专项 Goal。客服系统 Goal 负责会话、工单、管理面、SDK 和知识治理基础设施；本文负责问题理解、检索计划、证据判断、答案生成和质量闭环。
@@ -604,6 +606,29 @@ Agent、API 和 Telegram Bot 不直接发布正式知识。对话样本先进入
 - `pnpm check` 通过：Web build、format check、24 个 workspace package typecheck、
   `1248` tests（另有 `2` skipped）和 deterministic Golden QA `55/55` 全部通过。
 - MCP、Skill、链上能力、知识发布和生产部署配置均未修改。
+
+### 2026-08-01 完整链路补强
+
+- 普通复合问题会被拆为最多 4 个有界子问题，每个子问题保存稳定 ID、facet、独立 Query 和
+  动态 Top K；运行时按缺失 facet 逐项检索，不再只对“支持哪些功能”执行多 Query。
+- Evidence Report 为每个子问题建立 citation-backed 覆盖行。复合问题只有所有必要项被覆盖，
+  且 how-to/数值问题分别通过操作证据/显式数值门禁后，才能标记为证据充分。
+- Answer Provider 同时接收原问题、Standalone Question、子问题和证据覆盖矩阵；Prompt 强制
+  按顺序逐项回答。模型遗漏子问题时改用逐项证据回答，未配置模型或模型失败时也保持相同结构，
+  缺证据的项目单独标记，不再由其他项目的证据补齐。
+- 多轮追问新增设备端和数量限制等主题恢复规则，优先使用最近的用户问题，避免把助手回答或整段
+  对话直接拼入检索 Query。
+- 负反馈新增结构化失败原因并持久化到 PostgreSQL。Web 差评先选择原因；自动低证据、部分回答和
+  证据冲突分别落为知识缺失、回答不完整和知识冲突。管理后台按失败原因展示并分诊到理解、检索、
+  知识或生成链路。
+- Golden QA 契约新增子问题数量和子问题关键词断言，并加入 Pro 权益、升级方式与有效期的三项
+  拆解用例；Agent 轨迹和 Answer Provider 测试另行验证三次独立检索、逐项证据与降级回答。知识
+  发布仍沿用 effective time、supersedes、tombstone、检索门禁和发布前 Golden QA；本次没有
+  放宽 Telegram 候选或正式知识写入边界。
+- 最终 `pnpm check` 通过：Web build、24 个 workspace package typecheck、`1280` tests（另有
+  `2` skipped）和 deterministic Golden QA `56/56` 全部通过。本地 PostgreSQL 已完成反馈原因
+  字段迁移；Docker API 实测三项复合问题返回 `complete`，分别引用权益、升级和永久 Pro 三份
+  官方资料。验收产生的一条测试反馈已从本地治理队列删除。
 
 ## 代码落点
 

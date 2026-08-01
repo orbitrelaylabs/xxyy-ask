@@ -216,7 +216,7 @@ describe('createRequestHandler', () => {
     expect(response.headers['X-Frame-Options']).toBe('DENY');
   });
 
-  it('rate limits the protected management namespace independently', async () => {
+  it('gives management reads a separate higher budget without weakening mutation limits', async () => {
     const handler = createRequestHandler({
       env: {
         KNOWLEDGE_ADMIN_RATE_LIMIT_MAX: '1',
@@ -234,10 +234,24 @@ describe('createRequestHandler', () => {
       remoteAddress: '203.0.113.10',
       url: '/admin/api/me',
     });
+    const firstMutation = await callHandler(handler, {
+      body: { id: 'admin', password: 'invalid-password' },
+      method: 'POST',
+      remoteAddress: '203.0.113.10',
+      url: '/admin/api/auth/login',
+    });
+    const secondMutation = await callHandler(handler, {
+      body: { id: 'admin', password: 'invalid-password' },
+      method: 'POST',
+      remoteAddress: '203.0.113.10',
+      url: '/admin/api/auth/login',
+    });
 
     expect(first.statusCode).toBe(503);
-    expect(second.statusCode).toBe(429);
-    expect(second.headers['Retry-After']).toBe('60');
+    expect(second.statusCode).toBe(503);
+    expect(firstMutation.statusCode).toBe(503);
+    expect(secondMutation.statusCode).toBe(429);
+    expect(secondMutation.headers['Retry-After']).toBe('60');
   });
 
   it('loads workspace .env values for the default API environment', async () => {
@@ -473,6 +487,41 @@ describe('createRequestHandler', () => {
     });
   });
 
+  it('accepts a structured reason only for negative feedback', async () => {
+    const recordFeedback = vi.fn(() => Promise.resolve());
+    const handler = createRequestHandler({ recordFeedback });
+    const negative = await callHandler(handler, {
+      body: {
+        answer: '回答遗漏了升级条件。',
+        citationCount: 1,
+        failureReason: 'incomplete',
+        intent: 'product_qa',
+        question: 'XXYY Pro 如何升级？',
+        rating: 'negative',
+      },
+      method: 'POST',
+      url: '/api/feedback',
+    });
+    const invalidPositive = await callHandler(handler, {
+      body: {
+        answer: '回答正确。',
+        citationCount: 1,
+        failureReason: 'incomplete',
+        intent: 'product_qa',
+        question: 'XXYY Pro 如何升级？',
+        rating: 'positive',
+      },
+      method: 'POST',
+      url: '/api/feedback',
+    });
+
+    expect(negative.statusCode).toBe(204);
+    expect(recordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ failureReason: 'incomplete', rating: 'negative' }),
+    );
+    expect(invalidPositive.statusCode).toBe(400);
+  });
+
   it('publishes an OpenAPI contract for the versioned Agent API', async () => {
     const response = await callHandler(createRequestHandler(), {
       method: 'GET',
@@ -579,6 +628,7 @@ describe('createRequestHandler', () => {
       expect.objectContaining({
         citationCount: 0,
         comment: 'automatic_low_evidence',
+        failureReason: 'knowledge_missing',
         question: '一个尚未覆盖的产品问题',
         rating: 'negative',
         sessionId: 'session-low-evidence',
@@ -625,6 +675,7 @@ describe('createRequestHandler', () => {
       expect.objectContaining({
         citationCount: 1,
         comment: 'automatic_evidence_conflict',
+        failureReason: 'knowledge_conflict',
         rating: 'negative',
         sessionId: 'session-conflict',
       }),

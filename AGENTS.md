@@ -57,7 +57,7 @@
 - `apps/chain-operations-cli`：与客服运行面隔离的 Provider/worker 运维入口；还提供只有固定 manifest、canonical readiness attestation 与 Provider/budget lineage 全部有效时才启动的内部 chain-analysis stdio MCP composition root。
 - `apps/cli`：`rag:ingest`、`rag:sync:x`、`rag:migrate`、`rag:stats`、`rag:evaluate`、`rag:ask`。
 - `apps/api`：HTTP API 和 Web UI 服务入口。
-- `apps/telegram-bot`：Telegram Bot long polling 入口；群内当前管理员直接回复会进入严格自动知识治理，但 Bot 不执行 pgvector 发布。
+- `apps/telegram-bot`：Telegram Bot long polling 入口；群消息只实时写入本地 PostgreSQL Inbox，群内保持静默，管理员在后台整理并审批后才会进入发布队列，Bot 不执行 pgvector 发布。
 - `apps/web`：静态聊天 UI。
 - `scripts/rag-refresh.mjs`：供外部 scheduler 调用的固定知识刷新 Job；提供 dry-run、同工作区锁和脱敏回执，并在最后自动对账、重试和执行群聊知识发布，不嵌入 API/Telegram 进程。
 - `skills/xxyy-product-support`：项目级 XXYY 产品支持 Skill；只依赖同名只读 MCP，不扩大客服边界。
@@ -96,7 +96,6 @@ API_ENABLE_DEEP_HEALTH=
 API_MAX_BODY_BYTES=65536
 API_RATE_LIMIT_MAX=60
 API_RATE_LIMIT_WINDOW_MS=60000
-KNOWLEDGE_ADMIN_TOKENS_JSON=
 KNOWLEDGE_ADMIN_MAX_BODY_BYTES=5242880
 KNOWLEDGE_ADMIN_RATE_LIMIT_MAX=30
 KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS=60000
@@ -132,7 +131,7 @@ API 保留的公开服务面：
 - `POST /api/feedback`：记录 Web 回答的有用/无用反馈；不要求鉴权。
 - `GET /assets/*`：产品视频、图片等静态资产。
 
-独立受保护的管理面：`GET /admin` 提供知识治理 UI，`/admin/api/*` 必须使用配置在 `KNOWLEDGE_ADMIN_TOKENS_JSON` 中的 Bearer Token 哈希记录并经过 RBAC。它不是公开客服 API；未配置令牌时管理 API 失败关闭，不影响公开聊天。
+独立受保护的管理面：`GET /admin` 提供知识治理 UI，`/admin/api/*` 使用 PostgreSQL 管理员账号、密码哈希、可撤销 Session 和 RBAC。它不是公开客服 API；数据库没有管理员账号时登录失败关闭，不影响公开聊天。
 
 API 默认限制 JSON 请求体最大 `65536` 字节，并对 `/api/chat`、`/api/chat/stream` 和 `/api/feedback` 按客户端地址做 `60` 次 / `60000` 毫秒的基础限流。默认不信任 `x-forwarded-for` / `x-real-ip`；仅在可信反向代理后设置 `TRUST_PROXY=true`。客服问答和反馈接口不要求鉴权。跨域接入前端时配置 `API_CORS_ORIGIN`，支持单个 origin、逗号分隔多个 origin 或 `*`。
 
@@ -166,7 +165,7 @@ pnpm run app:dev -- --full-sync
 - `pnpm rag:ingest`：执行数据库迁移、重新生成全部 embeddings、写入 pgvector，并记录 ingestion run。
 - `pnpm rag:sync:x`：同步官方 X / Twitter 更新，只 embedding 新增或变更的 X chunks，不会 prune 旧 chunk。
 - `pnpm rag:refresh`：执行 scheduler-safe 知识刷新，使用 `.rag/knowledge-refresh/refresh.lock` 防止同工作区重入，并写入不含环境变量或异常原文的 latest/历史 receipt；固定计划最后运行 `rag:knowledge:automation:work`，外部 scheduler 仍需配置 single concurrency 和失败告警。
-- `pnpm admin:token:create -- <id> <role>`：生成只显示一次的管理令牌和 SHA-256 配置记录。
+- `/admin` 在数据库没有管理员时提供一次性首管理员初始化；后续账号、角色、启停和密码全部通过受保护管理后台维护。
 - `pnpm rag:knowledge:automation:work`：自动决定遗留候选、补建发布任务、重试少于三次的失败任务，并按 `--limit` 执行发布队列；正常流程不需要逐条人工审核。
 - `pnpm rag:knowledge:publication:work`：领取一条持久化 PublicationJob，执行发布门禁与事务性 ingest；生产 API 不直接执行发布。
 - `pnpm rag:migrate`：只执行数据库迁移，不调用 embedding 或 LLM。

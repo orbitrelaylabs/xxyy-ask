@@ -1613,6 +1613,7 @@ const GOLDEN_STRING_ARRAY_FIELDS = new Set<keyof GoldenQaRecord>([
   'expectedCitationTitles',
   'expectedSourceUrls',
   'expectedStandaloneQuestionTerms',
+  'expectedSubquestionTerms',
   'expectedToolNames',
   'forbiddenChunkIds',
   'forbiddenCitationFiles',
@@ -1634,6 +1635,7 @@ const GOLDEN_BOOLEAN_FIELDS = new Set<keyof GoldenQaRecord>([
 const GOLDEN_NUMBER_FIELDS = new Set<keyof GoldenQaRecord>([
   'maximumXSourceCount',
   'minimumFacetCoverage',
+  'expectedSubquestionCount',
 ]);
 const GOLDEN_ENUM_FIELDS: Partial<Record<keyof GoldenQaRecord, ReadonlySet<string>>> = {
   expectedAgentRoute: new Set([
@@ -1680,6 +1682,8 @@ const GOLDEN_ALLOWED_FIELDS = new Set<keyof GoldenQaRecord>([
   'expectedPartialAnswer',
   'expectedSearchCountRange',
   'expectedStandaloneQuestionTerms',
+  'expectedSubquestionCount',
+  'expectedSubquestionTerms',
   'expectedSubject',
   'expectedToolNames',
   'forbiddenChunkIds',
@@ -1709,6 +1713,8 @@ const GOLDEN_ORACLE_FIELDS = new Set<keyof GoldenQaRecord>([
   'expectedPartialAnswer',
   'expectedSearchCountRange',
   'expectedStandaloneQuestionTerms',
+  'expectedSubquestionCount',
+  'expectedSubquestionTerms',
   'expectedSubject',
   'expectedToolNames',
   'forbiddenChunkIds',
@@ -1907,6 +1913,9 @@ function validateGoldenRecord(record: Record<string, unknown>, lineNumber: numbe
   }
   if (
     (typeof record.maximumXSourceCount === 'number' && record.maximumXSourceCount < 0) ||
+    (typeof record.expectedSubquestionCount === 'number' &&
+      (!Number.isInteger(record.expectedSubquestionCount) ||
+        record.expectedSubquestionCount < 1)) ||
     (typeof record.minimumFacetCoverage === 'number' &&
       (record.minimumFacetCoverage < 0 || record.minimumFacetCoverage > 1))
   ) {
@@ -2747,6 +2756,8 @@ interface GoldenQaRecord {
   expectedPartialAnswer?: EvaluationCase['expectedPartialAnswer'];
   expectedSearchCountRange?: EvaluationCase['expectedSearchCountRange'];
   expectedStandaloneQuestionTerms?: EvaluationCase['expectedStandaloneQuestionTerms'];
+  expectedSubquestionCount?: EvaluationCase['expectedSubquestionCount'];
+  expectedSubquestionTerms?: EvaluationCase['expectedSubquestionTerms'];
   expectedSubject?: EvaluationCase['expectedSubject'];
   expectedToolNames?: string[];
   forbiddenChunkIds?: string[];
@@ -2818,6 +2829,12 @@ function toEvaluationCase(record: GoldenQaRecord, index: number): EvaluationCase
     ...(record.expectedStandaloneQuestionTerms === undefined
       ? {}
       : { expectedStandaloneQuestionTerms: record.expectedStandaloneQuestionTerms }),
+    ...(record.expectedSubquestionCount === undefined
+      ? {}
+      : { expectedSubquestionCount: record.expectedSubquestionCount }),
+    ...(record.expectedSubquestionTerms === undefined
+      ? {}
+      : { expectedSubquestionTerms: record.expectedSubquestionTerms }),
     ...(record.expectedSubject === undefined ? {} : { expectedSubject: record.expectedSubject }),
     ...(record.expectedToolNames === undefined
       ? {}

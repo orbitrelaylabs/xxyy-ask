@@ -10,11 +10,15 @@ import {
   type TrustedAuthorVerificationSource,
 } from './trusted-authors.js';
 import { migrateTelegramKnowledgeLearningSettings } from './telegram-learning-settings.js';
+import { migrateTelegramGroupRegistry } from './telegram-group-registry.js';
+import { migrateTelegramGroupMessages } from './telegram-group-messages.js';
+import { migrateKnowledgeAdminUsers } from './knowledge-admin-users.js';
 
 export type KnowledgeCandidateStatus = 'approved' | 'pending' | 'published' | 'rejected';
 export type KnowledgeCandidateSourceChannel = 'telegram' | 'telegram_export' | 'web';
 export type KnowledgeCandidateExtractionMethod =
   | 'agent_assisted'
+  | 'deterministic_adjacent_admin_message'
   | 'deterministic_direct_reply'
   | 'manual';
 export type KnowledgeAuthorVerificationStatus =
@@ -853,7 +857,12 @@ export async function migrateKnowledgeCandidates(client: PgClientLike): Promise<
       context_message_ids jsonb not null default '[]'::jsonb,
       author_verification jsonb,
       extraction_method text not null default 'manual' check (
-        extraction_method in ('agent_assisted', 'deterministic_direct_reply', 'manual')
+        extraction_method in (
+          'agent_assisted',
+          'deterministic_adjacent_admin_message',
+          'deterministic_direct_reply',
+          'manual'
+        )
       ),
       curator_run_id text,
       curator_model text,
@@ -946,7 +955,12 @@ export async function migrateKnowledgeCandidates(client: PgClientLike): Promise<
     `
     alter table knowledge_candidates
       add constraint knowledge_candidates_extraction_method_check check (
-        extraction_method in ('agent_assisted', 'deterministic_direct_reply', 'manual')
+        extraction_method in (
+          'agent_assisted',
+          'deterministic_adjacent_admin_message',
+          'deterministic_direct_reply',
+          'manual'
+        )
       ),
       add constraint knowledge_candidates_quality_score_check check (
         quality_score is null or (quality_score >= 0 and quality_score <= 1)
@@ -1040,6 +1054,9 @@ export async function migrateKnowledgeCandidates(client: PgClientLike): Promise<
   );
   await migrateTrustedAuthors(client);
   await migrateTelegramKnowledgeLearningSettings(client);
+  await migrateTelegramGroupRegistry(client);
+  await migrateTelegramGroupMessages(client);
+  await migrateKnowledgeAdminUsers(client);
   await queryDatabase(
     client,
     `

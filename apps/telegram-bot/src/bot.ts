@@ -16,6 +16,7 @@ export interface TelegramBotConfig {
   autoLearningContextMessages: number;
   autoLearningDefaultEnabled: boolean;
   botToken: string;
+  groupResponsesEnabled: boolean;
   pollErrorRetryMs: number;
   pollTimeoutSeconds: number;
   publicBaseUrl?: string;
@@ -26,11 +27,13 @@ export interface TelegramUpdate {
   update_id: number;
   edited_message?: TelegramMessage;
   message?: TelegramMessage;
+  my_chat_member?: TelegramChatMemberUpdated;
 }
 
 export interface TelegramMessage {
   chat: {
     id: number;
+    title?: string;
     type?: 'channel' | 'group' | 'private' | 'supergroup';
   };
   date?: number;
@@ -45,6 +48,18 @@ export interface TelegramMessage {
     id: number;
   };
   text?: string;
+}
+
+export interface TelegramChatMemberUpdated {
+  chat: {
+    id: number;
+    title?: string;
+    type?: 'channel' | 'group' | 'private' | 'supergroup';
+  };
+  date: number;
+  new_chat_member: {
+    status: 'administrator' | 'creator' | 'kicked' | 'left' | 'member' | 'restricted';
+  };
 }
 
 export interface TelegramApi {
@@ -118,8 +133,39 @@ export interface CreateTelegramBotOptions {
   chatService: TelegramChatService;
   config: TelegramBotConfig;
   getKnowledgeRefreshStatus?: () => Promise<KnowledgeRefreshStatus>;
+  groupMessageArchive?: TelegramGroupMessageArchive;
+  groupRegistry?: TelegramGroupRegistry;
   knowledgeAutomation?: TelegramKnowledgeAutomation;
   logger?: TelegramBotLogger;
+}
+
+export interface TelegramGroupRegistry {
+  observeMembership(input: {
+    chatId: string;
+    chatType: 'group' | 'supergroup';
+    membershipStatus: 'active' | 'kicked' | 'left' | 'unknown';
+    observedAt: string;
+    title?: string;
+  }): Promise<unknown>;
+  observeMessage(input: {
+    chatId: string;
+    chatType: 'group' | 'supergroup';
+    observedAt: string;
+    title?: string;
+  }): Promise<unknown>;
+}
+
+export interface TelegramGroupMessageArchive {
+  capture(input: {
+    authorIsBot: boolean;
+    chatId: string;
+    messageId: string;
+    sentAt: string;
+    text: string;
+    authorUserId?: string;
+    replyToMessageId?: string;
+    senderChatId?: string;
+  }): Promise<void>;
 }
 
 export interface TelegramKnowledgeAutomation {
@@ -171,6 +217,7 @@ export type TelegramBotEnv = Record<string, string | undefined> &
       | 'TELEGRAM_BOT_TOKEN'
       | 'TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES'
       | 'TELEGRAM_AUTO_LEARNING_ENABLED'
+      | 'TELEGRAM_GROUP_RESPONSES_ENABLED'
       | 'TELEGRAM_POLL_ERROR_RETRY_MS'
       | 'TELEGRAM_POLL_TIMEOUT_SECONDS'
       | 'TELEGRAM_PUBLIC_BASE_URL'
@@ -197,20 +244,17 @@ const TELEGRAM_TYPING_REFRESH_MS = 4000;
 const HELP_TEXT = [
   '我是 XXYY 客服 Bot，可以回答产品功能、配置步骤、权益说明和官方更新，也可以查询公开 Explorer 交易链接。',
   '',
-  '私聊直接发送问题；群聊请 @本 Bot 或直接回复 Bot 的消息。',
+  '私聊直接发送问题；群聊回复默认关闭，Bot 只读取允许接收的消息。',
   '链上能力支持公开交易基础查询、单笔 EVM 调用追踪和受控 Sandwich/MEV 分析；深度结果取决于 trace/archive Provider、readiness 与池子 allowlist。',
   '不查询账户、钱包私有记录、任意地址历史，也不代用户执行交易。',
   '发送 /status 可查看知识库自动更新状态。',
-  '群聊发送 /learning 可查看自动学习状态；管理员可用 /learning_on 和 /learning_off 开关。',
+  '群消息只保存在本地知识收件箱；请在管理后台整理并审批后入库。',
 ].join('\n');
 const UNSUPPORTED_MESSAGE_TEXT = '目前只支持文本消息，请直接发送具体的 XXYY 产品问题。';
 export const TELEGRAM_BOT_COMMANDS = [
   { command: 'start', description: '开始使用 XXYY 客服' },
   { command: 'help', description: '查看客服能力说明' },
   { command: 'status', description: '查看知识库自动更新状态' },
-  { command: 'learning', description: '查看群聊自动学习状态' },
-  { command: 'learning_on', description: '管理员开启群聊自动学习' },
-  { command: 'learning_off', description: '管理员关闭群聊自动学习' },
 ] as const;
 
 export function loadTelegramBotConfig(env: TelegramBotEnv): TelegramBotConfig {
@@ -234,6 +278,11 @@ export function loadTelegramBotConfig(env: TelegramBotEnv): TelegramBotConfig {
       'TELEGRAM_AUTO_LEARNING_ENABLED',
     ),
     botToken,
+    groupResponsesEnabled: parseBoolean(
+      env.TELEGRAM_GROUP_RESPONSES_ENABLED,
+      false,
+      'TELEGRAM_GROUP_RESPONSES_ENABLED',
+    ),
     pollErrorRetryMs: parsePositiveInteger(
       env.TELEGRAM_POLL_ERROR_RETRY_MS,
       DEFAULT_POLL_ERROR_RETRY_MS,
@@ -253,6 +302,9 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
   let botIdentityRequest: Promise<TelegramBotIdentity | undefined> | undefined;
 
   async function handleUpdate(update: TelegramUpdate): Promise<void> {
+    if (update.my_chat_member !== undefined) {
+      await recordTelegramGroupMembership(options, update.my_chat_member);
+    }
     const edited = update.edited_message !== undefined;
     const message = update.message ?? update.edited_message;
     if (message === undefined) {
@@ -261,8 +313,17 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
 
     const chatId = message.chat.id;
     const text = message.text?.trim();
+    const groupChat = isGroupChat(message);
 
-    if (text !== undefined && text.length > 0 && isGroupChat(message)) {
+    if (groupChat) {
+      await recordTelegramGroupMessage(options, message);
+    }
+
+    if (groupChat && !options.config.groupResponsesEnabled) {
+      return;
+    }
+
+    if (text !== undefined && text.length > 0 && groupChat) {
       const commandTarget = readTelegramCommandTarget(text);
       if (commandTarget !== undefined) {
         const identity = await readBotIdentity();
@@ -301,31 +362,13 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
       return;
     }
 
-    if (options.knowledgeAutomation !== undefined && isGroupChat(message)) {
-      try {
-        const captured = edited
-          ? await options.knowledgeAutomation.captureReply(message, { edited: true })
-          : await options.knowledgeAutomation.captureReply(message);
-        if (captured) {
-          options.logger?.info(
-            `Telegram knowledge reply ${message.chat.id}:${message.message_id} was processed.`,
-          );
-          return;
-        }
-      } catch {
-        options.logger?.error(
-          `Telegram knowledge automation failed for ${message.chat.id}:${message.message_id}.`,
-        );
-      }
-    }
-
     if (edited) {
       return;
     }
 
     let customerQuestion = text;
     let requestBotIdentity: TelegramBotIdentity | undefined;
-    if (isGroupChat(message)) {
+    if (groupChat) {
       const identity = await readBotIdentity();
       if (identity === undefined || !isGroupCustomerRequest(message, text, identity)) {
         return;
@@ -424,8 +467,121 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
   };
 }
 
-function isGroupChat(message: TelegramMessage): boolean {
+function isGroupChat(
+  message: TelegramMessage,
+): message is TelegramMessage & { chat: { type: 'group' | 'supergroup' } } {
   return message.chat.type === 'group' || message.chat.type === 'supergroup';
+}
+
+async function recordTelegramGroupMessage(
+  options: CreateTelegramBotOptions,
+  message: TelegramMessage,
+): Promise<void> {
+  if (!isGroupChat(message)) {
+    return;
+  }
+  if (options.groupRegistry !== undefined) {
+    try {
+      await options.groupRegistry.observeMessage({
+        chatId: String(message.chat.id),
+        chatType: message.chat.type,
+        observedAt: telegramUnixTimestamp(message.date),
+        ...(message.chat.title === undefined ? {} : { title: message.chat.title }),
+      });
+    } catch {
+      options.logger?.error(`Telegram group ${message.chat.id} registry update failed.`);
+    }
+  }
+  if (options.groupMessageArchive !== undefined) {
+    try {
+      await archiveTelegramMessage(options.groupMessageArchive, message, new Set(), 8);
+    } catch {
+      options.logger?.error(`Telegram group ${message.chat.id} message archive update failed.`);
+    }
+  }
+}
+
+async function archiveTelegramMessage(
+  archive: TelegramGroupMessageArchive,
+  message: TelegramMessage,
+  visited: Set<number>,
+  remainingDepth: number,
+): Promise<void> {
+  const text = message.text?.trim();
+  if (
+    remainingDepth <= 0 ||
+    visited.has(message.message_id) ||
+    !isGroupChat(message) ||
+    text === undefined ||
+    text.length === 0
+  ) {
+    return;
+  }
+  visited.add(message.message_id);
+  if (message.reply_to_message !== undefined) {
+    await archiveTelegramMessage(archive, message.reply_to_message, visited, remainingDepth - 1);
+  }
+  await archive.capture({
+    authorIsBot: message.from?.is_bot === true,
+    chatId: String(message.chat.id),
+    messageId: String(message.message_id),
+    sentAt: telegramUnixTimestamp(message.date),
+    text,
+    ...(message.from?.id === undefined ? {} : { authorUserId: String(message.from.id) }),
+    ...(message.reply_to_message === undefined
+      ? {}
+      : { replyToMessageId: String(message.reply_to_message.message_id) }),
+    ...(message.sender_chat?.id === undefined
+      ? {}
+      : { senderChatId: String(message.sender_chat.id) }),
+  });
+}
+
+async function recordTelegramGroupMembership(
+  options: CreateTelegramBotOptions,
+  update: TelegramChatMemberUpdated,
+): Promise<void> {
+  if (
+    options.groupRegistry === undefined ||
+    (update.chat.type !== 'group' && update.chat.type !== 'supergroup')
+  ) {
+    return;
+  }
+  try {
+    await options.groupRegistry.observeMembership({
+      chatId: String(update.chat.id),
+      chatType: update.chat.type,
+      membershipStatus: telegramMembershipStatus(update.new_chat_member.status),
+      observedAt: telegramUnixTimestamp(update.date),
+      ...(update.chat.title === undefined ? {} : { title: update.chat.title }),
+    });
+  } catch {
+    options.logger?.error(`Telegram group ${update.chat.id} membership registry update failed.`);
+  }
+}
+
+function telegramMembershipStatus(
+  status: TelegramChatMemberUpdated['new_chat_member']['status'],
+): 'active' | 'kicked' | 'left' | 'unknown' {
+  if (status === 'kicked' || status === 'left') {
+    return status;
+  }
+  if (
+    status === 'administrator' ||
+    status === 'creator' ||
+    status === 'member' ||
+    status === 'restricted'
+  ) {
+    return 'active';
+  }
+  return 'unknown';
+}
+
+function telegramUnixTimestamp(value: number | undefined): string {
+  if (value === undefined || !Number.isSafeInteger(value) || value <= 0) {
+    return new Date().toISOString();
+  }
+  return new Date(value * 1_000).toISOString();
 }
 
 export function isGroupCustomerRequest(

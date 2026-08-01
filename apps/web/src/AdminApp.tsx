@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactElement } from 'react';
 
-import { KnowledgeAdminApiError, knowledgeAdminRequest } from './admin-api.js';
+import {
+  KnowledgeAdminApiError,
+  knowledgeAdminLogin,
+  knowledgeAdminRequest,
+  knowledgeAdminSetup,
+  knowledgeAdminSetupStatus,
+} from './admin-api.js';
 import type {
   AdminPermission,
   AdminSession,
+  AdminUser,
   CandidateDetail,
   CandidateStatus,
   KnowledgeCandidate,
@@ -20,33 +27,47 @@ import type {
   SupportTicketPriority,
   SupportTicketStatus,
   TelegramImportResult,
+  TelegramGroupRegistryEntry,
+  TelegramGroupMessageRecord,
   TrustedAuthor,
 } from './admin-types.js';
 
 const ADMIN_TOKEN_STORAGE_KEY = 'xxyy.knowledgeAdmin.token';
-type AdminTab = 'authors' | 'candidates' | 'imports' | 'publications' | 'support';
+type AdminTab =
+  | 'account'
+  | 'authors'
+  | 'candidates'
+  | 'groups'
+  | 'imports'
+  | 'publications'
+  | 'support'
+  | 'users';
 
 export function AdminApp(): ReactElement {
-  const initialToken = readStoredToken();
-  const [token, setToken] = useState(initialToken);
+  const [token, setToken] = useState(readStoredToken);
   const [session, setSession] = useState<AdminSession | undefined>();
-  const [authBusy, setAuthBusy] = useState(initialToken.length > 0);
+  const [authBusy, setAuthBusy] = useState(true);
   const [authError, setAuthError] = useState<string | undefined>();
+  const [setupRequired, setSetupRequired] = useState<boolean>();
   const [activeTab, setActiveTab] = useState<AdminTab>('candidates');
 
-  const authenticate = useCallback(async (candidateToken: string): Promise<void> => {
-    const normalized = candidateToken.trim();
-    if (normalized.length === 0) {
-      setAuthError('请输入管理令牌。');
+  const authenticate = useCallback(async (id: string, password: string): Promise<void> => {
+    if (id.trim().length === 0 || password.length === 0) {
+      setAuthError('请输入管理员账号和密码。');
       return;
     }
     setAuthBusy(true);
     setAuthError(undefined);
     try {
-      const nextSession = await knowledgeAdminRequest<AdminSession>(normalized, '/me');
-      setToken(normalized);
+      const login = await knowledgeAdminLogin(id.trim(), password);
+      const nextSession: AdminSession = {
+        permissions: login.permissions as AdminPermission[],
+        principal: login.principal as AdminSession['principal'],
+      };
+      setToken(login.sessionToken);
       setSession(nextSession);
-      storeToken(normalized);
+      setSetupRequired(false);
+      storeToken(login.sessionToken);
     } catch (error) {
       clearStoredToken();
       setSession(undefined);
@@ -57,13 +78,61 @@ export function AdminApp(): ReactElement {
     }
   }, []);
 
+  const setup = useCallback(
+    async (id: string, displayName: string, password: string): Promise<void> => {
+      setAuthBusy(true);
+      setAuthError(undefined);
+      try {
+        const result = await knowledgeAdminSetup({ displayName, id, password });
+        const nextSession: AdminSession = {
+          permissions: result.permissions as AdminPermission[],
+          principal: result.principal as AdminSession['principal'],
+        };
+        setToken(result.sessionToken);
+        setSession(nextSession);
+        setSetupRequired(false);
+        storeToken(result.sessionToken);
+      } catch (error) {
+        setAuthError(errorMessage(error));
+        if (
+          error instanceof KnowledgeAdminApiError &&
+          error.code === 'knowledge_admin_setup_complete'
+        ) {
+          setSetupRequired(false);
+        }
+      } finally {
+        setAuthBusy(false);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
-    if (initialToken.length > 0) {
-      void authenticate(initialToken);
+    const storedToken = readStoredToken();
+    if (storedToken.length > 0) {
+      void knowledgeAdminRequest<AdminSession>(storedToken, '/me')
+        .then(setSession)
+        .catch((error: unknown) => {
+          clearStoredToken();
+          setToken('');
+          setAuthError(errorMessage(error));
+          return knowledgeAdminSetupStatus().then((status) =>
+            setSetupRequired(status.setupRequired),
+          );
+        })
+        .finally(() => setAuthBusy(false));
+    } else {
+      void knowledgeAdminSetupStatus()
+        .then((status) => setSetupRequired(status.setupRequired))
+        .catch((error: unknown) => setAuthError(errorMessage(error)))
+        .finally(() => setAuthBusy(false));
     }
-  }, [authenticate, initialToken]);
+  }, []);
 
   const logout = (): void => {
+    if (token.length > 0) {
+      void knowledgeAdminRequest(token, '/auth/logout', { method: 'POST' }).catch(() => undefined);
+    }
     clearStoredToken();
     setSession(undefined);
     setToken('');
@@ -71,6 +140,9 @@ export function AdminApp(): ReactElement {
   };
 
   if (session === undefined) {
+    if (setupRequired === true) {
+      return <AdminSetup busy={authBusy} error={authError} onSetup={setup} />;
+    }
     return <AdminLogin busy={authBusy} error={authError} onLogin={authenticate} />;
   }
 
@@ -104,6 +176,17 @@ export function AdminApp(): ReactElement {
           {activeTab === 'imports' ? (
             <TelegramImportPanel permissions={permissions} token={token} />
           ) : undefined}
+          {activeTab === 'groups' ? (
+            <TelegramGroupsPanel permissions={permissions} token={token} />
+          ) : undefined}
+          {activeTab === 'users' ? (
+            <AdminUsersPanel
+              currentUserId={session.principal.id}
+              permissions={permissions}
+              token={token}
+            />
+          ) : undefined}
+          {activeTab === 'account' ? <MyAccountPanel token={token} /> : undefined}
           {activeTab === 'support' ? (
             <SupportPanel permissions={permissions} token={token} />
           ) : undefined}
@@ -328,6 +411,9 @@ function SupportPanel({
                 <StatusBadge status={gap.rating} />
                 <span>
                   {qualityCategoryLabel(gap.diagnosis.category)} · {gap.citationCount} 个引用 ·{' '}
+                  {gap.failureReason === undefined
+                    ? ''
+                    : `${feedbackFailureReasonLabel(gap.failureReason)} · `}
                   {formatDate(gap.createdAt)}
                 </span>
               </div>
@@ -361,6 +447,12 @@ function SupportPanel({
                         </li>
                       ))}
                     </ol>
+                  </dd>
+                  <dt>子问题</dt>
+                  <dd>
+                    {(gap.quality.queryPlan.subquestions ?? [])
+                      .map((subquestion) => subquestion.question)
+                      .join('；') || '单一问题'}
                   </dd>
                   <dt>实际来源</dt>
                   <dd>
@@ -593,6 +685,25 @@ function qualityCategoryLabel(category: KnowledgeGapRecord['diagnosis']['categor
   }
 }
 
+function feedbackFailureReasonLabel(
+  reason: NonNullable<KnowledgeGapRecord['failureReason']>,
+): string {
+  const labels: Record<NonNullable<KnowledgeGapRecord['failureReason']>, string> = {
+    context_misunderstood: '误解上下文',
+    incorrect: '事实错误',
+    incorrect_steps: '步骤错误',
+    incomplete: '回答不完整',
+    knowledge_conflict: '知识冲突',
+    knowledge_missing: '知识缺失',
+    off_topic: '答非所问',
+    other: '其他问题',
+    outdated: '内容过时',
+    too_verbose: '回答啰嗦',
+    unsupported_citation: '引用不支持结论',
+  };
+  return labels[reason] ?? reason;
+}
+
 function supportRoleLabel(role: SupportConversationMessage['role']): string {
   switch (role) {
     case 'assistant':
@@ -606,6 +717,88 @@ function supportRoleLabel(role: SupportConversationMessage['role']): string {
   }
 }
 
+function AdminSetup({
+  busy,
+  error,
+  onSetup,
+}: {
+  busy: boolean;
+  error: string | undefined;
+  onSetup: (id: string, displayName: string, password: string) => Promise<void>;
+}): ReactElement {
+  const [id, setId] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [validationError, setValidationError] = useState<string>();
+
+  const submit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (password !== confirmation) {
+      setValidationError('两次输入的密码不一致。');
+      return;
+    }
+    setValidationError(undefined);
+    void onSetup(id.trim(), displayName.trim(), password);
+  };
+
+  return (
+    <main className="admin-login-page">
+      <section className="admin-login-card" aria-labelledby="admin-setup-title">
+        <div className="admin-login-mark">XY</div>
+        <div className="admin-eyebrow">First-run setup</div>
+        <h1 id="admin-setup-title">创建首个管理员</h1>
+        <p>数据库当前没有管理员。该页面只在首次初始化时开放，创建成功后自动关闭。</p>
+        <form onSubmit={submit}>
+          <label htmlFor="setup-admin-id">管理员账号</label>
+          <input
+            autoComplete="username"
+            id="setup-admin-id"
+            onChange={(event) => setId(event.target.value)}
+            required
+            value={id}
+          />
+          <label htmlFor="setup-display-name">显示名称</label>
+          <input
+            id="setup-display-name"
+            onChange={(event) => setDisplayName(event.target.value)}
+            required
+            value={displayName}
+          />
+          <label htmlFor="setup-password">密码</label>
+          <input
+            autoComplete="new-password"
+            id="setup-password"
+            minLength={12}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+            type="password"
+            value={password}
+          />
+          <label htmlFor="setup-password-confirmation">确认密码</label>
+          <input
+            autoComplete="new-password"
+            id="setup-password-confirmation"
+            minLength={12}
+            onChange={(event) => setConfirmation(event.target.value)}
+            required
+            type="password"
+            value={confirmation}
+          />
+          {validationError === undefined ? undefined : (
+            <div className="admin-alert error">{validationError}</div>
+          )}
+          {error === undefined ? undefined : <div className="admin-alert error">{error}</div>}
+          <button className="admin-primary-button" disabled={busy} type="submit">
+            {busy ? '正在创建…' : '创建并登录'}
+          </button>
+        </form>
+        <div className="admin-security-note">密码只以 scrypt 哈希写入 PostgreSQL，不保存明文。</div>
+      </section>
+    </main>
+  );
+}
+
 function AdminLogin({
   busy,
   error,
@@ -613,12 +806,13 @@ function AdminLogin({
 }: {
   busy: boolean;
   error: string | undefined;
-  onLogin: (token: string) => Promise<void>;
+  onLogin: (id: string, password: string) => Promise<void>;
 }): ReactElement {
-  const [value, setValue] = useState('');
+  const [id, setId] = useState('');
+  const [password, setPassword] = useState('');
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    void onLogin(value);
+    void onLogin(id, password);
   };
 
   return (
@@ -627,16 +821,24 @@ function AdminLogin({
         <div className="admin-login-mark">XY</div>
         <div className="admin-eyebrow">XXYY Knowledge Governance</div>
         <h1 id="admin-login-title">知识库管理后台</h1>
-        <p>使用由运维人员签发的高熵管理令牌登录。令牌只保存在当前浏览器标签会话中。</p>
+        <p>使用数据库管理员账号登录。密码只用于本次认证，登录会话可以随时撤销。</p>
         <form onSubmit={submit}>
-          <label htmlFor="admin-token">管理令牌</label>
+          <label htmlFor="admin-id">管理员账号</label>
           <input
-            autoComplete="off"
-            id="admin-token"
-            onChange={(event) => setValue(event.target.value)}
-            placeholder="粘贴管理令牌"
+            autoComplete="username"
+            id="admin-id"
+            onChange={(event) => setId(event.target.value)}
+            placeholder="例如 local-admin"
+            value={id}
+          />
+          <label htmlFor="admin-password">密码</label>
+          <input
+            autoComplete="current-password"
+            id="admin-password"
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="输入管理员密码"
             type="password"
-            value={value}
+            value={password}
           />
           {error === undefined ? undefined : <div className="admin-alert error">{error}</div>}
           <button className="admin-primary-button" disabled={busy} type="submit">
@@ -644,7 +846,7 @@ function AdminLogin({
           </button>
         </form>
         <div className="admin-security-note">
-          未配置 <code>KNOWLEDGE_ADMIN_TOKENS_JSON</code> 时，管理 API 默认关闭。
+          新管理员、角色和密码均由登录后的管理员用户页面维护。
         </div>
       </section>
     </main>
@@ -663,8 +865,13 @@ function AdminSidebar({
   session: AdminSession;
 }): ReactElement {
   const tabs: Array<{ id: AdminTab; label: string; meta: string }> = [
+    { id: 'account', label: '我的账号', meta: '修改本人登录密码' },
     { id: 'support', label: '客服工作台', meta: '会话、工单与人工接管' },
-    { id: 'candidates', label: '知识候选', meta: '自动决策与冲突观察' },
+    { id: 'groups', label: 'Telegram 群聊', meta: 'Bot 加群状态与活跃时间' },
+    ...(session.permissions.includes('user:manage')
+      ? ([{ id: 'users', label: '管理员用户', meta: '账号、角色与启停状态' }] as const)
+      : []),
+    { id: 'candidates', label: '知识候选', meta: '群聊审核与冲突检查' },
     { id: 'publications', label: '发布任务', meta: '自动队列与故障观察' },
     { id: 'authors', label: '可信作者', meta: 'Telegram 角色有效期' },
     { id: 'imports', label: 'Telegram 导入', meta: '自动清洗、决策与入队' },
@@ -706,6 +913,682 @@ function AdminSidebar({
   );
 }
 
+function AdminUsersPanel({
+  currentUserId,
+  permissions,
+  token,
+}: {
+  currentUserId: string;
+  permissions: ReadonlySet<AdminPermission>;
+  token: string;
+}): ReactElement {
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ kind: 'error' | 'success'; text: string }>();
+  const [createForm, setCreateForm] = useState({
+    displayName: '',
+    id: '',
+    password: '',
+    passwordConfirmation: '',
+    role: 'viewer' as AdminUser['role'],
+  });
+  const selected = users.find((user) => user.id === selectedId);
+  const [editForm, setEditForm] = useState({
+    displayName: '',
+    password: '',
+    passwordConfirmation: '',
+    role: 'viewer' as AdminUser['role'],
+    status: 'active' as AdminUser['status'],
+  });
+
+  const load = useCallback(async (): Promise<void> => {
+    if (!permissions.has('user:manage')) return;
+    setBusy(true);
+    try {
+      const result = await knowledgeAdminRequest<{ users: AdminUser[] }>(token, '/users');
+      setUsers(result.users);
+      setSelectedId((current) =>
+        result.users.some((user) => user.id === current) ? current : (result.users[0]?.id ?? ''),
+      );
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  }, [permissions, token]);
+
+  useEffect(() => void load(), [load]);
+  useEffect(() => {
+    if (selected !== undefined) {
+      setEditForm({
+        displayName: selected.displayName,
+        password: '',
+        passwordConfirmation: '',
+        role: selected.role,
+        status: selected.status,
+      });
+    }
+  }, [selected]);
+
+  const create = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (createForm.password !== createForm.passwordConfirmation) {
+      setNotice({ kind: 'error', text: '两次输入的新账号密码不一致。' });
+      return;
+    }
+    setBusy(true);
+    try {
+      await knowledgeAdminRequest(token, '/users', {
+        body: {
+          displayName: createForm.displayName,
+          id: createForm.id,
+          password: createForm.password,
+          role: createForm.role,
+        },
+        method: 'POST',
+      });
+      setCreateForm({
+        displayName: '',
+        id: '',
+        password: '',
+        passwordConfirmation: '',
+        role: 'viewer',
+      });
+      await load();
+      setNotice({ kind: 'success', text: '管理员账号已创建。' });
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const update = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (selected === undefined) return;
+    if (editForm.password !== editForm.passwordConfirmation) {
+      setNotice({ kind: 'error', text: '两次输入的重置密码不一致。' });
+      return;
+    }
+    setBusy(true);
+    try {
+      await knowledgeAdminRequest(token, `/users/${encodeURIComponent(selected.id)}`, {
+        body: {
+          displayName: editForm.displayName,
+          ...(selected.id === currentUserId
+            ? {}
+            : {
+                role: editForm.role,
+                status: editForm.status,
+                ...(editForm.password.length === 0 ? {} : { password: editForm.password }),
+              }),
+        },
+        method: 'PATCH',
+      });
+      await load();
+      setNotice({ kind: 'success', text: '账号、角色和登录会话已更新。' });
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="admin-stack">
+      {notice === undefined ? undefined : (
+        <div className={`admin-alert ${notice.kind}`}>{notice.text}</div>
+      )}
+      <section className="admin-panel">
+        <div className="admin-panel-header">
+          <div>
+            <h2>数据库管理员</h2>
+            <span>{users.length} 个</span>
+          </div>
+          <button className="admin-secondary-button" onClick={() => void load()} type="button">
+            刷新
+          </button>
+        </div>
+        <div className="publication-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>账号</th>
+                <th>角色</th>
+                <th>状态</th>
+                <th>最后登录</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr
+                  className={user.id === selectedId ? 'admin-table-selected' : undefined}
+                  key={user.id}
+                  onClick={() => setSelectedId(user.id)}
+                >
+                  <td>
+                    <strong>{user.displayName}</strong>
+                    <small>{user.id}</small>
+                  </td>
+                  <td>{user.role}</td>
+                  <td>{user.status}</td>
+                  <td>
+                    {user.lastLoginAt === undefined ? '从未登录' : formatDate(user.lastLoginAt)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <div className="admin-stack two-column-admin">
+        <section className="admin-panel">
+          <SectionHeading
+            description="密码至少 12 个字符，数据库只保存 scrypt 哈希。"
+            title="新建账号"
+          />
+          <form className="admin-form-grid single" onSubmit={(event) => void create(event)}>
+            <label>
+              账号 ID
+              <input
+                required
+                onChange={(event) => setCreateForm({ ...createForm, id: event.target.value })}
+                value={createForm.id}
+              />
+            </label>
+            <label>
+              显示名称
+              <input
+                required
+                onChange={(event) =>
+                  setCreateForm({ ...createForm, displayName: event.target.value })
+                }
+                value={createForm.displayName}
+              />
+            </label>
+            <AdminRoleSelect
+              onChange={(role) => setCreateForm({ ...createForm, role })}
+              value={createForm.role}
+            />
+            <label>
+              初始密码
+              <input
+                minLength={12}
+                required
+                type="password"
+                onChange={(event) => setCreateForm({ ...createForm, password: event.target.value })}
+                value={createForm.password}
+              />
+            </label>
+            <label>
+              确认初始密码
+              <input
+                minLength={12}
+                required
+                type="password"
+                onChange={(event) =>
+                  setCreateForm({
+                    ...createForm,
+                    passwordConfirmation: event.target.value,
+                  })
+                }
+                value={createForm.passwordConfirmation}
+              />
+            </label>
+            <button className="admin-primary-button" disabled={busy} type="submit">
+              创建管理员
+            </button>
+          </form>
+        </section>
+        <section className="admin-panel">
+          <SectionHeading
+            description="禁用账号或修改密码会撤销该账号的现有会话。"
+            title="编辑账号"
+          />
+          {selected === undefined ? (
+            <div className="admin-empty">选择一个管理员账号。</div>
+          ) : (
+            <form className="admin-form-grid single" onSubmit={(event) => void update(event)}>
+              <label>
+                显示名称
+                <input
+                  required
+                  onChange={(event) =>
+                    setEditForm({ ...editForm, displayName: event.target.value })
+                  }
+                  value={editForm.displayName}
+                />
+              </label>
+              <AdminRoleSelect
+                disabled={selected.id === currentUserId}
+                onChange={(role) => setEditForm({ ...editForm, role })}
+                value={editForm.role}
+              />
+              <label>
+                状态
+                <select
+                  disabled={selected.id === currentUserId}
+                  onChange={(event) =>
+                    setEditForm({
+                      ...editForm,
+                      status: event.target.value as AdminUser['status'],
+                    })
+                  }
+                  value={editForm.status}
+                >
+                  <option value="active">启用</option>
+                  <option value="disabled">禁用</option>
+                </select>
+              </label>
+              <label>
+                重置密码（可选）
+                <input
+                  disabled={selected.id === currentUserId}
+                  minLength={12}
+                  type="password"
+                  onChange={(event) => setEditForm({ ...editForm, password: event.target.value })}
+                  value={editForm.password}
+                />
+              </label>
+              <label>
+                确认重置密码
+                <input
+                  disabled={selected.id === currentUserId}
+                  minLength={12}
+                  type="password"
+                  onChange={(event) =>
+                    setEditForm({
+                      ...editForm,
+                      passwordConfirmation: event.target.value,
+                    })
+                  }
+                  value={editForm.passwordConfirmation}
+                />
+              </label>
+              {selected.id === currentUserId ? (
+                <div className="admin-security-note">
+                  为避免误锁定当前账号，请在“我的账号”修改本人密码；本人角色和状态需由另一名管理员调整。
+                </div>
+              ) : undefined}
+              <button className="admin-primary-button" disabled={busy} type="submit">
+                保存修改
+              </button>
+            </form>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function AdminRoleSelect({
+  disabled = false,
+  onChange,
+  value,
+}: {
+  disabled?: boolean;
+  onChange: (role: AdminUser['role']) => void;
+  value: AdminUser['role'];
+}): ReactElement {
+  return (
+    <label>
+      角色
+      <select
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value as AdminUser['role'])}
+        value={value}
+      >
+        <option value="viewer">Viewer</option>
+        <option value="reviewer">Reviewer</option>
+        <option value="publisher">Publisher</option>
+        <option value="admin">Admin</option>
+      </select>
+    </label>
+  );
+}
+
+function MyAccountPanel({ token }: { token: string }): ReactElement {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ kind: 'error' | 'success'; text: string }>();
+
+  const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (newPassword !== confirmation) {
+      setNotice({ kind: 'error', text: '两次输入的新密码不一致。' });
+      return;
+    }
+    if (currentPassword === newPassword) {
+      setNotice({ kind: 'error', text: '新密码不能与当前密码相同。' });
+      return;
+    }
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      await knowledgeAdminRequest(token, '/auth/change-password', {
+        body: { currentPassword, newPassword },
+        method: 'POST',
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmation('');
+      setNotice({
+        kind: 'success',
+        text: '密码已修改，当前登录保持有效，该账号的其他登录会话已撤销。',
+      });
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="admin-stack">
+      <section className="admin-panel">
+        <SectionHeading
+          description="修改密码需要验证当前密码。成功后保留本次登录，并撤销该账号的其他登录会话。"
+          title="修改我的密码"
+        />
+        {notice === undefined ? undefined : (
+          <div className={`admin-alert ${notice.kind}`}>{notice.text}</div>
+        )}
+        <form className="admin-form-grid single" onSubmit={(event) => void submit(event)}>
+          <label>
+            当前密码
+            <input
+              autoComplete="current-password"
+              minLength={12}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              required
+              type="password"
+              value={currentPassword}
+            />
+          </label>
+          <label>
+            新密码
+            <input
+              autoComplete="new-password"
+              minLength={12}
+              onChange={(event) => setNewPassword(event.target.value)}
+              required
+              type="password"
+              value={newPassword}
+            />
+          </label>
+          <label>
+            确认新密码
+            <input
+              autoComplete="new-password"
+              minLength={12}
+              onChange={(event) => setConfirmation(event.target.value)}
+              required
+              type="password"
+              value={confirmation}
+            />
+          </label>
+          <button className="admin-primary-button" disabled={busy} type="submit">
+            {busy ? '正在修改…' : '修改密码'}
+          </button>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function TelegramGroupsPanel({
+  permissions,
+  token,
+}: {
+  permissions: ReadonlySet<AdminPermission>;
+  token: string;
+}): ReactElement {
+  const [status, setStatus] = useState<TelegramGroupRegistryEntry['membershipStatus'] | ''>(
+    'active',
+  );
+  const [groups, setGroups] = useState<TelegramGroupRegistryEntry[]>([]);
+  const [messages, setMessages] = useState<TelegramGroupMessageRecord[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ kind: 'error' | 'success'; text: string }>();
+  const selected = groups.find((group) => group.chatId === selectedId);
+
+  const load = useCallback(async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const query = status === '' ? '' : `?status=${status}`;
+      const result = await knowledgeAdminRequest<{ groups: TelegramGroupRegistryEntry[] }>(
+        token,
+        `/telegram-groups${query}`,
+      );
+      setGroups(result.groups);
+      setSelectedId((current) =>
+        result.groups.some((group) => group.chatId === current)
+          ? current
+          : (result.groups[0]?.chatId ?? ''),
+      );
+    } catch (loadError) {
+      setNotice({ kind: 'error', text: errorMessage(loadError) });
+    } finally {
+      setBusy(false);
+    }
+  }, [status, token]);
+
+  const loadMessages = useCallback(async (): Promise<void> => {
+    if (selectedId.length === 0) {
+      setMessages([]);
+      return;
+    }
+    try {
+      const result = await knowledgeAdminRequest<{ messages: TelegramGroupMessageRecord[] }>(
+        token,
+        `/telegram-groups/${encodeURIComponent(selectedId)}/messages?status=all&limit=200`,
+      );
+      setMessages(result.messages);
+    } catch (loadError) {
+      setNotice({ kind: 'error', text: errorMessage(loadError) });
+    }
+  }, [selectedId, token]);
+
+  const processInbox = async (): Promise<void> => {
+    if (selectedId.length === 0) return;
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      const result = await knowledgeAdminRequest<{
+        candidateCount: number;
+        createdCount: number;
+        duplicateCount: number;
+        processedMessageCount: number;
+      }>(token, `/telegram-groups/${encodeURIComponent(selectedId)}/process`, {
+        method: 'POST',
+      });
+      setNotice({
+        kind: 'success',
+        text: `已整理 ${result.processedMessageCount} 条消息，生成 ${result.createdCount} 个待审批候选，识别 ${result.duplicateCount} 个重复。`,
+      });
+      await Promise.all([load(), loadMessages()]);
+    } catch (processError) {
+      setNotice({ kind: 'error', text: errorMessage(processError) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => void load(), [load]);
+  useEffect(() => void loadMessages(), [loadMessages]);
+
+  return (
+    <div className="admin-stack">
+      <section className="admin-panel publication-guide">
+        <div>
+          <h2>Bot 群聊注册表</h2>
+          <p>
+            Telegram Update
+            实时写入本地收件箱，但不会实时生成或发布知识。选择群聊后由管理员统一整理，生成的候选必须人工审批。
+          </p>
+        </div>
+        <button
+          className="admin-secondary-button"
+          disabled={busy}
+          onClick={() => void load()}
+          type="button"
+        >
+          刷新
+        </button>
+      </section>
+      <section className="admin-panel">
+        <div className="admin-panel-header">
+          <div>
+            <h2>已识别群聊</h2>
+            <span>{groups.length} 个</span>
+          </div>
+          <select
+            aria-label="群聊状态"
+            onChange={(event) =>
+              setStatus(event.target.value as TelegramGroupRegistryEntry['membershipStatus'] | '')
+            }
+            value={status}
+          >
+            <option value="">全部</option>
+            <option value="active">当前加入</option>
+            <option value="left">已退出</option>
+            <option value="kicked">已移除</option>
+            <option value="unknown">未知</option>
+          </select>
+        </div>
+        {notice === undefined ? undefined : (
+          <div className={`admin-alert ${notice.kind}`}>{notice.text}</div>
+        )}
+        {busy && groups.length === 0 ? <div className="admin-empty">正在加载群聊…</div> : undefined}
+        {!busy && groups.length === 0 ? (
+          <div className="admin-empty">
+            尚未识别群聊。将 Bot 加入群或在现有群发送一条新消息后会自动登记。
+          </div>
+        ) : undefined}
+        {groups.length > 0 ? (
+          <div className="publication-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>状态</th>
+                  <th>群聊</th>
+                  <th>类型</th>
+                  <th>首次发现</th>
+                  <th>最近消息</th>
+                  <th>待整理</th>
+                  <th>依据</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map((group) => (
+                  <tr
+                    className={group.chatId === selectedId ? 'admin-table-selected' : undefined}
+                    key={group.chatId}
+                    onClick={() => setSelectedId(group.chatId)}
+                  >
+                    <td>
+                      <StatusBadge status={group.membershipStatus} />
+                    </td>
+                    <td>
+                      <strong>{group.title ?? '未提供群名称'}</strong>
+                      <small>{group.chatId}</small>
+                    </td>
+                    <td>{group.chatType}</td>
+                    <td>{formatDate(group.firstSeenAt)}</td>
+                    <td>
+                      {group.lastMessageAt === undefined
+                        ? '尚无消息'
+                        : formatDate(group.lastMessageAt)}
+                    </td>
+                    <td>{group.unprocessedMessageCount ?? 0}</td>
+                    <td>{group.observationSource}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : undefined}
+      </section>
+      <section className="admin-panel">
+        <div className="admin-panel-header">
+          <div>
+            <h2>本地群聊收件箱</h2>
+            <span>
+              {selected?.title ?? selected?.chatId ?? '未选择群聊'} · 最近 {messages.length} 条
+            </span>
+          </div>
+          <div className="admin-actions">
+            <button
+              className="admin-secondary-button"
+              disabled={busy || selectedId.length === 0}
+              onClick={() => void loadMessages()}
+              type="button"
+            >
+              刷新消息
+            </button>
+            <button
+              className="admin-primary-button"
+              disabled={
+                busy ||
+                selectedId.length === 0 ||
+                !permissions.has('import:telegram') ||
+                (selected?.unprocessedMessageCount ?? 0) === 0
+              }
+              onClick={() => void processInbox()}
+              type="button"
+            >
+              {busy ? '正在整理…' : '整理待处理消息'}
+            </button>
+          </div>
+        </div>
+        <div className="admin-security-note">
+          原始正文只保存在本地 PostgreSQL，不直接进入向量库；整理时会过滤
+          Bot/匿名来源、合并连续发言并执行脱敏、边界、重复和冲突检查。
+        </div>
+        {messages.length === 0 ? (
+          <div className="admin-empty">该群尚无已沉淀的文本消息。</div>
+        ) : (
+          <div className="publication-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>状态</th>
+                  <th>时间</th>
+                  <th>作者</th>
+                  <th>消息</th>
+                  <th>关联</th>
+                </tr>
+              </thead>
+              <tbody>
+                {messages.map((message) => (
+                  <tr key={`${message.chatId}:${message.messageId}`}>
+                    <td>{message.processedAt === undefined ? '待整理' : '已整理'}</td>
+                    <td>{formatDate(message.sentAt)}</td>
+                    <td>{message.authorUserId ?? message.senderChatId ?? '匿名'}</td>
+                    <td>
+                      <strong>{message.text}</strong>
+                      <small>Message {message.messageId}</small>
+                    </td>
+                    <td>
+                      {message.replyToMessageId === undefined
+                        ? '普通发言'
+                        : `Reply ${message.replyToMessageId}`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function CandidatesPanel({
   permissions,
   token,
@@ -713,7 +1596,7 @@ function CandidatesPanel({
   permissions: ReadonlySet<AdminPermission>;
   token: string;
 }): ReactElement {
-  const [status, setStatus] = useState<CandidateStatus | ''>('');
+  const [status, setStatus] = useState<CandidateStatus | ''>('pending');
   const [candidates, setCandidates] = useState<KnowledgeCandidate[]>([]);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [detail, setDetail] = useState<CandidateDetail | undefined>();
@@ -925,7 +1808,7 @@ function CandidateDetailPanel({
           { body, method: 'POST' },
         );
       },
-      decision === 'approve' ? '紧急批准已记录，可修复发布任务。' : '紧急拒绝已记录。',
+      decision === 'approve' ? '候选已批准并进入发布队列。' : '候选已拒绝并记录审核意见。',
     );
 
   const requestPublication = (): Promise<void> =>
@@ -958,7 +1841,7 @@ function CandidateDetailPanel({
 
       <section className="admin-panel">
         <SectionHeading
-          description="Curator 标准化结果。自动治理会直接作出决定；编辑仅用于紧急纠错。"
+          description="Curator 标准化结果。Telegram 收件箱候选必须由管理员审核，可在批准前编辑并保留 revision。"
           title="候选知识"
         />
         <div className="admin-form-grid">
@@ -1088,8 +1971,8 @@ function CandidateDetailPanel({
       {canReview ? (
         <section className="admin-panel review-panel">
           <SectionHeading
-            description="正常流程无需人工操作。这里只处理自动治理被中断后遗留的 pending 候选，并保留认证主体审计。"
-            title="紧急人工覆盖"
+            description="确认原始上下文、清洗结果、重复和冲突后再批准。批准会自动创建发布任务，发布 Worker 仍需通过完整门禁。"
+            title="人工审批"
           />
           <div className="admin-form-grid">
             <label>
@@ -1796,16 +2679,22 @@ function errorMessage(error: unknown): string {
 
 function tabTitle(tab: AdminTab): string {
   switch (tab) {
+    case 'account':
+      return '我的账号与登录安全';
     case 'authors':
       return '可信作者与角色有效期';
     case 'candidates':
-      return '知识候选自动治理';
+      return '知识候选审核与治理';
+    case 'groups':
+      return 'Telegram 群聊与读取状态';
     case 'imports':
       return 'Telegram 知识导入';
     case 'publications':
       return '发布任务与恢复';
     case 'support':
       return '客服会话与工单';
+    case 'users':
+      return '管理员用户与权限';
   }
 }
 

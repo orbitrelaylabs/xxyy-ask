@@ -5,10 +5,40 @@ export type AdminPermission =
   | 'publication:request'
   | 'support:manage'
   | 'support:read'
-  | 'trusted_author:manage';
+  | 'telegram_group:read'
+  | 'trusted_author:manage'
+  | 'user:manage';
 
 export type CandidateStatus = 'approved' | 'pending' | 'published' | 'rejected';
 export type PublicationStatus = 'failed' | 'queued' | 'running' | 'succeeded';
+
+export interface TelegramGroupRegistryEntry {
+  chatId: string;
+  chatType: 'group' | 'supergroup';
+  firstSeenAt: string;
+  lastSeenAt: string;
+  membershipStatus: 'active' | 'kicked' | 'left' | 'unknown';
+  observationSource: 'message' | 'my_chat_member';
+  updatedAt: string;
+  joinedAt?: string;
+  lastMessageAt?: string;
+  leftAt?: string;
+  title?: string;
+  unprocessedMessageCount?: number;
+}
+
+export interface TelegramGroupMessageRecord {
+  authorIsBot: boolean;
+  capturedAt: string;
+  chatId: string;
+  messageId: string;
+  sentAt: string;
+  text: string;
+  authorUserId?: string;
+  processedAt?: string;
+  replyToMessageId?: string;
+  senderChatId?: string;
+}
 
 export interface AdminPrincipal {
   displayName: string;
@@ -19,6 +49,16 @@ export interface AdminPrincipal {
 export interface AdminSession {
   permissions: AdminPermission[];
   principal: AdminPrincipal;
+}
+
+export interface AdminUser {
+  createdAt: string;
+  displayName: string;
+  id: string;
+  role: 'admin' | 'publisher' | 'reviewer' | 'viewer';
+  status: 'active' | 'disabled';
+  updatedAt: string;
+  lastLoginAt?: string;
 }
 
 export type SupportTicketStatus = 'closed' | 'in_progress' | 'open' | 'resolved' | 'waiting_user';
@@ -79,6 +119,18 @@ export interface KnowledgeGapRecord {
   channel: 'cli' | 'telegram' | 'web';
   citationCount: number;
   createdAt: string;
+  failureReason?:
+    | 'context_misunderstood'
+    | 'incorrect'
+    | 'incorrect_steps'
+    | 'incomplete'
+    | 'knowledge_conflict'
+    | 'knowledge_missing'
+    | 'off_topic'
+    | 'other'
+    | 'outdated'
+    | 'too_verbose'
+    | 'unsupported_citation';
   intent: string;
   question: string;
   rating: 'negative' | 'positive';
@@ -111,6 +163,13 @@ export interface KnowledgeGapRecord {
       }>;
       requiredFacets: string[];
       strategy: 'clarify' | 'multi_query' | 'single';
+      subquestions?: Array<{
+        facet: string;
+        id: string;
+        question: string;
+        query: string;
+        topK: number;
+      }>;
       version: '1';
     };
     retrievalPolicy: {

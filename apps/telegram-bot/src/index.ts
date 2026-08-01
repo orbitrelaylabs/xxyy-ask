@@ -39,7 +39,8 @@ type TelegramEnv = RagEnv &
       | 'ANSWER_QUALITY_WEB_OPTIMIZED_PERCENTAGE'
       | 'ONCHAIN_ALLOW_INSECURE_LOCALHOST'
       | 'ONCHAIN_RPC_CONFIG_JSON'
-      | 'TELEGRAM_API_BASE_URL',
+      | 'TELEGRAM_API_BASE_URL'
+      | 'TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS',
       string
     >
   >;
@@ -89,6 +90,10 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
     config,
     contextMessageLimit: botConfig.autoLearningContextMessages,
     defaultEnabled: botConfig.autoLearningDefaultEnabled,
+    messageRetentionDays: parsePositiveInteger(
+      workspaceEnv.TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS,
+      30,
+    ),
     ...(workspaceEnv.TELEGRAM_API_BASE_URL === undefined
       ? {}
       : { telegramApiBaseUrl: workspaceEnv.TELEGRAM_API_BASE_URL }),
@@ -105,6 +110,8 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
     config: botConfig,
     getKnowledgeRefreshStatus: () =>
       readKnowledgeRefreshStatus({ cwd: workspaceCwd, env: workspaceEnv }),
+    groupMessageArchive: knowledgeRuntime.groupMessageArchive,
+    groupRegistry: knowledgeRuntime.groupRegistry,
     knowledgeAutomation: knowledgeRuntime.automation,
     logger,
   });
@@ -145,6 +152,12 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
     : ['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase())
       ? false
       : fallback;
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 try {

@@ -48,6 +48,8 @@ export interface ImportTelegramKnowledgeInput {
   currentAdministratorUserIds?: ReadonlySet<string>;
   currentAdministratorVerifiedAt?: string;
   explicitAdminUserIds?: ReadonlySet<string>;
+  manualReviewRequired?: boolean;
+  runAutomation?: boolean;
   runId?: string;
   sourceChannel?: Extract<KnowledgeCandidateSourceChannel, 'telegram' | 'telegram_export'>;
   /** @deprecated Use curationMode. true maps to required; false maps to deterministic. */
@@ -204,15 +206,22 @@ export function createKnowledgeGovernanceService(
         ...(options.curatorModel === undefined ? {} : { model: options.curatorModel }),
       });
       const candidates =
-        input.sourceChannel === undefined
+        input.sourceChannel === undefined && input.manualReviewRequired !== true
           ? curated.candidates
           : curated.candidates.map((candidate) => ({
               ...candidate,
-              sourceChannel: input.sourceChannel ?? candidate.sourceChannel,
+              ...(input.sourceChannel === undefined ? {} : { sourceChannel: input.sourceChannel }),
+              ...(input.manualReviewRequired === true
+                ? {
+                    riskFlags: [
+                      ...new Set([...(candidate.riskFlags ?? []), 'manual_review_required']),
+                    ],
+                  }
+                : {}),
             }));
       const persisted = await options.candidateStore.createMany(candidates);
       const automation =
-        options.automation === undefined
+        options.automation === undefined || input.runAutomation === false
           ? undefined
           : await options.automation.process(persisted.created);
       return createImportResult(extraction, curated, persisted, automation);

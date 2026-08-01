@@ -1,6 +1,7 @@
 import type { SourceType } from '@xxyy/shared';
 import {
   classifyQuestion,
+  decomposeProductQuestion,
   understandProductQuestion,
   type ProductQuestionKind,
 } from '@xxyy/rag-core';
@@ -34,6 +35,11 @@ export interface EvidenceObservation {
   historicalEvidenceCount: number;
   latestNewEvidenceCount: number;
   missingFacets: string[];
+  facetCoverage: Array<{
+    covered: boolean;
+    evidenceIds: string[];
+    facet: string;
+  }>;
   nextAction: 'answer' | 'clarify' | 'continue_search' | 'partial_answer';
   questionKind: ProductQuestionKind;
   requiredFacets: string[];
@@ -79,10 +85,31 @@ export function observeProductEvidence(
   const questionKind = understandProductQuestion(question, classifyQuestion(question)).kind;
   const requiredFacets = extractEvidenceFacets(question);
   const multiPart = requiresMultiPartEvidence(question);
+  const capabilityOverview = isCapabilityOverview(question);
   const allEvidenceTexts = attempts.flatMap((attempt) => attempt.evidenceTexts);
-  const coveredFacets = requiredFacets.filter((facet) =>
-    allEvidenceTexts.some((text) => facetMatchesEvidence(facet, text)),
-  );
+  const facetCoverage = requiredFacets.map((facet) => {
+    const evidenceIds = attempts.flatMap((attempt) =>
+      attempt.evidenceTexts.flatMap((text, index) =>
+        (capabilityOverview || facetMatchesEvidence(facet, attempt.query)) &&
+        facetMatchesEvidence(facet, text)
+          ? [attempt.citationKeys[index] ?? '']
+          : [],
+      ),
+    );
+    const uniqueEvidenceIds = [...new Set(evidenceIds.filter((id) => id.length > 0))];
+    return {
+      covered:
+        uniqueEvidenceIds.length > 0 ||
+        attempts.some(
+          (attempt) =>
+            (capabilityOverview || facetMatchesEvidence(facet, attempt.query)) &&
+            attempt.evidenceTexts.some((text) => facetMatchesEvidence(facet, text)),
+        ),
+      evidenceIds: uniqueEvidenceIds,
+      facet,
+    };
+  });
+  const coveredFacets = facetCoverage.filter((item) => item.covered).map((item) => item.facet);
   const missingFacets = requiredFacets.filter((facet) => !coveredFacets.includes(facet));
   const citationKeys = new Set(attempts.flatMap((attempt) => attempt.citationKeys));
   const citationSources = distinctCitationSources(attempts);
@@ -117,11 +144,13 @@ export function observeProductEvidence(
         : 0
       : coveredFacets.length / requiredFacets.length;
   const sufficient = determineSufficiency({
+    actionableEvidenceCount: allEvidenceTexts.filter(hasActionableHowToEvidence).length,
     authoritativeCitationCount,
     authoritativeOverviewCitationCount,
     coveredFacetCount: coveredFacets.length,
     distinctCitationCount: citationKeys.size,
     multiPart,
+    numericEvidenceCount: allEvidenceTexts.filter(hasExplicitNumericEvidence).length,
     questionKind,
     requiredFacetCount: requiredFacets.length,
   });
@@ -160,6 +189,7 @@ export function observeProductEvidence(
     historicalEvidenceCount,
     latestNewEvidenceCount,
     missingFacets,
+    facetCoverage,
     nextAction,
     questionKind,
     requiredFacets,
@@ -182,6 +212,11 @@ export function extractEvidenceFacets(question: string): string[] {
     return [];
   }
 
+  const subquestions = decomposeProductQuestion(question);
+  if (subquestions.length > 1) {
+    return [...new Set(subquestions.map((subquestion) => subquestion.facet))];
+  }
+
   const normalized = question
     .normalize('NFKC')
     .replace(/^[\s，,。.!！?？]*(?:请|帮我|麻烦)?\s*(?:比较|对比|分别说明|说明一下)?\s*/u, '')
@@ -198,6 +233,7 @@ export function extractEvidenceFacets(question: string): string[] {
 export function requiresMultiPartEvidence(question: string): boolean {
   const normalized = question.normalize('NFKC');
   return (
+    decomposeProductQuestion(question).length > 1 ||
     isCapabilityOverview(question) ||
     MULTI_PART_SIGNAL.test(normalized) ||
     MULTI_CATEGORY_SIGNAL.test(normalized)
@@ -235,11 +271,13 @@ export function isAllowedSearchQueryRewrite(
 }
 
 function determineSufficiency(input: {
+  actionableEvidenceCount: number;
   authoritativeCitationCount: number;
   authoritativeOverviewCitationCount: number;
   coveredFacetCount: number;
   distinctCitationCount: number;
   multiPart: boolean;
+  numericEvidenceCount: number;
   questionKind: ProductQuestionKind;
   requiredFacetCount: number;
 }): boolean {
@@ -256,15 +294,37 @@ function determineSufficiency(input: {
     );
   }
 
+  if (
+    input.multiPart &&
+    input.requiredFacetCount > 1 &&
+    input.coveredFacetCount !== input.requiredFacetCount
+  ) {
+    return false;
+  }
+
+  if (input.questionKind === 'how_to') {
+    return input.authoritativeCitationCount > 0 && input.actionableEvidenceCount > 0;
+  }
+
+  if (input.questionKind === 'limit_or_quota') {
+    return input.numericEvidenceCount > 0;
+  }
+
   if (!input.multiPart) {
     return true;
   }
 
-  if (input.requiredFacetCount > 1) {
-    return input.coveredFacetCount === input.requiredFacetCount;
-  }
-
   return input.distinctCitationCount >= 2;
+}
+
+function hasActionableHowToEvidence(text: string): boolean {
+  return /(?:^|[。；;\n])\s*(?:\d+[.)、]|第[一二三四五六七八九十]+步)|打开|进入|点击|选择|设置|配置|输入|填写|保存|确认|开启|关闭/iu.test(
+    text,
+  );
+}
+
+function hasExplicitNumericEvidence(text: string): boolean {
+  return /\d+(?:\.\d+)?\s*(?:个|条|次|种|项|天|小时|分钟|秒|%|倍|地址|钱包|USDT|USD)?/iu.test(text);
 }
 
 function countAuthoritativeOverviewCitations(attempts: readonly SearchEvidenceAttempt[]): number {
@@ -353,11 +413,10 @@ function meaningfulFacetTerms(facet: string): string[] {
 
 function queryPreservesQuestionScope(question: string, query: string): boolean {
   const normalizedQuery = compactText(query);
-  if (normalizedQuery.includes('xxyy')) {
-    return true;
-  }
-
   const questionTerms = meaningfulFacetTerms(question).filter((term) => term.length > 1);
+  if (questionTerms.length === 0) {
+    return normalizedQuery.includes('xxyy');
+  }
   return questionTerms.some((term) => normalizedQuery.includes(compactText(term)));
 }
 

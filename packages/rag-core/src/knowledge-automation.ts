@@ -73,6 +73,7 @@ export function evaluateKnowledgeCandidateAutomation(
     reasonCodes.add('unsupported_source');
   }
   if (
+    candidate.extractionMethod !== 'deterministic_adjacent_admin_message' &&
     candidate.extractionMethod !== 'deterministic_direct_reply' &&
     candidate.extractionMethod !== 'agent_assisted'
   ) {
@@ -170,7 +171,10 @@ export function createKnowledgeAutomationController(options: {
   ): Promise<KnowledgeAutomationRunResult> {
     const decisions: KnowledgeAutomationOutcome[] = [];
     for (const candidate of candidates) {
-      if (candidate.status !== 'pending') {
+      if (
+        candidate.status !== 'pending' ||
+        candidate.riskFlags?.includes('manual_review_required') === true
+      ) {
         continue;
       }
       const decision = evaluateKnowledgeCandidateAutomation(candidate);

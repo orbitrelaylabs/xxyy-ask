@@ -81,6 +81,66 @@ describe('Telegram knowledge normalization', () => {
     });
   });
 
+  it('recognizes an adjacent administrator answer without requiring Telegram Reply', () => {
+    const result = extractTelegramKnowledgeCandidates(
+      {
+        id: -100123,
+        messages: [
+          {
+            date: '2026-07-15T01:00:00Z',
+            from_id: 'user456',
+            id: 10,
+            text: 'XXYY 如何设置提醒？',
+          },
+          {
+            date: '2026-07-15T01:02:00Z',
+            from_id: 'user123',
+            id: 11,
+            text: '进入设置页打开提醒开关，保存后即可生效。',
+          },
+        ],
+      },
+      { trustedAuthors: [trustedAuthor()] },
+    );
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      extractionMethod: 'deterministic_adjacent_admin_message',
+      sourceAnswerMessageId: '11',
+      sourceQuestionMessageId: '10',
+    });
+    expect(result.candidates[0]?.evidence).toContain('adjacent administrator message');
+  });
+
+  it('pairs adjacent administrator answers without a time limit', () => {
+    const result = extractTelegramKnowledgeCandidates(
+      {
+        id: -100123,
+        messages: [
+          {
+            date: '2026-07-15T01:00:00Z',
+            from_id: 'user456',
+            id: 10,
+            text: 'XXYY 如何设置提醒？',
+          },
+          {
+            date: '2026-07-16T08:30:00Z',
+            from_id: 'user123',
+            id: 11,
+            text: '进入设置页打开提醒开关，保存后即可生效。',
+          },
+        ],
+      },
+      { trustedAuthors: [trustedAuthor()] },
+    );
+
+    expect(result.candidates[0]).toMatchObject({
+      extractionMethod: 'deterministic_adjacent_admin_message',
+      sourceAnswerMessageId: '11',
+      sourceQuestionMessageId: '10',
+    });
+  });
+
   it('does not infer an administrator outside the recorded validity interval', () => {
     const result = extractTelegramKnowledgeCandidates(
       {

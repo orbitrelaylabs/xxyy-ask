@@ -6,6 +6,7 @@ import {
   createMetadataReranker,
   createProductRetrievalPolicy,
   createQuestionRelevantAttachments,
+  isDirectSourceQuestion,
   createRerankingRetriever,
   loadRagConfig,
   sanitizeRetrievedKnowledgeChunk,
@@ -53,7 +54,7 @@ export function createProductSearchHandler(
         topK: normalizeTopK(input.topK ?? config.topK),
       });
       requestOptions.signal?.throwIfAborted();
-      return toProductSearchOutput(question, chunks);
+      return toProductSearchOutput(input.query, chunks, question);
     },
   };
 }
@@ -74,9 +75,16 @@ function createConfiguredRetriever(options: CreateProductSearchHandlerOptions): 
   });
 }
 
-function toProductSearchOutput(question: string, chunks: RetrievedChunk[]): ProductSearchOutput {
-  const citationChunks = selectGroundingChunks(question, chunks);
-  const attachments = createQuestionRelevantAttachments(question, citationChunks);
+function toProductSearchOutput(
+  evidenceQuery: string,
+  chunks: RetrievedChunk[],
+  originalQuestion: string,
+): ProductSearchOutput {
+  const citationQuestion = isDirectSourceQuestion(originalQuestion)
+    ? originalQuestion
+    : evidenceQuery;
+  const citationChunks = selectGroundingChunks(citationQuestion, chunks);
+  const attachments = createQuestionRelevantAttachments(originalQuestion, citationChunks);
   const output: ProductSearchOutput = {
     ...(attachments.length === 0 ? {} : { attachments }),
     chunks: chunks.map(toOutputChunk),

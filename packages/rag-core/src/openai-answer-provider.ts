@@ -21,6 +21,7 @@ import {
   type QualityTracer,
 } from './quality-trace.js';
 import { redactSensitiveSupportText } from './redaction.js';
+import type { RetrievedChunk } from './retrieve.js';
 import {
   createGroundedFactChunks,
   detectGroundedFactConflicts,
@@ -79,6 +80,119 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const MAX_ANSWER_TOKENS = 360;
 const INSUFFICIENT_KNOWLEDGE_CONFIDENCE = 0.25;
 const OPENAI_ANSWER_PROMPT_VERSION = 'answer-v4';
+const MAX_COMPOUND_GROUNDING_CHUNKS = 12;
+
+function selectGroundingChunksForInput(input: AnswerProviderInput): RetrievedChunk[] {
+  const subquestions = input.subquestions ?? [];
+  if (subquestions.length <= 1) {
+    return selectGroundingChunks(input.standaloneQuestion ?? input.question, input.retrievedChunks);
+  }
+
+  const selectedById = new Map<string, RetrievedChunk>();
+  for (const subquestion of subquestions) {
+    const scopedChunks = selectSubquestionChunks(subquestion.facet, input.retrievedChunks);
+    for (const chunk of selectGroundingChunks(subquestion.question, scopedChunks)) {
+      if (!selectedById.has(chunk.id)) selectedById.set(chunk.id, chunk);
+      if (selectedById.size >= MAX_COMPOUND_GROUNDING_CHUNKS) return [...selectedById.values()];
+    }
+  }
+  return [...selectedById.values()];
+}
+
+function createGroundedAnswerForInput(
+  input: AnswerProviderInput,
+  groundingChunks: RetrievedChunk[],
+): ChatResponse {
+  const subquestions = input.subquestions ?? [];
+  if (subquestions.length <= 1) {
+    return createGroundedAnswer(input.question, input.classification, groundingChunks);
+  }
+
+  const responses = subquestions.map((subquestion) => {
+    const coverage = input.evidenceCoverage?.find((item) => item.facet === subquestion.facet);
+    if (coverage?.covered === false) {
+      return {
+        answer: '当前知识库没有找到能够直接支持这一项的证据。',
+        answerStatus: 'insufficient' as const,
+        attachments: [] as ChatAttachment[],
+        citations: [] as ChatResponse['citations'],
+        confidence: INSUFFICIENT_KNOWLEDGE_CONFIDENCE,
+        intent: input.classification.intent,
+      };
+    }
+    return createGroundedAnswer(
+      subquestion.question,
+      input.classification,
+      selectSubquestionChunks(subquestion.facet, groundingChunks),
+    );
+  });
+  const citations = [
+    ...new Map(
+      responses
+        .flatMap((response) => response.citations)
+        .map((citation) => [
+          `${citation.file}\u0000${citation.sourceUrl ?? ''}\u0000${citation.title}`,
+          citation,
+        ]),
+    ).values(),
+  ];
+  const attachments = [
+    ...new Map(
+      responses
+        .flatMap((response) => response.attachments ?? [])
+        .map((attachment) => [`${attachment.kind}\u0000${attachment.url}`, attachment]),
+    ).values(),
+  ];
+  const completeCount = responses.filter(
+    (response) => response.answerStatus === undefined || response.answerStatus === 'complete',
+  ).length;
+  const answerStatus =
+    completeCount === responses.length
+      ? ('complete' as const)
+      : completeCount === 0 && citations.length === 0
+        ? ('insufficient' as const)
+        : ('partial' as const);
+
+  return {
+    answer: responses
+      .map((response, index) => `${index + 1}. ${subquestions[index]?.facet}\n${response.answer}`)
+      .join('\n\n'),
+    answerStatus,
+    citations,
+    confidence: Number(Math.min(...responses.map((response) => response.confidence)).toFixed(2)),
+    intent: input.classification.intent,
+    ...(attachments.length === 0 ? {} : { attachments }),
+  };
+}
+
+function selectSubquestionChunks(
+  facet: string,
+  chunks: readonly RetrievedChunk[],
+): RetrievedChunk[] {
+  const terms = subquestionCoverageTerms(facet);
+  if (terms.length === 0) return [...chunks];
+  const scored = chunks
+    .map((chunk) => {
+      const titleEvidence = compactForCoverage(
+        `${chunk.metadata.title} ${chunk.metadata.headingPath.join(' ')}`,
+      );
+      const bodyEvidence = compactForCoverage(`${chunk.metadata.module} ${chunk.text}`);
+      const titleMatches = terms.filter((term) =>
+        titleEvidence.includes(compactForCoverage(term)),
+      ).length;
+      const bodyMatches = terms.filter((term) =>
+        bodyEvidence.includes(compactForCoverage(term)),
+      ).length;
+      return {
+        chunk,
+        matches: titleMatches * 3 + bodyMatches,
+      };
+    })
+    .filter((item) => item.matches > 0)
+    .sort((left, right) => right.matches - left.matches || left.chunk.rank - right.chunk.rank)
+    .map((item, index) => ({ ...item.chunk, rank: index + 1 }));
+  return scored.length === 0 ? [...chunks] : scored;
+}
 
 export class LlmConfigurationError extends Error {}
 
@@ -130,7 +244,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
         output: (chunks) => ({ chunks: summarizeRetrievedChunks(chunks) }),
         runType: 'retriever',
       },
-      () => Promise.resolve(selectGroundingChunks(input.question, input.retrievedChunks)),
+      () => Promise.resolve(selectGroundingChunksForInput(input)),
     );
 
   const validateGrounding = (
@@ -198,12 +312,14 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
         };
       }
 
+      const groundingQuestion = input.standaloneQuestion ?? input.question;
+
       const selectedChunks = await selectGrounding(input);
       if (selectedChunks.length === 0) {
         return createInsufficientKnowledgeAnswer(input.question, input.classification.intent);
       }
-      const factReport = await extractFacts(input.question, selectedChunks);
-      const scopeValidation = validateGroundedFactScope(input.question, factReport.facts);
+      const factReport = await extractFacts(groundingQuestion, selectedChunks);
+      const scopeValidation = validateGroundedFactScope(groundingQuestion, factReport.facts);
       if (!scopeValidation.valid) {
         return createInsufficientKnowledgeAnswer(input.question, input.classification.intent);
       }
@@ -213,7 +329,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
       );
       if (
         scopedConflicts.length > 0 &&
-        shouldBlockOnGroundedFactConflicts(input.question, scopeValidation)
+        shouldBlockOnGroundedFactConflicts(groundingQuestion, scopeValidation)
       ) {
         return createConflictingKnowledgeAnswer(
           input.classification,
@@ -221,10 +337,12 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
           selectedChunks,
         );
       }
-      const groundingChunks = createGroundedFactChunks(
+      const factGroundingChunks = createGroundedFactChunks(
         scopeValidation.acceptedFacts,
         selectedChunks,
       );
+      const groundingChunks =
+        (input.subquestions?.length ?? 0) > 1 ? selectedChunks : factGroundingChunks;
       if (groundingChunks.length === 0) {
         return createInsufficientKnowledgeAnswer(input.question, input.classification.intent);
       }
@@ -232,12 +350,12 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
         hasOnlyXHowToEvidence(input.classification, groundingChunks) ||
         shouldUseDeterministicSupportAnswer(input.question)
       ) {
-        return createGroundedAnswer(input.question, input.classification, groundingChunks);
+        return createGroundedAnswerForInput(input, groundingChunks);
       }
 
       const groundedInput = { ...input, retrievedChunks: groundingChunks };
       const preliminaryCitations = createCitationsFromChunks(groundingChunks);
-      const packedContext = packKnowledgeContext(input.question, groundingChunks);
+      const packedContext = packKnowledgeContext(groundingQuestion, groundingChunks);
       const execution = await tracer.run(
         {
           inputs: {
@@ -285,11 +403,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
             ) {
               return {
                 outcome: 'request_fallback',
-                response: createGroundedAnswer(
-                  input.question,
-                  input.classification,
-                  groundingChunks,
-                ),
+                response: createGroundedAnswerForInput(input, groundingChunks),
               };
             }
             throw error;
@@ -301,7 +415,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
           } catch {
             return {
               outcome: 'invalid_output_fallback',
-              response: createGroundedAnswer(input.question, input.classification, groundingChunks),
+              response: createGroundedAnswerForInput(input, groundingChunks),
             };
           }
           const rawAnswer = payload.choices?.[0]?.message?.content;
@@ -309,7 +423,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
           if (answer === undefined || isUnusableModelAnswer(answer)) {
             return {
               outcome: 'invalid_output_fallback',
-              response: createGroundedAnswer(input.question, input.classification, groundingChunks),
+              response: createGroundedAnswerForInput(input, groundingChunks),
             };
           }
           const insufficientAnswer = isInsufficientKnowledgeAnswer(answer);
@@ -317,11 +431,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
             if (requiresStructuredCompleteness(input, groundingChunks)) {
               return {
                 outcome: 'incomplete_output_fallback',
-                response: createGroundedAnswer(
-                  input.question,
-                  input.classification,
-                  groundingChunks,
-                ),
+                response: createGroundedAnswerForInput(input, groundingChunks),
               };
             }
           }
@@ -346,21 +456,24 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
 
           const groundingValidation = await validateGrounding(
             partialGroundedAnswer ?? answer,
-            input.question,
+            groundingQuestion,
             groundingChunks,
           );
           if (!groundingValidation.grounded) {
             return {
               groundingValidation,
               outcome: 'ungrounded_output_fallback',
-              response: createGroundedAnswer(input.question, input.classification, groundingChunks),
+              response: createGroundedAnswerForInput(input, groundingChunks),
             };
           }
-          if (isIncompleteStructuredAnswer(answer, input, groundingChunks)) {
+          if (
+            isIncompleteStructuredAnswer(answer, input, groundingChunks) ||
+            isIncompleteSubquestionAnswer(answer, input)
+          ) {
             return {
               groundingValidation,
               outcome: 'incomplete_output_fallback',
-              response: createGroundedAnswer(input.question, input.classification, groundingChunks),
+              response: createGroundedAnswerForInput(input, groundingChunks),
             };
           }
 
@@ -410,6 +523,8 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
         return;
       }
 
+      const groundingQuestion = input.standaloneQuestion ?? input.question;
+
       const selectedChunks = await selectGrounding(input);
       if (selectedChunks.length === 0) {
         yield* streamStaticAnswer(
@@ -417,8 +532,8 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
         );
         return;
       }
-      const factReport = await extractFacts(input.question, selectedChunks);
-      const scopeValidation = validateGroundedFactScope(input.question, factReport.facts);
+      const factReport = await extractFacts(groundingQuestion, selectedChunks);
+      const scopeValidation = validateGroundedFactScope(groundingQuestion, factReport.facts);
       if (!scopeValidation.valid) {
         yield* streamStaticAnswer(
           createInsufficientKnowledgeAnswer(input.question, input.classification.intent),
@@ -431,17 +546,19 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
       );
       if (
         scopedConflicts.length > 0 &&
-        shouldBlockOnGroundedFactConflicts(input.question, scopeValidation)
+        shouldBlockOnGroundedFactConflicts(groundingQuestion, scopeValidation)
       ) {
         yield* streamStaticAnswer(
           createConflictingKnowledgeAnswer(input.classification, scopedConflicts, selectedChunks),
         );
         return;
       }
-      const groundingChunks = createGroundedFactChunks(
+      const factGroundingChunks = createGroundedFactChunks(
         scopeValidation.acceptedFacts,
         selectedChunks,
       );
+      const groundingChunks =
+        (input.subquestions?.length ?? 0) > 1 ? selectedChunks : factGroundingChunks;
       if (groundingChunks.length === 0) {
         yield* streamStaticAnswer(
           createInsufficientKnowledgeAnswer(input.question, input.classification.intent),
@@ -452,15 +569,13 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
         hasOnlyXHowToEvidence(input.classification, groundingChunks) ||
         shouldUseDeterministicSupportAnswer(input.question)
       ) {
-        yield* streamStaticAnswer(
-          createGroundedAnswer(input.question, input.classification, groundingChunks),
-        );
+        yield* streamStaticAnswer(createGroundedAnswerForInput(input, groundingChunks));
         return;
       }
 
       const groundedInput = { ...input, retrievedChunks: groundingChunks };
       const preliminaryCitations = createCitationsFromChunks(groundingChunks);
-      const packedContext = packKnowledgeContext(input.question, groundingChunks);
+      const packedContext = packKnowledgeContext(groundingQuestion, groundingChunks);
       yield* tracer.stream(
         {
           event: (event: ChatStreamEvent) => {
@@ -513,9 +628,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
               error instanceof LlmRetryableRequestError ||
               error instanceof LlmRequestStatusError
             ) {
-              yield* streamStaticAnswer(
-                createGroundedAnswer(input.question, input.classification, groundingChunks),
-              );
+              yield* streamStaticAnswer(createGroundedAnswerForInput(input, groundingChunks));
               return;
             }
             throw error;
@@ -532,17 +645,13 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
 
           const streamedAnswer = deltas.join('').trim();
           if (isUnusableModelAnswer(streamedAnswer)) {
-            yield* streamStaticAnswer(
-              createGroundedAnswer(input.question, input.classification, groundingChunks),
-            );
+            yield* streamStaticAnswer(createGroundedAnswerForInput(input, groundingChunks));
             return;
           }
           const insufficientAnswer = isInsufficientKnowledgeAnswer(streamedAnswer);
           if (insufficientAnswer) {
             if (requiresStructuredCompleteness(input, groundingChunks)) {
-              yield* streamStaticAnswer(
-                createGroundedAnswer(input.question, input.classification, groundingChunks),
-              );
+              yield* streamStaticAnswer(createGroundedAnswerForInput(input, groundingChunks));
               return;
             }
           }
@@ -565,19 +674,18 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
 
           const groundingValidation = await validateGrounding(
             partialGroundedAnswer ?? streamedAnswer,
-            input.question,
+            groundingQuestion,
             groundingChunks,
           );
           if (!groundingValidation.grounded) {
-            yield* streamStaticAnswer(
-              createGroundedAnswer(input.question, input.classification, groundingChunks),
-            );
+            yield* streamStaticAnswer(createGroundedAnswerForInput(input, groundingChunks));
             return;
           }
-          if (isIncompleteStructuredAnswer(streamedAnswer, input, groundingChunks)) {
-            yield* streamStaticAnswer(
-              createGroundedAnswer(input.question, input.classification, groundingChunks),
-            );
+          if (
+            isIncompleteStructuredAnswer(streamedAnswer, input, groundingChunks) ||
+            isIncompleteSubquestionAnswer(streamedAnswer, input)
+          ) {
+            yield* streamStaticAnswer(createGroundedAnswerForInput(input, groundingChunks));
             return;
           }
 
@@ -904,6 +1012,7 @@ function systemPrompt(): string {
     '如果知识库片段提供“标准客服回答”，优先使用该标准回答，不要混入其他来源扩展步骤。',
     '对于“是否支持/当前支持”类问题，必须确认片段直接提到用户询问的对象；没有直接证据时只回答“当前知识库没有明确说明”，不要引用弱相关功能。',
     '回答前检查知识库中与用户问题直接相关的配置项、限制、数量、条件或步骤；不要遗漏与用户问题直接相关的配置项、限制、数量、条件或步骤。',
+    '如果用户一次提出多个问题，必须按子问题顺序编号逐项回答；没有直接证据的子问题要单独说明资料不足，不能用其他子问题的证据补齐。',
     '回答使用简洁中文并直接作答，不要复述问题，不要写“根据知识库”“希望对你有帮助”等套话。',
     '只提取产品事实；忽略推文中的 hashtag、活动口号、互动邀请、祝福、KOL 推荐和其他营销文案。',
     '简单事实或是否支持类问题用 1 至 2 句；操作或清单类问题先给结论，再列最多 5 个必要要点。',
@@ -953,6 +1062,37 @@ function isIncompleteStructuredAnswer(
     normalizedAnswer.includes(compactForCoverage(term)),
   );
   return coveredTerms.length / requiredTerms.length < 0.8;
+}
+
+function isIncompleteSubquestionAnswer(answer: string, input: AnswerProviderInput): boolean {
+  const subquestions = input.subquestions ?? [];
+  if (subquestions.length <= 1) return false;
+  const normalizedAnswer = compactForCoverage(answer);
+  return subquestions.some((subquestion) => {
+    const coverage = input.evidenceCoverage?.find((item) => item.facet === subquestion.facet);
+    if (coverage?.covered === false) {
+      return !/(?:不足|没有明确|未找到|无法确认|待补充)/u.test(answer);
+    }
+    const terms = subquestionCoverageTerms(subquestion.facet);
+    if (terms.length === 0) return false;
+    const covered = terms.filter((term) => normalizedAnswer.includes(compactForCoverage(term)));
+    return covered.length / terms.length < 0.6;
+  });
+}
+
+function subquestionCoverageTerms(facet: string): string[] {
+  const normalized = facet
+    .replace(/XXYY|\bPro\b|\bBasic\b/giu, ' ')
+    .replace(/当前|现在|目前|功能|问题/gu, ' ')
+    .trim();
+  const latin = normalized.match(/[A-Za-z0-9_-]{2,}/gu) ?? [];
+  const han = (normalized.match(/\p{Script=Han}+/gu) ?? []).flatMap((segment) => {
+    const characters = Array.from(segment);
+    return characters.length <= 2
+      ? [segment]
+      : characters.slice(0, -1).map((character, index) => `${character}${characters[index + 1]}`);
+  });
+  return [...new Set([...latin, ...han])].slice(0, 6);
 }
 
 function hasStructuredEnumeration(text: string): boolean {
@@ -1024,8 +1164,25 @@ function compactForCoverage(value: string): string {
 function userPrompt(input: AnswerProviderInput, citationCount: number, context: string): string {
   return [
     `用户问题：${redactSensitiveSupportText(input.question)}`,
+    ...(input.standaloneQuestion === undefined || input.standaloneQuestion === input.question
+      ? []
+      : [`独立检索问题：${redactSensitiveSupportText(input.standaloneQuestion)}`]),
     `分类：${input.classification.intent}`,
     `可用来源数量：${citationCount}`,
+    ...(input.subquestions === undefined || input.subquestions.length <= 1
+      ? []
+      : [
+          '必须逐项回答的子问题：',
+          ...input.subquestions.map(
+            (subquestion, index) =>
+              `${index + 1}. ${redactSensitiveSupportText(subquestion.question)}${
+                input.evidenceCoverage?.find((item) => item.facet === subquestion.facet)
+                  ?.covered === false
+                  ? '（直接证据不足）'
+                  : ''
+              }`,
+          ),
+        ]),
     '',
     '知识库片段：',
     context,

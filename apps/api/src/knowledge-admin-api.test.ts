@@ -7,40 +7,112 @@ import type {
   KnowledgeCandidate,
   KnowledgeGovernanceService,
   KnowledgePublicationJob,
+  KnowledgeAdminPrincipal,
   PgFeedbackStore,
+  PgKnowledgeAdminUserStore,
   PgKnowledgePublicationJobStore,
   PgSupportOperationsStore,
+  PgTelegramGroupMessageStore,
+  PgTelegramGroupRegistryStore,
 } from '@xxyy/rag-core';
 
-import {
-  createKnowledgeAdminAuthenticator,
-  hashKnowledgeAdminToken,
-} from './knowledge-admin-auth.js';
 import { handleKnowledgeAdminApi, type KnowledgeAdminServices } from './knowledge-admin-api.js';
 import type { ApiRequestLike, ApiResponseLike } from './index.js';
 
 const TOKEN = 'admin-test-token-with-at-least-24-characters';
 
 describe('handleKnowledgeAdminApi', () => {
-  it('fails closed before loading database services when admin authentication is disabled', async () => {
-    const getServices = vi.fn<() => Promise<KnowledgeAdminServices>>();
+  it('requires database administrator setup before login', async () => {
     const response = await callAdmin({
-      authenticator: createKnowledgeAdminAuthenticator(undefined),
-      getServices,
-      method: 'GET',
-      url: '/admin/api/candidates',
+      authenticator: {},
+      body: { id: 'admin', password: 'valid-password-123' },
+      getServices: () =>
+        Promise.resolve(
+          knowledgeAdminServices({
+            adminUsers: adminUserStore({ hasUsers: () => Promise.resolve(false) }),
+          }),
+        ),
+      method: 'POST',
+      url: '/admin/api/auth/login',
     });
 
     expect(response.statusCode).toBe(503);
-    expect(response.json).toMatchObject({ error: 'knowledge_admin_not_configured' });
-    expect(getServices).not.toHaveBeenCalled();
+    expect(response.json).toMatchObject({ error: 'knowledge_admin_setup_required' });
   });
 
-  it('rejects missing credentials without touching knowledge services', async () => {
-    const getServices = vi.fn<() => Promise<KnowledgeAdminServices>>();
+  it('creates the first administrator from the one-time setup endpoint', async () => {
+    const createdUser = {
+      createdAt: '2026-07-31T01:00:00.000Z',
+      displayName: 'Owner',
+      id: 'owner',
+      role: 'admin' as const,
+      status: 'active' as const,
+      updatedAt: '2026-07-31T01:00:00.000Z',
+    };
+    const createInitialAdmin = vi.fn(() => Promise.resolve(createdUser));
+    const login = vi.fn(() =>
+      Promise.resolve({
+        expiresAt: '2026-07-31T12:00:00.000Z',
+        principal: { displayName: 'Owner', id: 'owner', role: 'admin' as const },
+        token: TOKEN,
+      }),
+    );
+    const response = await callAdmin({
+      authenticator: {},
+      body: { displayName: 'Owner', id: 'owner', password: 'valid-password-123' },
+      getServices: () =>
+        Promise.resolve(
+          knowledgeAdminServices({
+            adminUsers: adminUserStore({
+              createInitialAdmin,
+              hasUsers: () => Promise.resolve(false),
+              login,
+            }),
+          }),
+        ),
+      method: 'POST',
+      url: '/admin/api/auth/setup',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json).toMatchObject({
+      principal: { id: 'owner', role: 'admin' },
+      sessionToken: TOKEN,
+    });
+    expect(createInitialAdmin).toHaveBeenCalledWith({
+      displayName: 'Owner',
+      id: 'owner',
+      password: 'valid-password-123',
+    });
+  });
+
+  it('closes the initial setup endpoint once an administrator exists', async () => {
+    const createInitialAdmin = vi.fn();
+    const response = await callAdmin({
+      authenticator: {},
+      body: { displayName: 'Owner', id: 'owner', password: 'valid-password-123' },
+      getServices: () =>
+        Promise.resolve(
+          knowledgeAdminServices({
+            adminUsers: adminUserStore({
+              createInitialAdmin,
+              hasUsers: () => Promise.resolve(true),
+            }),
+          }),
+        ),
+      method: 'POST',
+      url: '/admin/api/auth/setup',
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json).toMatchObject({ error: 'knowledge_admin_setup_complete' });
+    expect(createInitialAdmin).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing database session credentials', async () => {
     const response = await callAdmin({
       authenticator: authenticator('admin'),
-      getServices,
+      getServices: () => Promise.resolve(knowledgeAdminServices()),
       method: 'GET',
       url: '/admin/api/candidates',
     });
@@ -48,7 +120,127 @@ describe('handleKnowledgeAdminApi', () => {
     expect(response.statusCode).toBe(401);
     expect(response.headers['WWW-Authenticate']).toContain('Bearer');
     expect(response.headers['Cache-Control']).toBe('no-store');
-    expect(getServices).not.toHaveBeenCalled();
+  });
+
+  it('logs in with database credentials and returns a revocable session', async () => {
+    const login = vi.fn(() =>
+      Promise.resolve({
+        expiresAt: '2026-07-31T12:00:00.000Z',
+        principal: { displayName: 'Alice', id: 'alice', role: 'admin' as const },
+        token: TOKEN,
+      }),
+    );
+    const response = await callAdmin({
+      authenticator: {},
+      body: { id: 'alice', password: 'valid-password-123' },
+      getServices: () =>
+        Promise.resolve(knowledgeAdminServices({ adminUsers: adminUserStore({ login }) })),
+      method: 'POST',
+      url: '/admin/api/auth/login',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json).toMatchObject({
+      principal: { id: 'alice', role: 'admin' },
+      sessionToken: TOKEN,
+    });
+    expect(login).toHaveBeenCalledWith({ id: 'alice', password: 'valid-password-123' });
+  });
+
+  it('lets an authenticated administrator change their own password', async () => {
+    const changeOwnPassword = vi.fn(() => Promise.resolve(true));
+    const response = await callAdmin({
+      authenticator: authenticator('viewer'),
+      body: {
+        currentPassword: 'current-password-value',
+        newPassword: 'different-password-value',
+      },
+      getServices: () =>
+        Promise.resolve(
+          knowledgeAdminServices({
+            adminUsers: adminUserStore({ changeOwnPassword }),
+          }),
+        ),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/auth/change-password',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json).toMatchObject({ changed: true });
+    expect(changeOwnPassword).toHaveBeenCalledWith({
+      currentPassword: 'current-password-value',
+      currentSessionToken: TOKEN,
+      id: 'alice',
+      newPassword: 'different-password-value',
+    });
+  });
+
+  it('prevents an administrator from changing their own role or status', async () => {
+    const updateUser = vi.fn();
+    const response = await callAdmin({
+      authenticator: authenticator('admin'),
+      body: { role: 'viewer' },
+      getServices: () =>
+        Promise.resolve(
+          knowledgeAdminServices({
+            adminUsers: adminUserStore({ updateUser }),
+          }),
+        ),
+      method: 'PATCH',
+      token: TOKEN,
+      url: '/admin/api/users/alice',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json).toMatchObject({ error: 'self_account_protection' });
+    expect(updateUser).not.toHaveBeenCalled();
+  });
+
+  it('lets administrators create and list database users', async () => {
+    const user = {
+      createdAt: '2026-07-31T01:00:00.000Z',
+      displayName: 'Reviewer',
+      id: 'reviewer',
+      role: 'reviewer' as const,
+      status: 'active' as const,
+      updatedAt: '2026-07-31T01:00:00.000Z',
+    };
+    const createUser = vi.fn(() => Promise.resolve(user));
+    const listUsers = vi.fn(() => Promise.resolve([user]));
+    const services = knowledgeAdminServices({
+      adminUsers: adminUserStore({ createUser, listUsers }),
+    });
+    const created = await callAdmin({
+      authenticator: authenticator('admin'),
+      body: {
+        displayName: 'Reviewer',
+        id: 'reviewer',
+        password: 'valid-password-123',
+        role: 'reviewer',
+      },
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/users',
+    });
+    const listed = await callAdmin({
+      authenticator: authenticator('admin'),
+      getServices: () => Promise.resolve(services),
+      method: 'GET',
+      token: TOKEN,
+      url: '/admin/api/users',
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(listed.json).toMatchObject({ users: [{ id: 'reviewer' }] });
+    expect(createUser).toHaveBeenCalledWith({
+      actor: 'admin:alice',
+      displayName: 'Reviewer',
+      id: 'reviewer',
+      password: 'valid-password-123',
+      role: 'reviewer',
+    });
   });
 
   it('allows viewers to inspect candidates but not mutate them', async () => {
@@ -76,6 +268,97 @@ describe('handleKnowledgeAdminApi', () => {
     expect(readResponse.json).toMatchObject({ candidates: [{ id: 'knowledge_candidate_1' }] });
     expect(listCandidates).toHaveBeenCalledWith({ limit: 20, status: 'pending' });
     expect(writeResponse.statusCode).toBe(403);
+  });
+
+  it('lists observed Telegram groups with local inbox counts', async () => {
+    const list = vi.fn(() =>
+      Promise.resolve([
+        {
+          chatId: '-100123',
+          chatType: 'supergroup' as const,
+          firstSeenAt: '2026-07-31T01:00:00.000Z',
+          lastMessageAt: '2026-07-31T02:00:00.000Z',
+          lastSeenAt: '2026-07-31T02:00:00.000Z',
+          membershipStatus: 'active' as const,
+          observationSource: 'message' as const,
+          title: 'XXYY Support',
+          updatedAt: '2026-07-31T02:00:00.000Z',
+        },
+      ]),
+    );
+    const countUnprocessed = vi.fn(() => Promise.resolve(7));
+    const response = await callAdmin({
+      authenticator: authenticator('viewer'),
+      getServices: () =>
+        Promise.resolve(
+          knowledgeAdminServices({
+            telegramGroups: telegramGroupStore({ list }),
+            telegramMessages: telegramMessageStore({ countUnprocessed }),
+          }),
+        ),
+      method: 'GET',
+      token: TOKEN,
+      url: '/admin/api/telegram-groups?status=active&limit=20',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json).toMatchObject({
+      groups: [{ chatId: '-100123', title: 'XXYY Support', unprocessedMessageCount: 7 }],
+    });
+    expect(JSON.stringify(response.json)).not.toContain('messageText');
+    expect(list).toHaveBeenCalledWith({ limit: 20, membershipStatus: 'active' });
+  });
+
+  it('lets reviewers inspect and process a Telegram group inbox', async () => {
+    const list = vi.fn(() =>
+      Promise.resolve([
+        {
+          authorIsBot: false,
+          authorUserId: '456',
+          capturedAt: '2026-07-31T01:00:00.000Z',
+          chatId: '-100123',
+          messageId: '10',
+          sentAt: '2026-07-31T01:00:00.000Z',
+          text: 'XXYY 如何设置提醒？',
+        },
+      ]),
+    );
+    const processTelegramInbox = vi.fn(() =>
+      Promise.resolve({
+        candidateCount: 1,
+        createdCount: 1,
+        duplicateCount: 0,
+        processedMessageCount: 2,
+      }),
+    );
+    const services = knowledgeAdminServices({
+      processTelegramInbox,
+      telegramMessages: telegramMessageStore({ list }),
+    });
+    const messages = await callAdmin({
+      authenticator: authenticator('viewer'),
+      getServices: () => Promise.resolve(services),
+      method: 'GET',
+      token: TOKEN,
+      url: '/admin/api/telegram-groups/-100123/messages?status=all&limit=200',
+    });
+    const processed = await callAdmin({
+      authenticator: authenticator('reviewer'),
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/telegram-groups/-100123/process',
+    });
+
+    expect(messages.statusCode).toBe(200);
+    expect(messages.json).toMatchObject({ messages: [{ messageId: '10' }] });
+    expect(list).toHaveBeenCalledWith({
+      chatId: '-100123',
+      limit: 200,
+      processingStatus: 'all',
+    });
+    expect(processed.statusCode).toBe(200);
+    expect(processTelegramInbox).toHaveBeenCalledWith({ chatId: '-100123' });
   });
 
   it('exposes the support queue to viewers and restricts ticket updates to reviewers', async () => {
@@ -310,7 +593,13 @@ describe('handleKnowledgeAdminApi', () => {
         status: 'approved',
       }),
     );
-    const services = knowledgeAdminServices({ governance: governance({ approve }) });
+    const request = vi
+      .fn<PgKnowledgePublicationJobStore['request']>()
+      .mockResolvedValue(publication());
+    const services = knowledgeAdminServices({
+      governance: governance({ approve }),
+      publicationJobs: publicationStore({ request }),
+    });
 
     const missingEffectiveTime = await callAdmin({
       authenticator: authenticator('reviewer'),
@@ -335,6 +624,10 @@ describe('handleKnowledgeAdminApi', () => {
       effectiveAt: '2026-07-21T00:00:00.000Z',
       id: 'knowledge_candidate_1',
       reviewedBy: 'admin:alice',
+    });
+    expect(request).toHaveBeenCalledWith({
+      candidateId: 'knowledge_candidate_1',
+      requestedBy: 'admin:alice',
     });
   });
 
@@ -550,7 +843,7 @@ interface CapturedResponse {
 }
 
 async function callAdmin(input: {
-  authenticator: ReturnType<typeof createKnowledgeAdminAuthenticator>;
+  authenticator: TestAuthenticator;
   getServices: () => Promise<KnowledgeAdminServices>;
   method: string;
   url: string;
@@ -588,8 +881,17 @@ async function callAdmin(input: {
     },
   };
   await handleKnowledgeAdminApi({
-    authenticator: input.authenticator,
-    getServices: input.getServices,
+    getServices: async () => {
+      const services = await input.getServices();
+      return {
+        ...services,
+        adminUsers: {
+          ...services.adminUsers,
+          authenticateSession: (token) =>
+            Promise.resolve(token === TOKEN ? input.authenticator.principal : undefined),
+        },
+      };
+    },
     maxBodyBytes: input.maxBodyBytes ?? 1024 * 1024,
     request,
     requestUrl: new URL(input.url, 'http://localhost'),
@@ -600,16 +902,11 @@ async function callAdmin(input: {
 }
 
 function authenticator(role: 'admin' | 'publisher' | 'reviewer' | 'viewer') {
-  return createKnowledgeAdminAuthenticator(
-    JSON.stringify([
-      {
-        displayName: 'Alice',
-        id: 'alice',
-        role,
-        tokenHash: hashKnowledgeAdminToken(TOKEN),
-      },
-    ]),
-  );
+  return { principal: { displayName: 'Alice', id: 'alice', role } };
+}
+
+interface TestAuthenticator {
+  principal?: KnowledgeAdminPrincipal;
 }
 
 function governance(
@@ -653,11 +950,60 @@ function knowledgeAdminServices(
   overrides: Partial<KnowledgeAdminServices> = {},
 ): KnowledgeAdminServices {
   return {
+    adminUsers: adminUserStore(),
     feedback: feedbackStore(),
     governance: governance(),
     importTelegram: () => Promise.reject(new Error('not used')),
     publicationJobs: publicationStore(),
+    processTelegramInbox: () => Promise.reject(new Error('not used')),
     supportOperations: supportOperationsStore(),
+    telegramGroups: telegramGroupStore(),
+    telegramMessages: telegramMessageStore(),
+    ...overrides,
+  };
+}
+
+function adminUserStore(
+  overrides: Partial<PgKnowledgeAdminUserStore> = {},
+): PgKnowledgeAdminUserStore {
+  return {
+    authenticateSession: () => Promise.resolve(undefined),
+    changeOwnPassword: () => Promise.resolve(false),
+    createInitialAdmin: () => Promise.reject(new Error('not used')),
+    createUser: () => Promise.reject(new Error('not used')),
+    hasUsers: () => Promise.resolve(true),
+    listUsers: () => Promise.resolve([]),
+    login: () => Promise.resolve(undefined),
+    logout: () => Promise.resolve(),
+    migrate: () => Promise.resolve(),
+    updateUser: () => Promise.reject(new Error('not used')),
+    ...overrides,
+  };
+}
+
+function telegramGroupStore(
+  overrides: Partial<PgTelegramGroupRegistryStore> = {},
+): PgTelegramGroupRegistryStore {
+  return {
+    list: () => Promise.resolve([]),
+    migrate: () => Promise.resolve(),
+    observeMembership: () => Promise.reject(new Error('not used')),
+    observeMessage: () => Promise.reject(new Error('not used')),
+    ...overrides,
+  };
+}
+
+function telegramMessageStore(
+  overrides: Partial<PgTelegramGroupMessageStore> = {},
+): PgTelegramGroupMessageStore {
+  return {
+    capture: () => Promise.resolve(),
+    countUnprocessed: () => Promise.resolve(0),
+    list: () => Promise.resolve([]),
+    listByIds: () => Promise.resolve([]),
+    markProcessed: () => Promise.resolve(0),
+    migrate: () => Promise.resolve(),
+    purgeOlderThan: () => Promise.resolve(0),
     ...overrides,
   };
 }

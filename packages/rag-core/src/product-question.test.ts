@@ -6,6 +6,7 @@ import {
   createProductQueryPlan,
   createProductRetrievalPolicy,
   createStandaloneProductQuestion,
+  decomposeProductQuestion,
   isCapabilityOverviewQuestion,
   selectNextProductQuery,
   understandProductQuestion,
@@ -98,5 +99,51 @@ describe('product question understanding', () => {
         { content: 'XXYY Pro 提供进阶功能和权益。', role: 'assistant' },
       ]),
     ).toBe('XXYY Basic 免费版当前有哪些功能和权益？');
+  });
+
+  it('rewrites device and quota follow-ups without copying the whole conversation', () => {
+    expect(
+      createStandaloneProductQuestion('手机端呢？', [
+        { content: '怎么设置止盈止损？', role: 'user' },
+        { content: '请进入交易设置。', role: 'assistant' },
+      ]),
+    ).toBe('XXYY 移动端怎么设置止盈止损');
+    expect(
+      createStandaloneProductQuestion('有数量限制吗？', [
+        { content: 'XXYY 钱包监控怎么设置？', role: 'user' },
+      ]),
+    ).toBe('XXYY 钱包监控有数量限制吗？');
+  });
+
+  it('decomposes a compound request into bounded standalone subquestions', () => {
+    const question = 'XXYY Pro 有什么权益，怎么升级，升级后是否永久有效？';
+    const understanding = understandProductQuestion(question, classifyQuestion(question));
+    const plan = createProductQueryPlan(question, question, understanding);
+
+    expect(decomposeProductQuestion(question)).toEqual([
+      expect.objectContaining({ id: 'sq1', question: 'XXYY Pro 有什么权益' }),
+      expect.objectContaining({ id: 'sq2', question: 'XXYY Pro 怎么升级' }),
+      expect.objectContaining({ id: 'sq3', question: 'XXYY Pro 升级后是否永久有效' }),
+    ]);
+    expect(plan).toMatchObject({
+      maxSearches: 3,
+      strategy: 'multi_query',
+    });
+    expect(plan.queries.map((query) => query.query)).toEqual([
+      'XXYY Pro 有什么权益',
+      'XXYY Pro 怎么升级',
+      'XXYY Pro 升级后是否永久有效',
+    ]);
+    expect(plan.queries.map((query) => query.topK)).toEqual([6, 8, 6]);
+  });
+
+  it('keeps a single how-to request as one dynamically sized query', () => {
+    const question = 'XXYY 怎么设置止盈止损？';
+    const understanding = understandProductQuestion(question, classifyQuestion(question));
+    const plan = createProductQueryPlan(question, question, understanding);
+
+    expect(plan.strategy).toBe('single');
+    expect(plan.subquestions).toHaveLength(1);
+    expect(plan.queries[0]).toMatchObject({ topK: 8 });
   });
 });

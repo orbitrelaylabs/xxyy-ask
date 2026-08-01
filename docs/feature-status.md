@@ -11,10 +11,11 @@
 - [x] Web UI：`GET /` 提供静态聊天界面，支持普通回答、流式回答、引用展示、产品知识库附件，以及基于调度器脱敏回执的自动更新状态徽标。
 - [x] 客服运营闭环：Web 会话和有界多轮上下文持久化到 PostgreSQL；用户显式转人工后创建幂等工单，`/admin` 可查看脱敏会话、指派、回复、解决/关闭并观察知识缺口，Web 会自动接收人工回复。
 - [x] Versioned Agent SDK/API：`@xxyy/agent-sdk` 封装问答、SSE、反馈和转人工；`/api/v1` 使用独立 Bearer Key 并提供 OpenAPI 3.1，未配置 Key 时失败关闭。
-- [x] Telegram Bot：`pnpm run telegram:dev` 通过 Telegram Bot API long polling 接收消息，并以 `channel: "telegram"` 复用同一套 LangGraph 客服 Agent；私聊文本直接回答，群聊普通消息只做静默学习观察，只有命令、精确 @ 当前 Bot 或直接回复当前 Bot 才触发客服回答。Bot 菜单提供 `/status` 查看自动更新状态，并提供 `/learning`、`/learning_on`、`/learning_off` 查看和由管理员持久化控制本群自动学习。启用后只在内存中保留有界 reply 对话链，当前管理员回复用户时自动验证身份并进入知识治理；Web 不采集客服对话用于知识演进。
-- [x] Knowledge Curator Auto Mode：Telegram 实时回复和 Desktop JSON 可按角色有效期验证作者、重建 reply 线程、脱敏、分类、标准化、去重、检查正式 chunk 冲突并生成质量/风险信息；默认 `auto` 只把确定性路径未覆盖的复杂线程交给已配置模型，模型缺失或单线程失败时安全降级并返回脱敏统计，同时保留 deterministic/required 模式和调用预算。
-- [x] 严格自动知识治理：`knowledge-automation-v1` 以确定性规则验证来源、提取方式、作者时效、最低质量、重复/冲突、风险、Agent lineage 和 prompt injection；合格候选自动批准并入队，其余自动拒绝。模型不能决定发布，正常流程没有逐条人工审核。
-- [x] 知识治理管理面：`GET /admin` 提供独立 Bearer Token 认证和 `viewer/reviewer/publisher/admin` RBAC，支持候选上下文、自动原因、重复/冲突对比、revision/history、可信作者、Telegram 导入和发布状态；人工操作只保留为有审计的紧急恢复面，公开客服 API 仍不暴露知识写入能力。
+- [x] Telegram Bot：`pnpm run telegram:dev` 通过 Telegram Bot API long polling 接收消息；私聊文本直接回答。群聊默认只读，不发送命令回复、客服答案、媒体或异常。群文本实时幂等写入本地 PostgreSQL 收件箱，不在 Update 内创建候选；原始消息默认保留 30 天。Web 不采集客服对话用于知识演进。
+- [x] Telegram 群注册表与收件箱：Bot 订阅 `my_chat_member` 并登记群元数据，同时保存 Telegram 已交付的群文本、Reply 关系、作者 ID、编辑和处理状态。`GET /admin` 的“Telegram 群聊”页面显示待整理数量、最近消息和一键整理入口。
+- [x] Knowledge Curator Auto Mode：后台整理本地 Telegram 收件箱时，会合并连续发言、识别 Reply 与紧邻管理员普通回答，并按角色有效期验证作者、脱敏、分类、标准化、去重、检查正式 chunk 冲突并生成质量/风险信息。
+- [x] 分来源知识治理：官方同步和遗留自动来源继续由 `knowledge-automation-v1` 执行严格自动决策；本地 Telegram 收件箱候选固定带 `manual_review_required`，自动对账不会批准或拒绝，必须由后台管理员审核。批准后自动创建发布任务，模型不能决定发布。
+- [x] 知识治理管理面：`GET /admin` 使用 PostgreSQL 管理员账号、scrypt 密码哈希和可撤销 Session，并提供 `viewer/reviewer/publisher/admin` RBAC、账号启停/改密/角色管理、本人验证原密码改密、其他会话撤销和本人角色/状态误操作保护，以及候选上下文、自动原因、重复/冲突对比、revision/history、可信作者、Telegram 导入和发布状态；人工操作只保留为有审计的紧急恢复面，公开客服 API 仍不暴露知识写入能力。
 - [x] 可靠自动发布任务：自动治理幂等创建 `PublicationJob`；`pnpm rag:knowledge:automation:work` 对账遗留状态、补建任务、最多重试三次并用租约执行现有发布门禁，最终候选状态与 pgvector ingest 在同一数据库事务完成。
 - [x] 新旧规则策略：当前问题默认排除被 `supersedes` 替代的知识，历史追溯问题仍可检索旧版本。
 - [x] RAG Trustworthiness v0.2：知识正文和标题/章节元数据先执行凭证脱敏与 prompt injection 隔离；回答上下文按 chunk、完整句子和限制条件打包；模型回答在返回前执行本地 claim grounding，未被安全证据支持的数字、限制、支持状态或操作事实会降级为确定性回答。流式路径先完成同一校验，避免无证据 token 已发送后无法撤回。

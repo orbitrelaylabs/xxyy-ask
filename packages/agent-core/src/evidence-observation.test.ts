@@ -146,6 +146,51 @@ describe('evidence observation', () => {
     });
   });
 
+  it('tracks a citation-backed coverage row for every compound subquestion', () => {
+    const observation = observeProductEvidence(
+      'XXYY Pro 有什么权益，怎么升级，升级后是否永久有效？',
+      [
+        attempt(
+          'XXYY Pro 权益',
+          ['pro'],
+          ['pro-source'],
+          ['XXYY Pro 权益包括独享节点。'],
+          ['official_docs'],
+        ),
+        attempt(
+          'XXYY Pro 升级',
+          ['upgrade'],
+          ['upgrade-source'],
+          ['进入会员页面，点击升级 XXYY Pro，并通过交易获得积分。'],
+          ['official_docs'],
+        ),
+        attempt(
+          'XXYY Pro 永久有效',
+          ['permanent'],
+          ['permanent-source'],
+          ['永久 Pro 权益长期有效。'],
+          ['official_docs'],
+        ),
+      ],
+      4,
+    );
+
+    expect(observation).toMatchObject({
+      complexity: 'multi_part',
+      facetCoverage: [
+        { covered: true, evidenceIds: ['pro-source'], facet: 'XXYY Pro 权益' },
+        { covered: true, evidenceIds: ['upgrade-source'], facet: 'XXYY Pro 升级' },
+        {
+          covered: true,
+          evidenceIds: ['permanent-source'],
+          facet: 'XXYY Pro 永久有效',
+        },
+      ],
+      missingFacets: [],
+      sufficient: true,
+    });
+  });
+
   it('stops when a distinct rewritten query returns no new chunk or citation', () => {
     const observation = observeProductEvidence(
       '请比较 XXYY Pro 权益和钱包管理上限',

@@ -19,10 +19,15 @@ import type {
   FeedbackRecord,
   KnowledgeCurationMode,
   KnowledgeGovernanceService,
+  KnowledgeAdminRole,
+  KnowledgeAdminUserStatus,
   KnowledgePublicationJobStatus,
   PgFeedbackStore,
   PgKnowledgePublicationJobStore,
+  PgKnowledgeAdminUserStore,
   PgSupportOperationsStore,
+  PgTelegramGroupMessageStore,
+  PgTelegramGroupRegistryStore,
   SupportTicketPriority,
   SupportTicketStatus,
 } from '@xxyy/rag-core';
@@ -30,24 +35,32 @@ import type {
 import type { ApiRequestLike, ApiResponseLike } from './index.js';
 import {
   hasKnowledgeAdminPermission,
-  type KnowledgeAdminAuthenticator,
+  readKnowledgeAdminBearerToken,
   type KnowledgeAdminPermission,
   type KnowledgeAdminPrincipal,
 } from './knowledge-admin-auth.js';
 
 export interface KnowledgeAdminServices {
+  adminUsers: PgKnowledgeAdminUserStore;
   feedback: PgFeedbackStore;
   governance: KnowledgeGovernanceService;
   publicationJobs: PgKnowledgePublicationJobStore;
   supportOperations: PgSupportOperationsStore;
+  telegramGroups: PgTelegramGroupRegistryStore;
+  telegramMessages: PgTelegramGroupMessageStore;
   importTelegram(input: {
     curationMode: KnowledgeCurationMode;
     rawExport: unknown;
   }): Promise<ImportTelegramKnowledgeResult>;
+  processTelegramInbox(input: { chatId: string }): Promise<{
+    candidateCount: number;
+    createdCount: number;
+    duplicateCount: number;
+    processedMessageCount: number;
+  }>;
 }
 
 export interface HandleKnowledgeAdminApiOptions {
-  authenticator: KnowledgeAdminAuthenticator;
   getServices: () => Promise<KnowledgeAdminServices>;
   maxBodyBytes: number;
   request: ApiRequestLike;
@@ -56,7 +69,51 @@ export interface HandleKnowledgeAdminApiOptions {
 }
 
 const candidateStatusSchema = z.enum(['approved', 'pending', 'published', 'rejected']);
+const adminRoleSchema = z.enum(['admin', 'publisher', 'reviewer', 'viewer']);
+const adminUserStatusSchema = z.enum(['active', 'disabled']);
+const adminLoginSchema = z
+  .object({
+    id: z.string().trim().min(1).max(160),
+    password: z.string().min(12).max(256),
+  })
+  .strict();
+const changeOwnPasswordSchema = z
+  .object({
+    currentPassword: z.string().min(12).max(256),
+    newPassword: z.string().min(12).max(256),
+  })
+  .strict()
+  .refine((value) => value.currentPassword !== value.newPassword, {
+    message: 'The new password must differ from the current password.',
+    path: ['newPassword'],
+  });
+const initialAdminSetupSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(160),
+    id: z.string().trim().min(1).max(160),
+    password: z.string().min(12).max(256),
+  })
+  .strict();
+const createAdminUserSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(160),
+    id: z.string().trim().min(1).max(160),
+    password: z.string().min(12).max(256),
+    role: adminRoleSchema,
+  })
+  .strict();
+const updateAdminUserSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(160).optional(),
+    password: z.string().min(12).max(256).optional(),
+    role: adminRoleSchema.optional(),
+    status: adminUserStatusSchema.optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, 'At least one user field is required.');
 const publicationStatusSchema = z.enum(['failed', 'queued', 'running', 'succeeded']);
+const telegramGroupStatusSchema = z.enum(['active', 'kicked', 'left', 'unknown']);
+const telegramMessageProcessingStatusSchema = z.enum(['all', 'processed', 'unprocessed']);
 const supportTicketStatusSchema = z.enum([
   'open',
   'in_progress',
@@ -170,35 +227,148 @@ export async function handleKnowledgeAdminApi(
   options: HandleKnowledgeAdminApiOptions,
 ): Promise<void> {
   setAdminSecurityHeaders(options.response);
-  if (!options.authenticator.configured) {
-    sendJson(options.response, 503, {
-      error: 'knowledge_admin_not_configured',
-      message: 'Knowledge administration is disabled until administrator tokens are configured.',
-    });
-    return;
-  }
-
-  const principal = options.authenticator.authenticate(
-    headerValue(options.request.headers.authorization),
-  );
-  if (principal === undefined) {
-    options.response.setHeader('WWW-Authenticate', 'Bearer realm="xxyy-knowledge-admin"');
-    sendJson(options.response, 401, {
-      error: 'unauthorized',
-      message: 'A valid knowledge administrator token is required.',
-    });
-    return;
-  }
-
   try {
-    await routeKnowledgeAdminRequest(options, principal);
+    const services = await options.getServices();
+    const segments = parseAdminPathSegments(options.requestUrl.pathname);
+    const method = options.request.method ?? 'GET';
+    if (segments[0] === 'auth' && segments[1] === 'setup-status' && segments.length === 2) {
+      requireMethod(method, 'GET');
+      sendJson(options.response, 200, {
+        setupRequired: !(await services.adminUsers.hasUsers()),
+      });
+      return;
+    }
+    if (segments[0] === 'auth' && segments[1] === 'setup' && segments.length === 2) {
+      requireMethod(method, 'POST');
+      if (await services.adminUsers.hasUsers()) {
+        sendJson(options.response, 409, {
+          error: 'knowledge_admin_setup_complete',
+          message: 'Initial administrator setup is already complete.',
+        });
+        return;
+      }
+      const payload = initialAdminSetupSchema.parse(
+        await readJsonBody(options.request, options.maxBodyBytes),
+      );
+      try {
+        await services.adminUsers.createInitialAdmin(payload);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === 'Initial administrator setup is already complete.'
+        ) {
+          sendJson(options.response, 409, {
+            error: 'knowledge_admin_setup_complete',
+            message: error.message,
+          });
+          return;
+        }
+        throw error;
+      }
+      const session = await services.adminUsers.login({
+        id: payload.id,
+        password: payload.password,
+      });
+      if (session === undefined) {
+        throw new Error('Initial administrator was created but login failed.');
+      }
+      sendAdminSession(options.response, session);
+      return;
+    }
+    if (segments[0] === 'auth' && segments[1] === 'login' && segments.length === 2) {
+      requireMethod(method, 'POST');
+      if (!(await services.adminUsers.hasUsers())) {
+        sendJson(options.response, 503, {
+          error: 'knowledge_admin_setup_required',
+          message: 'Create the first database administrator from the administration page.',
+        });
+        return;
+      }
+      const payload = adminLoginSchema.parse(
+        await readJsonBody(options.request, options.maxBodyBytes),
+      );
+      const session = await services.adminUsers.login(payload);
+      if (session === undefined) {
+        sendJson(options.response, 401, {
+          error: 'invalid_credentials',
+          message: 'Administrator id or password is incorrect.',
+        });
+        return;
+      }
+      sendAdminSession(options.response, session);
+      return;
+    }
+
+    const sessionToken = readKnowledgeAdminBearerToken(
+      headerValue(options.request.headers.authorization),
+    );
+    const principal =
+      sessionToken === undefined
+        ? undefined
+        : await services.adminUsers.authenticateSession(sessionToken);
+    if (principal === undefined || sessionToken === undefined) {
+      options.response.setHeader('WWW-Authenticate', 'Bearer realm="xxyy-knowledge-admin"');
+      sendJson(options.response, 401, {
+        error: 'unauthorized',
+        message: 'A valid database administrator session is required.',
+      });
+      return;
+    }
+    if (segments[0] === 'auth' && segments[1] === 'logout' && segments.length === 2) {
+      requireMethod(method, 'POST');
+      await services.adminUsers.logout(sessionToken);
+      sendJson(options.response, 200, { loggedOut: true });
+      return;
+    }
+    if (segments[0] === 'auth' && segments[1] === 'change-password' && segments.length === 2) {
+      requireMethod(method, 'POST');
+      const payload = changeOwnPasswordSchema.parse(
+        await readJsonBody(options.request, options.maxBodyBytes),
+      );
+      const changed = await services.adminUsers.changeOwnPassword({
+        currentPassword: payload.currentPassword,
+        currentSessionToken: sessionToken,
+        id: principal.id,
+        newPassword: payload.newPassword,
+      });
+      if (!changed) {
+        sendJson(options.response, 401, {
+          error: 'invalid_current_password',
+          message: 'The current administrator password is incorrect.',
+        });
+        return;
+      }
+      sendJson(options.response, 200, {
+        changed: true,
+        message: 'Password changed. Other sessions for this account were revoked.',
+      });
+      return;
+    }
+    await routeKnowledgeAdminRequest(options, services, principal);
   } catch (error) {
     sendKnowledgeAdminError(options.response, error);
   }
 }
 
+function sendAdminSession(
+  response: ApiResponseLike,
+  session: {
+    expiresAt: string;
+    principal: KnowledgeAdminPrincipal;
+    token: string;
+  },
+): void {
+  sendJson(response, 200, {
+    expiresAt: session.expiresAt,
+    permissions: knowledgeAdminPermissions(session.principal),
+    principal: session.principal,
+    sessionToken: session.token,
+  });
+}
+
 async function routeKnowledgeAdminRequest(
   options: HandleKnowledgeAdminApiOptions,
+  services: KnowledgeAdminServices,
   principal: KnowledgeAdminPrincipal,
 ): Promise<void> {
   const segments = parseAdminPathSegments(options.requestUrl.pathname);
@@ -211,8 +381,6 @@ async function routeKnowledgeAdminRequest(
     });
     return;
   }
-
-  const services = await options.getServices();
 
   if (segments[0] === 'candidates') {
     await routeCandidateRequest(options, services, principal, method, segments.slice(1));
@@ -234,6 +402,55 @@ async function routeKnowledgeAdminRequest(
     return;
   }
 
+  if (segments[0] === 'telegram-groups') {
+    requirePermission(principal, 'telegram_group:read');
+    if (segments.length === 1) {
+      requireMethod(method, 'GET');
+      const statusValue = options.requestUrl.searchParams.get('status') ?? undefined;
+      const membershipStatus =
+        statusValue === undefined ? undefined : telegramGroupStatusSchema.parse(statusValue);
+      const groups = await services.telegramGroups.list({
+        limit: parseLimit(options.requestUrl.searchParams.get('limit')),
+        ...(membershipStatus === undefined ? {} : { membershipStatus }),
+      });
+      const withInboxCounts = await Promise.all(
+        groups.map(async (group) => ({
+          ...group,
+          unprocessedMessageCount: await services.telegramMessages.countUnprocessed(group.chatId),
+        })),
+      );
+      sendJson(options.response, 200, { groups: withInboxCounts });
+      return;
+    }
+    const chatId = requiredPathSegment(segments[1], 'Telegram chat id');
+    if (segments.length === 3 && segments[2] === 'messages') {
+      requireMethod(method, 'GET');
+      const status = telegramMessageProcessingStatusSchema.parse(
+        options.requestUrl.searchParams.get('status') ?? 'unprocessed',
+      );
+      const messages = await services.telegramMessages.list({
+        chatId,
+        limit: parseLimit(options.requestUrl.searchParams.get('limit')),
+        processingStatus: status,
+      });
+      sendJson(options.response, 200, { messages });
+      return;
+    }
+    if (segments.length === 3 && segments[2] === 'process') {
+      requirePermission(principal, 'import:telegram');
+      requireMethod(method, 'POST');
+      sendJson(options.response, 200, await services.processTelegramInbox({ chatId }));
+      return;
+    }
+    sendNotFound(options.response);
+    return;
+  }
+
+  if (segments[0] === 'users') {
+    await routeAdminUserRequest(options, services, principal, method, segments.slice(1));
+    return;
+  }
+
   if (segments[0] === 'imports' && segments[1] === 'telegram' && segments.length === 2) {
     requirePermission(principal, 'import:telegram');
     requireMethod(method, 'POST');
@@ -245,6 +462,64 @@ async function routeKnowledgeAdminRequest(
     return;
   }
 
+  sendNotFound(options.response);
+}
+
+async function routeAdminUserRequest(
+  options: HandleKnowledgeAdminApiOptions,
+  services: KnowledgeAdminServices,
+  principal: KnowledgeAdminPrincipal,
+  method: string,
+  segments: string[],
+): Promise<void> {
+  requirePermission(principal, 'user:manage');
+  if (segments.length === 0 && method === 'GET') {
+    sendJson(options.response, 200, { users: await services.adminUsers.listUsers() });
+    return;
+  }
+  if (segments.length === 0 && method === 'POST') {
+    const payload = createAdminUserSchema.parse(
+      await readJsonBody(options.request, options.maxBodyBytes),
+    );
+    const user = await services.adminUsers.createUser({
+      actor: adminActor(principal),
+      displayName: payload.displayName,
+      id: payload.id,
+      password: payload.password,
+      role: payload.role as KnowledgeAdminRole,
+    });
+    sendJson(options.response, 201, { user });
+    return;
+  }
+  if (segments.length === 1 && method === 'PATCH') {
+    const payload = updateAdminUserSchema.parse(
+      await readJsonBody(options.request, options.maxBodyBytes),
+    );
+    const targetId = requiredPathSegment(segments[0], 'administrator user id');
+    if (
+      targetId === principal.id &&
+      (payload.password !== undefined || payload.role !== undefined || payload.status !== undefined)
+    ) {
+      sendJson(options.response, 400, {
+        error: 'self_account_protection',
+        message:
+          'Use My Account to change your password. Your own role or status must be changed by another administrator.',
+      });
+      return;
+    }
+    const user = await services.adminUsers.updateUser({
+      actor: adminActor(principal),
+      id: targetId,
+      ...(payload.displayName === undefined ? {} : { displayName: payload.displayName }),
+      ...(payload.password === undefined ? {} : { password: payload.password }),
+      ...(payload.role === undefined ? {} : { role: payload.role as KnowledgeAdminRole }),
+      ...(payload.status === undefined
+        ? {}
+        : { status: payload.status as KnowledgeAdminUserStatus }),
+    });
+    sendJson(options.response, 200, { user });
+    return;
+  }
   sendNotFound(options.response);
 }
 
@@ -315,7 +590,11 @@ async function routeCandidateRequest(
       ...(payload.sourceUrl === undefined ? {} : { sourceUrl: payload.sourceUrl }),
       ...(payload.supersedes === undefined ? {} : { supersedes: payload.supersedes }),
     });
-    sendJson(options.response, 200, { candidate });
+    const publication = await services.publicationJobs.request({
+      candidateId: candidate.id,
+      requestedBy: adminActor(principal),
+    });
+    sendJson(options.response, 200, { candidate, publication });
     return;
   }
 
@@ -431,7 +710,9 @@ function knowledgeAdminPermissions(principal: KnowledgeAdminPrincipal): Knowledg
     'publication:request',
     'support:manage',
     'support:read',
+    'telegram_group:read',
     'trusted_author:manage',
+    'user:manage',
   ];
   return permissions.filter((permission) => hasKnowledgeAdminPermission(principal, permission));
 }
@@ -594,6 +875,7 @@ function createQualityDiagnosticSnapshot(record: FeedbackRecord) {
       queries: queryPlan.queries,
       requiredFacets: queryPlan.requiredFacets,
       strategy: queryPlan.strategy,
+      subquestions: queryPlan.subquestions,
       version: queryPlan.version,
     },
     retrievalPolicy,
@@ -672,6 +954,51 @@ function diagnoseQualityIssue(record: FeedbackRecord): {
   reason: string;
   recommendedAction: string;
 } {
+  if (record.failureReason === 'context_misunderstood' || record.failureReason === 'off_topic') {
+    return {
+      category: 'classification',
+      knowledgeCandidateEligible: false,
+      reason: '用户反馈指出回答误解上下文或偏离问题',
+      recommendedAction: '检查多轮改写、意图识别与子问题拆解，并加入脱敏评测样本',
+    };
+  }
+  if (record.failureReason === 'knowledge_missing' || record.failureReason === 'outdated') {
+    return {
+      category: 'knowledge',
+      knowledgeCandidateEligible: false,
+      reason:
+        record.failureReason === 'outdated' ? '用户反馈指出知识可能过时' : '用户反馈指出知识缺失',
+      recommendedAction: '核对正式来源和有效时间；确认后创建或修订知识候选并运行回归评测',
+    };
+  }
+  if (record.failureReason === 'knowledge_conflict') {
+    return {
+      category: 'knowledge',
+      knowledgeCandidateEligible: false,
+      reason: '同范围当前证据存在冲突',
+      recommendedAction: '先核对正式来源、有效时间和 supersedes，再决定是否修订知识',
+    };
+  }
+  if (record.failureReason === 'incomplete') {
+    return {
+      category: 'retrieval',
+      knowledgeCandidateEligible: false,
+      reason: '用户反馈指出回答未完整覆盖问题',
+      recommendedAction: '检查子问题证据矩阵、缺失 facet 的召回和逐项回答校验',
+    };
+  }
+  if (
+    record.failureReason === 'incorrect' ||
+    record.failureReason === 'incorrect_steps' ||
+    record.failureReason === 'unsupported_citation'
+  ) {
+    return {
+      category: 'generation',
+      knowledgeCandidateEligible: false,
+      reason: '用户反馈指出事实、步骤或引用支撑存在问题',
+      recommendedAction: '检查事实选择、操作顺序和逐结论引用，再补充对应回归样本',
+    };
+  }
   if (record.comment === 'automatic_evidence_conflict') {
     return {
       category: 'knowledge',

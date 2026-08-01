@@ -1,23 +1,25 @@
-# 全自动知识演进与 Knowledge Curator
+# 群聊知识治理与 Knowledge Curator
 
-当前实现不会让模型直接“学习群聊”或无条件修改线上知识。Telegram 群内管理员对用户问题的直接回复，以及 Telegram Desktop JSON 导出，都会先经过身份验证、线程重建、确定性规则与受控 Knowledge Curator Agent，再由版本化严格策略自动批准或拒绝。批准项自动创建 `PublicationJob`，隔离 Worker 通过发布门禁后才进入 `admin_verified` 和 pgvector；证据不完整、低质量、重复、冲突或包含阻断风险的候选会自动拒绝，不停留等待人工审核。
+当前实现不会让模型直接“学习群聊”或无条件修改线上知识。Bot 通过实时 Update 把群文本幂等写入本地 PostgreSQL 收件箱，不在 Update 内创建候选。管理员从 `/admin` 选择群聊并点击整理后，系统才重建对话、合并连续发言、验证作者并运行受控 Knowledge Curator。生成项带 `manual_review_required` 并保持 `pending`，必须人工编辑、批准或拒绝。批准会创建 `PublicationJob`，隔离 Worker 通过发布门禁后才进入 `admin_verified` 和 pgvector。
 
 公开问答路径始终只读取已发布的正式知识。Telegram Bot 额外具有窄化的群回复采集入口，但不直接写 pgvector；公开 Chat API 和 LangGraph Agent 都没有候选、审批或发布工具。
 
 ```mermaid
 flowchart LR
-  Live["群内管理员直接回复"] --> Role["作者角色与有效期验证"]
-  Export["Telegram JSON 导出"] --> Role
-  Role --> Thread["reply 线程与相邻上下文重建"]
-  Thread --> Rules["确定性直接回复提取"]
+  Live["Telegram 实时 Update"] --> Inbox["本地群消息收件箱"]
+  Inbox --> Click["后台点击整理"]
+  Export["Telegram JSON 导出"] --> Role["作者角色与有效期验证"]
+  Click --> Role
+  Role --> Thread["Reply、紧邻对话与连续发言重建"]
+  Thread --> Rules["确定性问答配对提取"]
   Thread --> Agent["Auto / deterministic / required Curator"]
   Rules --> Guard["脱敏 / 边界 / 标准化"]
   Agent --> Guard
   Guard --> Match["候选与正式 chunk 去重、冲突检查"]
-  Match --> Pending["短暂 pending 候选 + 审计"]
-  Pending --> Policy["严格自动决策 knowledge-automation-v1"]
-  Policy -->|不满足| Rejected["rejected + 原因码"]
-  Policy -->|满足| Queue["approved + PublicationJob"]
+  Match --> Pending["pending + manual_review_required"]
+  Pending --> Review["管理员编辑、批准或拒绝"]
+  Review -->|reject| Rejected["rejected + 审核备注"]
+  Review -->|approve| Queue["approved + PublicationJob"]
   Queue --> Gate["隔离 Worker：发布门禁 + deterministic golden QA"]
   Gate --> Published["admin_verified + pgvector"]
 ```
@@ -42,18 +44,20 @@ flowchart LR
 - `knowledge_trusted_authors`：群、用户、角色、`valid_from`、`valid_to`、验证来源和验证人。
 - `knowledge_candidates`：标准问题/答案、脱敏来源文本、上下文消息 ID、作者验证快照、Curator 版本、质量分、风险、重复和冲突证据。
 - `knowledge_candidate_revisions`：候选初始版本及紧急纠错产生的不可变版本。
-- `knowledge_candidate_reviews`：自动批准/拒绝所针对的候选版本、策略主体、版本和原因码；紧急覆盖也会单独留痕。
+- `knowledge_candidate_reviews`：批准/拒绝所针对的候选版本、审核主体、策略版本和原因码。
 - `knowledge_governance_audit_events`：候选创建、修订、决策、发布和可信作者变更事件。
+- `telegram_group_registry`：Bot 观察到的群 ID、名称、群类型、成员状态、首次/最近发现时间和最近消息时间。
+- `telegram_group_messages`：本地群消息 Inbox，保存 Bot 从实时 Update 收到的文本、作者、reply 关系、编辑内容和处理状态；默认保留 30 天。
 
 候选状态只能按以下方向变化：
 
 ```text
-pending --严格策略通过--> approved --自动入队和发布门禁--> published
+pending --管理员批准--> approved --自动入队和发布门禁--> published
    |
-   +--严格策略不通过--> rejected
+   +--管理员拒绝--> rejected
 ```
 
-`pending` 是同一导入链路中的短暂状态，正常情况下会立即结束为 `approved` 或 `rejected`。修订只允许发生在异常遗留的 `pending`；已经批准、拒绝或发布的候选不会被原地改写。
+Telegram Inbox 生成的候选保持 `pending`，直到管理员批准或拒绝。修订只允许发生在 `pending`；已经批准、拒绝或发布的候选不会被原地改写。
 
 第一次部署或升级后运行：
 
@@ -65,7 +69,7 @@ pnpm rag:migrate
 
 ## 1. 作者身份
 
-群内实时回复默认调用 Telegram `getChatAdministrators` 自动识别管理员，不需要 `--admin-id`。管理员结果按群缓存 5 分钟，并把实际验证时间写入证据。
+整理 Inbox 时调用 Telegram `getChatAdministrators` 自动识别当前管理员，不需要 `--admin-id`。管理员结果按群缓存 5 分钟，并把实际验证时间写入证据。
 
 对于历史导出，当前角色无法证明过去角色，可预先登记有时效边界的可信作者：
 
@@ -94,20 +98,23 @@ pnpm rag:knowledge:author:list -- \
 
 ## 2. Telegram 采集
 
-### 群内实时采集
+### 群内实时沉淀与后台整理
 
-自动学习由 `TELEGRAM_AUTO_LEARNING_ENABLED` 提供部署默认值，默认关闭。Bot 菜单提供 `/learning` 查看状态，当前群管理员可用 `/learning_on` 与 `/learning_off` 写入持久化的本群覆盖设置；设置变更保留追加式审计。该能力只在 Telegram 群启用，Web 聊天不会成为知识来源。
+群消息通过 Telegram Update 实时沉淀，但知识整理不在 Update 内执行。Web 聊天不会成为知识来源。
 
-学习观察与客服回复是两条独立路径。Bot 可观察 Telegram 交付的普通群文本以重建 reply 链，但普通群消息不会调用客服 Agent；只有 Bot 命令、精确 @ 当前 Bot username 或直接回复当前 Bot ID 的消息才回答。Bot 身份来自 `getMe` 并在进程内缓存；查询失败时群聊回答失败关闭，后续消息自动重试。私聊仍直接回答。这样可以在关闭 Privacy Mode 或把 Bot 设为管理员以获得学习上下文时，避免 Bot 插话所有群聊。
+学习观察与客服回复是两条独立路径。`TELEGRAM_GROUP_RESPONSES_ENABLED=false` 为默认的群聊只读模式：Bot 可观察 Telegram 交付的普通群文本以重建 reply 链，但群内命令、精确 @、回复 Bot、非文本消息和异常都不会产生任何 Bot 输出；私聊仍直接回答。只有未来显式把该开关设为 `true` 时，Bot 命令、精确 @ 当前 Bot username 或直接回复当前 Bot ID 的消息才会调用客服 Agent。启用群回复后，Bot 身份来自 `getMe` 并在进程内缓存；查询失败时群聊回答失败关闭，后续消息自动重试，不会退化为回复所有群消息。
 
-Bot 收到已启用自动学习的 `group` 或 `supergroup` 文本时，会在进程内保存有界、最长一小时的 reply 链上下文；默认最多 12 条，可用 `TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES` 调整，硬上限 50 条。它随后优先检查当前消息是否为某位管理员对用户文本问题的回复。满足条件时：
+Bot 同时订阅 `my_chat_member`，把加群、退群和被移除状态写入 `telegram_group_registry`；任何新收到的 `group` / `supergroup` 文本也会幂等写入 `telegram_group_messages`，保存作者 ID、Reply 关系、发送时间、编辑后的正文和处理状态。原始正文只保存在本地 PostgreSQL，默认保留 30 天，可用 `TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS` 调整。由于 Telegram Bot API 不提供全量群历史和删除事件，升级前历史消息不能自动补拉，删除仍需后台确认或通过定期导出对账。
 
-1. 调用或复用缓存的 `getChatAdministrators` 证据。
-2. 从有界缓存重建同一 reply 链；简单问答走确定性提取，多轮线程同时交给可用的 Curator Agent 分析。
-3. 执行脱敏、同一 Curator、严格自动决策和发布入队。
-4. 静默结束该条 update，不把管理员答案当作新的客服提问回复。
+受保护管理后台的“Telegram 群聊”页面显示群状态、待整理数量和最近 200 条本地消息。管理员点击“整理待处理消息”后：
 
-原始 reply 链只存在于有上限、有 TTL 的进程内缓存；关闭本群自动学习时立即清除。只有脱敏并通过边界的候选进入治理数据库。Bot 必须能看到普通群消息；Telegram BotFather 的 Privacy Mode 需要按部署需求关闭，并确保 Bot 有读取消息及查询管理员列表所需权限。匿名管理员、Bot 自己、`sender_chat`、Bot 消息和非回复不会被作为知识答案采集。管理员查询暂时失败时会回退到时间有效的可信作者名册；仍无法验证则不创建候选，客服回复路径继续正常运行。
+1. 读取该群最近最多 2000 条本地消息，合并同一作者的连续发言。
+2. 调用 `getChatAdministrators` 或时间有效的可信作者名册验证答案作者。
+3. 识别显式 Reply，以及紧邻用户问题的管理员普通回答；问答间隔没有时间上限，但不跨越其他作者发言猜测。
+4. 执行脱敏、边界、标准化、重复和冲突检查。
+5. 创建带 `manual_review_required` 的 `pending` 候选，并标记本批消息已整理。
+
+Bot、匿名管理员、`sender_chat` 和无法验证作者的普通发言不会成为知识答案。Bot 必须能看到普通群消息；需要关闭 BotFather Privacy Mode，或把 Bot 设为有相应读取能力的群管理员。
 
 ### Telegram Desktop JSON
 
@@ -143,9 +150,9 @@ pnpm rag:knowledge:import:telegram -- /absolute/path/result.json \
 
 Agent 使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL`。普通管理员直接回复不会为了“使用 Agent”重复调用模型。每次导入按稳定线程顺序最多尝试 20 个 Agent 线程；`auto` 会统计因预算跳过的剩余线程，`required` 会拒绝超预算导入。自动模式按线程隔离错误，不保留 Provider 异常原文，只输出 `timeout`、`provider_error`、`invalid_output`、`unknown` 四类计数。
 
-导入摘要包含模式、消息/线程数、已验证和未验证作者消息数、Agent eligible/attempted/succeeded/failed/跳过统计、确定性与 Agent 候选数、被拒绝的 Agent proposal、边界过滤数、重复数、Curator run ID，以及自动批准、自动拒绝和发布入队数量。
+整理摘要包含模式、消息/线程数、已验证和未验证作者消息数、Agent eligible/attempted/succeeded/failed/跳过统计、确定性与 Agent 候选数、被拒绝的 Agent proposal、边界过滤数、重复数、Curator run ID 和新建候选数。
 
-## 3. Curator 与严格自动决策
+## 3. Curator 与人工审批
 
 每条候选依次执行：
 
@@ -158,9 +165,9 @@ Agent 使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL`。普通管
 7. 与最多 100 条已有候选做确定性相似度比较。
 8. 使用 Postgres token 索引从当前正式 chunks 取回候选，检测近似重复和明显正反结论冲突。
 9. 汇总质量分、风险标签、重复候选 ID 和冲突 chunk ID。
-10. 保存为短暂 `pending`，记录初始 revision 和审计事件。
-11. 运行 `knowledge-automation-v1`：验证来源、提取方式、作者时效、质量、重复/冲突、风险、Agent lineage 和 prompt injection。
-12. 自动批准并创建唯一 `PublicationJob`，或自动拒绝并记录稳定原因码。
+10. 保存为 `pending`，记录初始 revision、`manual_review_required` 和审计事件。
+11. 管理员在后台查看原始问题、完整回答、作者证据、重复和冲突；可以先生成 revision，再批准或拒绝。
+12. 批准后自动创建唯一 `PublicationJob`；拒绝时保存审核主体和备注。
 
 常见风险标签包括：
 
@@ -176,7 +183,7 @@ Agent 使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL`。普通管
 - `possible_duplicate_candidate` / `possible_duplicate_chunk`
 - `possible_knowledge_conflict`
 
-质量分是自动策略的必要条件但不是充分条件：必须不低于 `0.8`，并同时满足全部身份、安全、来源、去重与冲突条件。
+质量分和风险标签用于管理员判断，不会替代人工批准；发布门禁仍会再次校验身份、安全、来源、边界、去重和冲突条件。
 
 ## 4. 自动对账与发布
 
@@ -188,12 +195,12 @@ pnpm rag:knowledge:automation:work -- --limit 20
 
 该命令会：
 
-1. 领取并自动决定异常遗留的 `pending`。
+1. 领取并自动决定不要求人工审核的异常遗留 `pending`；跳过 `manual_review_required`。
 2. 为所有 `approved` 候选幂等补建 `PublicationJob`。
 3. 把尝试次数少于 3 的 `failed` 任务安全重置为 `queued`。
 4. 最多执行 `--limit` 条发布任务。
 
-`pnpm rag:refresh` 的固定计划已经把它作为最后一步，因此外部 scheduler 周期运行刷新任务即可闭合候选、重试和发布，无需逐条人工操作。尝试达到 3 次仍失败的任务保持 `failed` 并触发运维告警，系统不会放宽门禁或无限重试。
+`pnpm rag:refresh` 的固定计划已经把它作为最后一步，用于官方自动来源和已批准发布任务；它不会越过 Telegram 人工审批。尝试达到 3 次仍失败的任务保持 `failed` 并触发运维告警，系统不会放宽门禁或无限重试。
 
 发布只接受 `approved` 候选，并继续复用原有门禁：
 
@@ -203,7 +210,7 @@ pnpm rag:knowledge:automation:work -- --limit 20
 4. 运行完整 deterministic golden QA。
 5. 生成 embeddings，在数据库事务内替换 chunks、记录 ingestion run 并把候选标为 `published`。
 
-任一步失败都会回滚数据库替换与候选状态，并删除本次新建的 Markdown。未经自动批准的候选无法调用 `markPublished` 成功；自动策略也无权跳过任一门禁。
+任一步失败都会回滚数据库替换与候选状态，并删除本次新建的 Markdown。未经管理员批准的候选无法调用 `markPublished` 成功；后台批准操作和自动 Worker 都无权跳过任一门禁。
 
 查看候选和不可变历史：
 
@@ -220,13 +227,7 @@ pnpm rag:knowledge:history -- knowledge_candidate_0123456789abcdef
 
 ### 认证和 RBAC
 
-管理 API 使用高熵 Bearer Token。服务端配置只保存 SHA-256 哈希，明文令牌只在生成时展示一次：
-
-```bash
-pnpm admin:token:create -- owner admin
-```
-
-把输出的 JSON record 组成数组，按单行写入 `KNOWLEDGE_ADMIN_TOKENS_JSON`。不要把明文令牌或真实哈希配置提交到 Git。角色权限如下：
+管理 API 使用 PostgreSQL 管理员账号。密码只保存 scrypt 哈希，登录成功后签发有期限、可撤销的数据库 Session。首次打开 `/admin` 且数据库没有管理员时，页面自动显示一次性初始化表单；首个账号固定为 `admin`，创建过程通过数据库 advisory lock 和空表条件原子保护，成功后初始化入口永久关闭。登录后台后，`admin` 可以创建、禁用、调整角色或重置其他管理员密码；所有角色都可以验证当前密码后修改本人密码。管理员重置或禁用其他账号会撤销其全部 Session；本人改密保留当前 Session 并撤销其他 Session。当前管理员不能修改自己的角色或状态，避免意外锁定后台。角色权限如下：
 
 | 角色        | 查看 | 导入/紧急覆盖 | 紧急补建或重试发布 | 维护可信作者 |
 | ----------- | ---- | ------------- | ------------------ | ------------ |
@@ -235,7 +236,7 @@ pnpm admin:token:create -- owner admin
 | `publisher` | 是   | 是            | 是                 | 否           |
 | `admin`     | 是   | 是            | 是                 | 是           |
 
-自动 review 使用固定系统主体和策略版本；紧急覆盖人、修订人、发布申请人和可信作者验证人都由认证主体生成，HTTP body 不能覆盖 actor。未配置管理令牌时 `/admin/api/*` 失败关闭并返回 `503`；无效令牌返回 `401`。管理接口同源运行，不开放管理 CORS；页面启用严格 CSP、`no-store`、frame deny，并有独立于公开聊天的限流。生产必须使用 HTTPS，并建议再放在管理网络或身份代理之后。
+自动 review 使用固定系统主体和策略版本；紧急覆盖人、修订人、发布申请人、用户管理员和可信作者验证人都由数据库认证主体生成，HTTP body 不能覆盖 actor。数据库没有管理员账号时登录接口返回 `503` 并提示本地初始化；无效账号、密码或 Session 返回 `401`。管理接口同源运行，不开放管理 CORS；页面启用严格 CSP、`no-store`、frame deny，并有独立于公开聊天的限流。
 
 后台支持：
 
@@ -257,13 +258,13 @@ pnpm admin:token:create -- owner admin
 
 ## 验证
 
-相关单元测试覆盖角色有效期、10 分钟当前管理员窗口、历史角色风险、匿名/越权作者拒绝、线程重建、PII 与 prompt injection 隔离、Agent Schema 与消息权限校验、自动路由、模型缺失降级、单线程失败隔离、required fail-closed、调用预算、严格自动批准/拒绝、重复/冲突识别、并发 review、自动补队列、三次重试上限、候选 revision/review、管理认证/RBAC、actor 防伪、管理 body 限制以及 PublicationJob 状态机。`docs/eval/knowledge-curator-golden.jsonl` 还提供版本化的确定性 Curator 回归样本。
+相关单元测试覆盖本地 Inbox upsert、编辑后重新处理、连续管理员消息合并、角色有效期、当前管理员识别、历史角色风险、匿名/越权作者拒绝、线程重建、PII 与 prompt injection 隔离、Agent Schema 与消息权限校验、模型缺失降级、单线程失败隔离、required fail-closed、调用预算、人工审核隔离、重复/冲突识别、并发 review、自动补队列、三次重试上限、候选 revision/review、管理认证/RBAC、actor 防伪、管理 body 限制以及 PublicationJob 状态机。`docs/eval/knowledge-curator-golden.jsonl` 还提供版本化的确定性 Curator 回归样本。
 
 ```bash
 pnpm check
 ```
 
-数据库迁移还应在 PostgreSQL + pgvector 环境中执行 `pnpm rag:migrate`。发布前使用脱敏回放集自动统计候选接受率、PII 泄漏率、事实保真度、重复/冲突识别率和发布门禁通过率；生产告警只要求处理系统故障，不要求逐条内容审批。
+数据库迁移还应在 PostgreSQL + pgvector 环境中执行 `pnpm rag:migrate`。发布前使用脱敏回放集自动统计候选接受率、PII 泄漏率、事实保真度、重复/冲突识别率和发布门禁通过率；Telegram 候选需要管理员逐条审批，生产告警用于处理系统和发布任务故障。
 
 ## 自动化不会做的事情
 

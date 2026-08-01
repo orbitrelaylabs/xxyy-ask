@@ -29,7 +29,7 @@ import {
   type RetrievedChunk,
   shouldBlockOnGroundedFactConflicts,
   shouldUseDeterministicSupportAnswer,
-  selectNextProductQuery,
+  selectNextProductQuerySpec,
   understandProductQuestion,
   validateGroundedFactScope,
   VectorStoreConfigurationError,
@@ -611,14 +611,23 @@ function deterministicInitialPlan(
     return undefined;
   }
 
+  const queryPlan = createProductQueryPlan(state.request.message, productQuestion, understanding);
+  const initialQuerySpec = queryPlan.queries[0];
   const initialQuery =
     answerQualityVariant === 'legacy'
       ? productQuestion
-      : (createProductQueryPlan(state.request.message, productQuestion, understanding).queries[0]
-          ?.query ?? createInitialProductSearchQuery(productQuestion, understanding));
+      : (initialQuerySpec?.query ??
+        createInitialProductSearchQuery(productQuestion, understanding));
   return {
     input:
-      toolName === 'search_product_docs' ? { query: initialQuery } : { question: productQuestion },
+      toolName === 'search_product_docs'
+        ? {
+            query: initialQuery,
+            ...(answerQualityVariant === 'legacy' || initialQuerySpec?.topK === undefined
+              ? {}
+              : { topK: initialQuerySpec.topK }),
+          }
+        : { question: productQuestion },
     kind: 'tool',
     reason: `deterministic ${classification.intent} classification`,
     route: 'product_answer',
@@ -632,7 +641,6 @@ function deterministicProductContinuationPlan(
 ): AgentPlan | undefined {
   if (
     state.observation?.shouldContinue !== true ||
-    state.observation.questionKind !== 'capability_overview' ||
     registry.get('search_product_docs') === undefined
   ) {
     return undefined;
@@ -640,8 +648,8 @@ function deterministicProductContinuationPlan(
 
   const standaloneQuestion = productQuestionForRequest(state.request);
   const understanding = understandProductQuestion(
-    state.request.message,
-    classifyQuestion(state.request.message),
+    standaloneQuestion,
+    classifyQuestion(standaloneQuestion),
   );
   const queryPlan = createProductQueryPlan(
     state.request.message,
@@ -658,7 +666,10 @@ function deterministicProductContinuationPlan(
   if (searchedQueries.length >= queryPlan.maxSearches) {
     return undefined;
   }
-  const nextQuery = selectNextProductQuery(
+  if (queryPlan.strategy !== 'multi_query') {
+    return undefined;
+  }
+  const nextQuery = selectNextProductQuerySpec(
     queryPlan,
     state.observation.missingFacets,
     searchedQueries,
@@ -668,9 +679,12 @@ function deterministicProductContinuationPlan(
   }
 
   return {
-    input: { query: nextQuery },
+    input: {
+      query: nextQuery.query,
+      ...(nextQuery.topK === undefined ? {} : { topK: nextQuery.topK }),
+    },
     kind: 'tool',
-    reason: `deterministic capability overview facet search: ${state.observation.missingFacets.join(', ')}`,
+    reason: `deterministic product facet search: ${state.observation.missingFacets.join(', ')}`,
     route: 'product_answer',
     toolName: 'search_product_docs',
   };
@@ -831,6 +845,11 @@ function traceObserveNode(
               coverage: patch.observation.coverage,
               currentEvidenceCount: patch.observation.currentEvidenceCount,
               distinctCitationCount: patch.observation.distinctCitationCount,
+              facetCoverage: patch.observation.facetCoverage.map((item) => ({
+                covered: item.covered,
+                evidenceCount: item.evidenceIds.length,
+                facet: redactSensitiveSupportText(item.facet),
+              })),
               historicalEvidenceCount: patch.observation.historicalEvidenceCount,
               latestNewEvidenceCount: patch.observation.latestNewEvidenceCount,
               missingFacetCount: patch.observation.missingFacets.length,
@@ -965,11 +984,7 @@ async function answerComposerNode(
     if (searchEvidence.length > 0) {
       let response: ChatResponse;
       try {
-        response = await composeProductAnswer(
-          searchEvidence,
-          state.request.message,
-          answerProvider,
-        );
+        response = await composeProductAnswer(searchEvidence, state, answerProvider);
       } catch (error) {
         if (isProductConfigurationError(error)) {
           throw error;
@@ -977,7 +992,7 @@ async function answerComposerNode(
         return {
           errors: [`Answer composer failed: ${errorMessageFrom(error)}`],
           finalResponse: withAgentRoute(
-            responseFromSearchEvidenceList(searchEvidence, state.request.message),
+            responseFromProductSearchEvidence(searchEvidence, state),
             'product_answer',
           ),
         };
@@ -1052,6 +1067,11 @@ function summarizeState(state: LangGraphAgentState): string {
             historicalEvidenceCount: state.observation.historicalEvidenceCount,
             latestNewEvidenceCount: state.observation.latestNewEvidenceCount,
             missingFacets: state.observation.missingFacets.map(redactSensitiveSupportText),
+            facetCoverage: state.observation.facetCoverage.map((item) => ({
+              covered: item.covered,
+              evidenceCount: item.evidenceIds.length,
+              facet: redactSensitiveSupportText(item.facet),
+            })),
             nextAction: state.observation.nextAction,
             questionKind: state.observation.questionKind,
             shouldContinue: state.observation.shouldContinue,
@@ -1140,19 +1160,14 @@ function responseFromSearchEvidence(
 
 async function composeProductAnswer(
   evidenceList: AgentEvidence[],
-  question: string,
+  state: LangGraphAgentState,
   answerProvider: AnswerProvider | undefined,
 ): Promise<ChatResponse> {
   const retrievedChunks = collectedRetrievedChunks(evidenceList);
   if (answerProvider === undefined || retrievedChunks.length === 0) {
-    return responseFromSearchEvidenceList(evidenceList, question);
+    return responseFromProductSearchEvidence(evidenceList, state);
   }
-
-  return answerProvider.answer({
-    classification: classificationForProductAnswer(question),
-    question,
-    retrievedChunks,
-  });
+  return answerProvider.answer(answerProviderInput(state, retrievedChunks));
 }
 
 async function* streamProductAnswer(
@@ -1164,11 +1179,9 @@ async function* streamProductAnswer(
   if (answerProvider?.stream !== undefined && retrievedChunks.length > 0) {
     const bufferedEvents: ChatStreamEvent[] = [];
     try {
-      for await (const event of answerProvider.stream({
-        classification: classificationForProductAnswer(state.request.message),
-        question: state.request.message,
-        retrievedChunks,
-      })) {
+      for await (const event of answerProvider.stream(
+        answerProviderInput(state, retrievedChunks),
+      )) {
         bufferedEvents.push(event);
       }
     } catch (error) {
@@ -1176,10 +1189,7 @@ async function* streamProductAnswer(
         throw error;
       }
       yield* streamChatResponse(
-        withAgentRoute(
-          responseFromSearchEvidenceList(evidenceList, state.request.message),
-          'product_answer',
-        ),
+        withAgentRoute(responseFromProductSearchEvidence(evidenceList, state), 'product_answer'),
       );
       return;
     }
@@ -1191,10 +1201,33 @@ async function* streamProductAnswer(
 
   yield* streamChatResponse(
     withAgentRoute(
-      await composeProductAnswer(evidenceList, state.request.message, answerProvider),
+      await composeProductAnswer(evidenceList, state, answerProvider),
       'product_answer',
     ),
   );
+}
+
+function answerProviderInput(state: LangGraphAgentState, retrievedChunks: RetrievedChunk[]) {
+  const standaloneQuestion = productQuestionForRequest(state.request);
+  const understanding = understandProductQuestion(
+    standaloneQuestion,
+    classifyQuestion(standaloneQuestion),
+  );
+  const queryPlan = createProductQueryPlan(
+    state.request.message,
+    standaloneQuestion,
+    understanding,
+  );
+  return {
+    classification: classificationForProductAnswer(standaloneQuestion),
+    ...(state.observation === undefined
+      ? {}
+      : { evidenceCoverage: state.observation.facetCoverage }),
+    question: state.request.message,
+    retrievedChunks,
+    standaloneQuestion,
+    subquestions: queryPlan.subquestions,
+  };
 }
 
 function traceProductAnswerStream(
@@ -1370,6 +1403,78 @@ function responseFromSearchEvidenceList(
   };
 }
 
+function responseFromProductSearchEvidence(
+  evidenceList: AgentEvidence[],
+  state: LangGraphAgentState,
+): ChatResponse {
+  const standaloneQuestion = productQuestionForRequest(state.request);
+  const understanding = understandProductQuestion(
+    standaloneQuestion,
+    classifyQuestion(standaloneQuestion),
+  );
+  const queryPlan = createProductQueryPlan(
+    state.request.message,
+    standaloneQuestion,
+    understanding,
+  );
+  if (queryPlan.strategy !== 'multi_query' || queryPlan.subquestions.length <= 1) {
+    return responseFromSearchEvidenceList(evidenceList, state.request.message);
+  }
+
+  const searchOutputs = evidenceList.flatMap((evidence) =>
+    evidence.kind === 'search_results' ? [evidence.output] : [],
+  );
+  const searchQueries = state.toolCalls.flatMap((toolCall) => {
+    if (toolCall.toolName !== 'search_product_docs' || !isRecord(toolCall.input)) return [];
+    const query = nonEmptyString(toolCall.input.query);
+    return query === undefined ? [] : [query];
+  });
+  const outputByQuery = new Map<string, AgentEvidenceForSearch>();
+  searchQueries.forEach((query, index) => {
+    const output = searchOutputs[index];
+    if (output !== undefined) outputByQuery.set(query, output);
+  });
+
+  const sections = queryPlan.subquestions.map((subquestion, index) => {
+    const plannedQuery = queryPlan.queries.find(
+      (query) => query.subquestionId === subquestion.id,
+    )?.query;
+    const output = plannedQuery === undefined ? undefined : outputByQuery.get(plannedQuery);
+    const excerpts = uniqueCitations(output?.citations ?? []).map((citation) => citation.excerpt);
+    const conclusion = createSupportConclusionFromEvidence(subquestion.question, excerpts);
+    const body =
+      excerpts.length === 0
+        ? '当前知识库没有找到能够直接支持这一项的证据。'
+        : (conclusion ?? excerpts.join(' '));
+    return `${index + 1}. ${subquestion.facet}\n${body}`;
+  });
+  const citations = uniqueCitations(searchOutputs.flatMap((output) => output.citations));
+  const attachments = filterQuestionRelevantAttachments(
+    state.request.message,
+    uniqueAttachments(searchOutputs.flatMap((output) => output.attachments ?? [])),
+  );
+  const confidence = searchOutputs.reduce(
+    (maximum, output) => Math.max(maximum, output.confidence),
+    0,
+  );
+  const coveredCount = state.observation?.facetCoverage.filter((item) => item.covered).length ?? 0;
+  const answerStatus =
+    coveredCount === 0
+      ? 'insufficient'
+      : state.observation?.sufficient === true
+        ? 'complete'
+        : 'partial';
+
+  return {
+    answer: sections.join('\n\n'),
+    answerStatus,
+    citations,
+    confidence: Number(Math.min(0.9, Math.max(0.35, confidence / 10)).toFixed(2)),
+    intent: classificationForProductAnswer(standaloneQuestion).intent,
+    ...(attachments.length === 0 ? {} : { attachments }),
+  };
+}
+
 function noEvidenceSupportResponseForQuestion(question: string): ChatResponse | undefined {
   if (!shouldUseDeterministicSupportAnswer(question)) {
     return undefined;
@@ -1431,7 +1536,7 @@ function createEvidenceObservation(
   );
   const queryPlan = createProductQueryPlan(state.request.message, productQuestion, understanding);
   const maxSearches =
-    understanding.kind === 'capability_overview'
+    queryPlan.strategy === 'multi_query'
       ? Math.min(state.maxSteps, queryPlan.maxSearches)
       : state.maxSteps;
   const observation = observeProductEvidence(productQuestion, attempts, maxSearches);

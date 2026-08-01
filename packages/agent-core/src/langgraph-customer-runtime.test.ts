@@ -411,12 +411,63 @@ describe('createLangGraphCustomerRuntime', () => {
 
     expect(execute).toHaveBeenCalledTimes(2);
     expect(execute.mock.calls[1]?.[0]).toEqual({
-      query: 'XXYY 当前钱包管理 钱包监控 Telegram 通知 移动端 官方文档',
+      query: 'XXYY 当前钱包管理 钱包监控 Telegram 通知 移动端支持功能 官方文档',
     });
     expect(response).toMatchObject({
       agentRoute: 'product_answer',
       intent: 'product_qa',
     });
+  });
+
+  it('decomposes a compound product question and answers every subquestion from separate evidence', async () => {
+    const registry = createToolRegistry();
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce(searchOutput('pro-rights', 'XXYY Pro 权益包括独享节点。'))
+      .mockResolvedValueOnce(
+        searchOutput('pro-upgrade', '进入会员页面，点击升级 XXYY Pro，并通过交易获得积分。'),
+      )
+      .mockResolvedValueOnce(searchOutput('pro-permanent', 'XXYY 永久 Pro 权益长期有效。'));
+
+    registry.register({
+      name: 'search_product_docs',
+      description: 'Search product docs.',
+      inputSchema: z.object({ query: z.string(), topK: z.number().int().min(1).max(12) }),
+      outputSchema: z.object({
+        chunks: z.array(z.object({ id: z.string(), text: z.string() })),
+        citations: z.array(
+          z.object({
+            excerpt: z.string(),
+            file: z.string(),
+            sourceType: z.literal('official_docs'),
+            title: z.string(),
+          }),
+        ),
+        confidence: z.number(),
+      }),
+      execute,
+    });
+
+    const planner = { plan: vi.fn(() => Promise.reject(new Error('planner should not run'))) };
+    const response = await createLangGraphCustomerRuntime({ planner, registry }).ask({
+      channel: 'web',
+      message: 'XXYY Pro 有什么权益，怎么升级，升级后是否永久有效？',
+    });
+
+    expect(execute.mock.calls.map(([input]) => input)).toEqual([
+      { query: 'XXYY Pro 有什么权益', topK: 6 },
+      { query: 'XXYY Pro 怎么升级', topK: 8 },
+      { query: 'XXYY Pro 升级后是否永久有效', topK: 6 },
+    ]);
+    expect(planner.plan).not.toHaveBeenCalled();
+    expect(response).toMatchObject({
+      agentRoute: 'product_answer',
+      answerStatus: 'complete',
+      intent: 'how_to',
+    });
+    expect(response.answer).toContain('1. XXYY Pro 权益');
+    expect(response.answer).toContain('2. XXYY Pro 升级');
+    expect(response.answer).toContain('3. XXYY Pro 永久有效');
   });
 
   it('fails closed when current numeric evidence conflicts in the same scope', async () => {
@@ -2030,5 +2081,20 @@ function conflictChunk(id: string, text: string) {
     sourceBoost: 0,
     text,
     vectorScore: 1,
+  };
+}
+
+function searchOutput(id: string, text: string) {
+  return {
+    chunks: [{ id, text }],
+    citations: [
+      {
+        excerpt: text,
+        file: `docs/product-features/${id}.md`,
+        sourceType: 'official_docs' as const,
+        title: id,
+      },
+    ],
+    confidence: 0.82,
   };
 }

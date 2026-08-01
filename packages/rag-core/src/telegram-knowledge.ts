@@ -205,10 +205,15 @@ export function extractTelegramKnowledgeCandidates(
     authorVerifications[answerMessage.id] = author.verification;
     adminReplyCount += 1;
 
-    const questionMessage =
+    const directQuestionMessage =
       answerMessage.replyToMessageId === undefined
         ? undefined
         : messagesById.get(answerMessage.replyToMessageId);
+    const adjacentQuestionMessage =
+      answerMessage.replyToMessageId === undefined
+        ? findAdjacentQuestionMessage(answerMessage, telegramExport.messages)
+        : undefined;
+    const questionMessage = directQuestionMessage ?? adjacentQuestionMessage;
     if (questionMessage === undefined || questionMessage.text.length === 0) {
       skippedMissingReplyCount += 1;
       continue;
@@ -241,17 +246,23 @@ export function extractTelegramKnowledgeCandidates(
       timestamp: answerMessage.timestamp,
     });
     const thread = threadByMessageId.get(answerMessage.id);
+    const adjacentPair =
+      directQuestionMessage === undefined && adjacentQuestionMessage !== undefined;
     candidates.push({
       authorVerification: author.verification,
       canonicalAnswer: normalizeKnowledgeAnswer(canonicalAnswer),
       contextMessageIds: thread?.contextMessageIds ?? [questionMessage.id, answerMessage.id],
-      extractionMethod: 'deterministic_direct_reply',
+      extractionMethod: adjacentPair
+        ? 'deterministic_adjacent_admin_message'
+        : 'deterministic_direct_reply',
       question: normalizeKnowledgeQuestion(question),
       qualityScore: calculateCandidateQuality(riskFlags),
       riskFlags,
       sourceChannel: 'telegram_export',
       ...(answerMessage.timestamp === undefined ? {} : { effectiveAt: answerMessage.timestamp }),
-      evidence: `Telegram export reply ${answerMessage.id} to message ${questionMessage.id}.`,
+      evidence: adjacentPair
+        ? `Telegram adjacent administrator message ${answerMessage.id} after user message ${questionMessage.id}.`
+        : `Telegram export reply ${answerMessage.id} to message ${questionMessage.id}.`,
       proposedModule: classification.intent === 'how_to' ? '操作指南' : '产品功能',
       proposedTitle: createProposedTitle(question),
       sourceAnswerMessageId: answerMessage.id,
@@ -281,6 +292,20 @@ export function extractTelegramKnowledgeCandidates(
     unverifiedAuthorMessageCount,
     verifiedAuthorMessageCount,
   };
+}
+
+function findAdjacentQuestionMessage(
+  answerMessage: TelegramKnowledgeMessage,
+  messages: readonly TelegramKnowledgeMessage[],
+): TelegramKnowledgeMessage | undefined {
+  if (answerMessage.replyToMessageId !== undefined || answerMessage.index <= 0) {
+    return undefined;
+  }
+  const previous = messages[answerMessage.index - 1];
+  if (previous === undefined || previous.text.length === 0 || previous.authorUserId === undefined) {
+    return undefined;
+  }
+  return previous;
 }
 
 function resolveKnowledgeAuthor(

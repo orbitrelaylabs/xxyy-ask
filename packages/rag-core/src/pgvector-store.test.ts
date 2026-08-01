@@ -143,6 +143,7 @@ describe('createPgVectorStore', () => {
       channel: 'web',
       citationCount: 2,
       comment: '没有讲清楚监控数量上限',
+      failureReason: 'incomplete',
       intent: 'product_qa',
       question: 'XXYY Pro 有哪些权益？',
       rating: 'negative',
@@ -162,6 +163,7 @@ describe('createPgVectorStore', () => {
       '没有讲清楚监控数量上限',
       'partial',
       ['official_docs', 'x_updates'],
+      'incomplete',
     ]);
   });
 
@@ -209,6 +211,7 @@ describe('createPgVectorStore', () => {
           citation_count: 2,
           comment: '没有讲清楚监控数量上限',
           created_at: '2026-06-06T02:03:04.000Z',
+          failure_reason: 'incomplete',
           intent: 'product_qa',
           question: 'XXYY Pro 有哪些权益？',
           rating: 'negative',
@@ -233,6 +236,7 @@ describe('createPgVectorStore', () => {
           citationCount: 2,
           comment: '没有讲清楚监控数量上限',
           createdAt: '2026-06-06T02:03:04.000Z',
+          failureReason: 'incomplete',
           intent: 'product_qa',
           question: 'XXYY Pro 有哪些权益？',
           rating: 'negative',

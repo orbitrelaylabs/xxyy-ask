@@ -12,6 +12,7 @@ export {
   createCitationsFromChunks,
   createGroundedAnswer,
   createInsufficientKnowledgeAnswer,
+  isDirectSourceQuestion,
   createSupportConclusionFromEvidence,
   selectGroundingChunks,
   shouldUseDeterministicSupportAnswer,
@@ -22,12 +23,15 @@ export type { ChatService } from './chat-service.js';
 export { classifyQuestion, hasProductDomainSignal } from './classify.js';
 export {
   createInitialProductSearchQuery,
+  createProductSubquestionFacet,
   createProductQueryPlan,
   createProductRetrievalPolicy,
   createStandaloneProductQuestion,
+  decomposeProductQuestion,
   isCapabilityOverviewQuestion,
   productQuestionKinds,
   selectNextProductQuery,
+  selectNextProductQuerySpec,
   understandProductQuestion,
 } from './product-question.js';
 export type {
@@ -35,6 +39,7 @@ export type {
   ProductQuestionKind,
   ProductQuestionUnderstanding,
   ProductRetrievalPolicy,
+  ProductSubquestion,
 } from './product-question.js';
 export { loadRagConfig } from './config.js';
 export type { RagConfig, RagEnv } from './config.js';
@@ -78,6 +83,18 @@ export type {
   KnowledgeAutomationReasonCode,
   KnowledgeAutomationRunResult,
 } from './knowledge-automation.js';
+export {
+  createPgKnowledgeAdminUserStore,
+  migrateKnowledgeAdminUsers,
+} from './knowledge-admin-users.js';
+export type {
+  KnowledgeAdminPrincipal,
+  KnowledgeAdminRole,
+  KnowledgeAdminSession,
+  KnowledgeAdminUser,
+  KnowledgeAdminUserStatus,
+  PgKnowledgeAdminUserStore,
+} from './knowledge-admin-users.js';
 export {
   createPgKnowledgeCandidateStore,
   InvalidKnowledgeCandidateStateError,
@@ -175,6 +192,7 @@ export {
 export type {
   EmbeddedKnowledgeChunk,
   FeedbackRating,
+  FeedbackFailureReason,
   FeedbackRecord,
   FeedbackStats,
   GetFeedbackStatsOptions,
@@ -184,6 +202,7 @@ export type {
   RecordFeedbackInput,
   ReplaceChunksOptions,
 } from './pgvector-store.js';
+export { feedbackFailureReasons } from './pgvector-store.js';
 export { createInMemoryQualityTracer, noopQualityTracer } from './quality-trace.js';
 export type { QualityTraceRecord, QualityTracer } from './quality-trace.js';
 export { redactSensitiveSupportText } from './redaction.js';
@@ -208,6 +227,30 @@ export type {
   TelegramKnowledgeLearningProgress,
   TelegramKnowledgeLearningSetting,
 } from './telegram-learning-settings.js';
+export {
+  createPgTelegramGroupRegistryStore,
+  migrateTelegramGroupRegistry,
+} from './telegram-group-registry.js';
+export type {
+  ListTelegramGroupsOptions,
+  ObserveTelegramGroupMembershipInput,
+  ObserveTelegramGroupMessageInput,
+  PgTelegramGroupRegistryStore,
+  TelegramGroupChatType,
+  TelegramGroupMembershipStatus,
+  TelegramGroupObservationSource,
+  TelegramGroupRegistryEntry,
+} from './telegram-group-registry.js';
+export {
+  createPgTelegramGroupMessageStore,
+  migrateTelegramGroupMessages,
+} from './telegram-group-messages.js';
+export { createTelegramInboxKnowledgeExport } from './telegram-inbox.js';
+export type {
+  CaptureTelegramGroupMessageInput,
+  PgTelegramGroupMessageStore,
+  TelegramGroupMessageRecord,
+} from './telegram-group-messages.js';
 export {
   extractTelegramKnowledgeCandidates,
   readTelegramKnowledgeExport,

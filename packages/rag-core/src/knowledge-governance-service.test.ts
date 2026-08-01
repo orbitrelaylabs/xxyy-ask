@@ -31,6 +31,7 @@ describe('createKnowledgeGovernanceService', () => {
     });
 
     const result = await service.importTelegram({
+      manualReviewRequired: true,
       rawExport: telegramExport(),
       runId: 'curator_run_1',
     });
@@ -119,6 +120,31 @@ describe('createKnowledgeGovernanceService', () => {
       publicationQueuedCount: 1,
     });
     expect(result.created).toEqual([approved]);
+  });
+
+  it('keeps inbox candidates pending when automation is explicitly disabled', async () => {
+    const pending = candidateRow('pending');
+    const process = vi.fn();
+    const service = createKnowledgeGovernanceService({
+      automation: {
+        process,
+        reconcile: () => Promise.reject(new Error('not used')),
+      },
+      candidateStore: candidateStore({
+        createMany: () => Promise.resolve({ created: [pending], duplicateCount: 0 }),
+      }),
+      trustedAuthorStore: trustedAuthorStore([trustedAuthor()]),
+    });
+
+    const result = await service.importTelegram({
+      rawExport: telegramExport(),
+      runAutomation: false,
+      sourceChannel: 'telegram',
+    });
+
+    expect(process).not.toHaveBeenCalled();
+    expect(result.automation).toBeUndefined();
+    expect(result.created).toEqual([pending]);
   });
 
   it('keeps legacy useAgent semantics and rejects ambiguous mode inputs', async () => {

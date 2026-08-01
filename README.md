@@ -6,10 +6,11 @@ XXYY 客服 Agentic RAG 项目。当前阶段暂时收敛为知识库产品问�
 
 - 产品功能、配置步骤、权益说明和官方更新相关问题会走 Product RAG。
 - Web 与 Telegram 已接入公开交易只读查询：基础查询返回状态、区块、地址、金额、手续费和公开转账事实；单笔 EVM 深度查询可返回调用追踪、内部转账与回滚证据；指定或唯一推断的 allowlisted pool 可执行 Sandwich/MEV 四态判断。
+- Telegram Bot 会订阅加群/退群事件，并在收到群消息时更新本地群注册表；`/admin` 可查看 Bot 已识别的群 ID、名称、成员状态和最近活动时间。注册表不保存普通群消息正文，升级前已加入的群会在收到下一条新消息后补登记。
 - 已接入只读 `xxyy-product-support` MCP server 和同名 project Skill。另已实现与产品域解耦的 `onchain-analysis` MCP、onchain transaction inspector / EVM Sandwich detector Skills；公开运行面为固定 `web/anonymous` 与 `telegram/service` 创建三项工具的六条 Skill/MCP 精确授权。深度结果仍受 trace/archive Provider、池子 allowlist 和生产 readiness 门禁约束。内置网络为 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain。
 - 不查询用户账户、订单、钱包余额或私有交易记录，不提供投资建议。
 
-最终产品需求与总体设计见 [docs/target-product-design.md](docs/target-product-design.md)，当前功能状态见 [docs/feature-status.md](docs/feature-status.md)，全自动知识演进流程见 [docs/knowledge-evolution.md](docs/knowledge-evolution.md)，MCP / Skill 安全执行与当前接入见 [docs/capability-plane.md](docs/capability-plane.md)，通用链上 MCP、Explorer 和 RPC 配置见 [docs/onchain-analysis-mcp.md](docs/onchain-analysis-mcp.md)，离线 EVM 交易核心见 [docs/transaction-analysis-core.md](docs/transaction-analysis-core.md)，执行语义增强见 [docs/evm-execution-enrichment.md](docs/evm-execution-enrichment.md)，价格影响与 Sandwich 判定见 [docs/evm-price-impact-sandwich.md](docs/evm-price-impact-sandwich.md)，受控标准 RPC 数据边界见 [docs/evm-data-adapter.md](docs/evm-data-adapter.md)，受控执行数据边界见 [docs/evm-execution-data-adapter.md](docs/evm-execution-data-adapter.md)，同区块 MEV observation 数据边界见 [docs/evm-mev-observation-data-adapter.md](docs/evm-mev-observation-data-adapter.md)，离线组合与评测见 [docs/evm-chain-analysis-harness.md](docs/evm-chain-analysis-harness.md)，主网采样计划与 evidence intake 见 [docs/evm-chain-analysis-sampling.md](docs/evm-chain-analysis-sampling.md)，manifest 到 candidate 的无偏交接见 [docs/evm-chain-analysis-sampling-handoff.md](docs/evm-chain-analysis-sampling-handoff.md)，单 owner 复核任务队列见 [docs/evm-chain-analysis-review-work-queue.md](docs/evm-chain-analysis-review-work-queue.md)，reviewed replay 与生产数据面就绪控制见 [docs/evm-chain-analysis-readiness.md](docs/evm-chain-analysis-readiness.md)，Postgres 治理与共享控制 backend 见 [docs/evm-chain-analysis-control-store.md](docs/evm-chain-analysis-control-store.md)，production provisioning 运维见 [docs/chain-control-provisioning-operations.md](docs/chain-control-provisioning-operations.md)，Provider/worker data plane 运维见 [docs/chain-data-plane-operations.md](docs/chain-data-plane-operations.md)，可重算 readiness 证据账本见 [docs/evm-chain-analysis-readiness-evidence-ledger.md](docs/evm-chain-analysis-readiness-evidence-ledger.md)，生产运行说明见 [docs/production-readiness.md](docs/production-readiness.md)，后续规划见 [docs/roadmap.md](docs/roadmap.md)。
+最终产品需求与总体设计见 [docs/target-product-design.md](docs/target-product-design.md)，当前功能状态见 [docs/feature-status.md](docs/feature-status.md)，知识采集、审批与发布流程见 [docs/knowledge-evolution.md](docs/knowledge-evolution.md)，MCP / Skill 安全执行与当前接入见 [docs/capability-plane.md](docs/capability-plane.md)，通用链上 MCP、Explorer 和 RPC 配置见 [docs/onchain-analysis-mcp.md](docs/onchain-analysis-mcp.md)，离线 EVM 交易核心见 [docs/transaction-analysis-core.md](docs/transaction-analysis-core.md)，执行语义增强见 [docs/evm-execution-enrichment.md](docs/evm-execution-enrichment.md)，价格影响与 Sandwich 判定见 [docs/evm-price-impact-sandwich.md](docs/evm-price-impact-sandwich.md)，受控标准 RPC 数据边界见 [docs/evm-data-adapter.md](docs/evm-data-adapter.md)，受控执行数据边界见 [docs/evm-execution-data-adapter.md](docs/evm-execution-data-adapter.md)，同区块 MEV observation 数据边界见 [docs/evm-mev-observation-data-adapter.md](docs/evm-mev-observation-data-adapter.md)，离线组合与评测见 [docs/evm-chain-analysis-harness.md](docs/evm-chain-analysis-harness.md)，主网采样计划与 evidence intake 见 [docs/evm-chain-analysis-sampling.md](docs/evm-chain-analysis-sampling.md)，manifest 到 candidate 的无偏交接见 [docs/evm-chain-analysis-sampling-handoff.md](docs/evm-chain-analysis-sampling-handoff.md)，单 owner 复核任务队列见 [docs/evm-chain-analysis-review-work-queue.md](docs/evm-chain-analysis-review-work-queue.md)，reviewed replay 与生产数据面就绪控制见 [docs/evm-chain-analysis-readiness.md](docs/evm-chain-analysis-readiness.md)，Postgres 治理与共享控制 backend 见 [docs/evm-chain-analysis-control-store.md](docs/evm-chain-analysis-control-store.md)，production provisioning 运维见 [docs/chain-control-provisioning-operations.md](docs/chain-control-provisioning-operations.md)，Provider/worker data plane 运维见 [docs/chain-data-plane-operations.md](docs/chain-data-plane-operations.md)，可重算 readiness 证据账本见 [docs/evm-chain-analysis-readiness-evidence-ledger.md](docs/evm-chain-analysis-readiness-evidence-ledger.md)，生产运行说明见 [docs/production-readiness.md](docs/production-readiness.md)，后续规划见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 项目结构
 
@@ -114,15 +115,14 @@ API_RATE_LIMIT_MAX=60
 API_RATE_LIMIT_WINDOW_MS=60000
 TRUST_PROXY=false
 XXYY_AGENT_API_KEYS_JSON=
-KNOWLEDGE_ADMIN_TOKENS_JSON=
 KNOWLEDGE_ADMIN_MAX_BODY_BYTES=5242880
 KNOWLEDGE_ADMIN_RATE_LIMIT_MAX=30
 KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS=60000
 
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_API_BASE_URL=
-TELEGRAM_AUTO_LEARNING_ENABLED=false
-TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES=12
+TELEGRAM_GROUP_RESPONSES_ENABLED=false
+TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS=30
 ```
 
 数据库默认从 `POSTGRES_*` 组装连接串；使用托管数据库时可以配置 `DATABASE_URL` 覆盖。`OPENAI_*` 配置 Chat/Planner；`EMBEDDING_API_KEY` 和 `EMBEDDING_BASE_URL` 可把向量请求发送到独立的 OpenAI-compatible 服务，未配置时回退使用 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。`pnpm run app:up` 会把 `ONCHAIN_RPC_CONFIG_JSON` 和 `ONCHAIN_ALLOW_INSECURE_LOCALHOST` 显式映射给 API 与 Telegram；未配置时产品客服仍可用，但公开交易查询会返回配置提示。当 `OPENAI_BASE_URL` 指向宿主机上的本地服务时，设置 `COMPOSE_OPENAI_BASE_URL=http://host.docker.internal:<端口>/v1`，让容器访问宿主机，同时保留 `app:dev` 使用的 `localhost` 地址。OpenAI-compatible 请求默认 30 秒超时、重试 1 次。默认 embedding 维度是 `1536`，匹配 `text-embedding-3-small`；更换 embedding 模型和维度时需要同步调整 `EMBEDDING_DIMENSION`，备份数据库后显式运行 `pnpm rag:ingest -- --rebuild-embedding-schema`。`.env.example` 会列出当前代码支持的环境变量。
@@ -277,7 +277,6 @@ pnpm rag:knowledge:import:telegram -- export.json
 pnpm rag:knowledge:import:telegram -- export.json --curation-mode required
 pnpm rag:knowledge:list -- --status rejected
 pnpm rag:knowledge:automation:work -- --limit 20
-pnpm admin:token:create -- owner admin
 ```
 
 私有 chain-control 命令不属于客服运行面，也不会自动加载 `.env`：
@@ -312,11 +311,11 @@ pnpm chain:mcp:serve
 - `pnpm rag:evaluate -- --failures-out .rag/eval-failures.jsonl` 把失败项写成已脱敏、必须人工审核的 JSONL，不会直接修改 golden QA。
 - `pnpm rag:ask` 从命令行调用客服 Agent。
 - `pnpm rag:knowledge:author:trust/list` 维护按群和有效期生效的可信作者名册。实时群回复默认用 Telegram Bot API 自动识别当前管理员；历史导出只有当前角色却无法证明历史角色时会失败关闭，不会伪装成历史已验证。
-- `pnpm rag:knowledge:import:telegram` 从 Telegram Desktop JSON 重建 reply 线程，执行脱敏、边界、去重、冲突与质量检查。默认 `auto`：配置模型时自动处理确定性规则未覆盖的复杂线程，否则安全退化；随后由 `knowledge-automation-v1` 自动批准或拒绝并创建发布任务。
+- `pnpm rag:knowledge:import:telegram` 用于受控导入 Telegram Desktop JSON；日常群聊由 Bot 实时写入本地 Inbox。管理员在 `/admin` 选择群并点击整理后，系统合并连续管理员消息、重建 reply 关系并执行脱敏、边界、去重、冲突与质量检查，生成必须人工审核的 `pending` 候选。
 - `pnpm rag:knowledge:automation:work` 对账异常遗留候选、幂等补建发布任务、自动重试少于三次的失败任务并执行队列。正式发布仍必须通过边界、检索命中、deterministic golden QA、embedding 和事务 ingest 门禁。
 - `pnpm rag:knowledge:list/history` 用于只读审计；revise/approve/reject/publish 保留为有认证和审计的紧急恢复命令，不属于日常自动化路径。
-- `pnpm admin:token:create -- <id> <role>` 生成只显示一次的高熵管理令牌及其 SHA-256 配置记录；把记录写入 `KNOWLEDGE_ADMIN_TOKENS_JSON`，不要把明文令牌提交到仓库。
-- 管理后台在 `GET /admin`，用于查看自动原因、候选、发布任务和审计，并保留紧急恢复能力。日常流程由 `pnpm rag:knowledge:automation:work` 和 `pnpm rag:refresh` 完成，无人工审核前置步骤。完整流程见 [全自动知识演进](docs/knowledge-evolution.md)。
+- 首次打开 `/admin` 且数据库没有管理员时，页面会进入一次性初始化流程；首个账号固定为 `admin` 角色，后续用户、角色和启停在“管理员用户”页面维护。所有角色都可以在“我的账号”验证当前密码后修改本人密码；当前会话保留，其他会话撤销。
+- 管理后台在 `GET /admin`，用于查看 Telegram Inbox、整理消息、审核候选、管理发布任务和审计。Telegram 候选必须人工批准；批准后自动创建发布任务，再由独立 Worker 执行入库门禁。完整流程见 [知识采集、审批与发布](docs/knowledge-evolution.md)。
 
 检索质量：
 
@@ -358,13 +357,13 @@ pnpm agent:smoke
 pnpm run telegram:dev
 ```
 
-配置 `TELEGRAM_BOT_TOKEN` 后，Bot 会通过 long polling 接收消息，并以 `channel: "telegram"` 调用同一套 LangGraph 客服 Agent。私聊文本直接触发回答；group/supergroup 中的普通消息只用于静默学习观察，只有 Bot 命令、精确 `@BotUsername` 或直接回复当前 Bot 的消息才触发客服回答。Bot 通过 `getMe` 获取并缓存自身 ID/username；身份暂不可用时群聊回答失败关闭并在后续消息重试，不会退化为回复所有群消息。
+配置 `TELEGRAM_BOT_TOKEN` 后，Bot 会通过 long polling 接收消息，并以 `channel: "telegram"` 调用同一套 LangGraph 客服 Agent。私聊文本直接触发回答。`TELEGRAM_GROUP_RESPONSES_ENABLED=false` 是默认的群聊只读模式：Bot 可以接收 Telegram 允许它看到的群消息并交给受控知识观察流程，但不会发送命令回复、客服答案、typing、媒体或错误消息。
 
-设置 `TELEGRAM_AUTO_LEARNING_ENABLED=true` 后，group/supergroup 会在内存中保留最多 `TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES` 条同一 reply 对话链；当前管理员回复用户时，Bot 会让 Knowledge Curator 分析多轮上下文，自动生成、决定并排队群聊知识。原始群聊不会整批持久化，关闭开关会立即清除该群的内存上下文；匿名管理员、Bot、`sender_chat` 和无法验证身份的回复不会入库。要采集普通群消息，需要关闭 BotFather Privacy Mode，或把 Bot 设为群管理员，并授予查询管理员列表所需权限；即使 Bot 能看到全群消息，客服回答门禁仍只接受命令、@ 提及和对 Bot 的回复。图片附件公网 URL、轮询超时和重试间隔都有默认处理。
+未来需要恢复群内客服回答时才显式设置 `TELEGRAM_GROUP_RESPONSES_ENABLED=true`；启用后，group/supergroup 中只有 Bot 命令、精确 `@BotUsername` 或直接回复当前 Bot 的消息才触发客服回答。Bot 通过 `getMe` 获取并缓存自身 ID/username；身份暂不可用时群聊回答失败关闭并在后续消息重试，不会退化为回复所有群消息。
 
-Bot 同时订阅 `edited_message`：编辑管理员答案会先撤回旧候选；已发布来源还会写持久 tombstone，使旧 chunks 立即退出统计和检索，再重新评估新内容。Telegram Bot API 不提供通用删除事件；管理员可在客服工作台按群 ID / 消息 ID 确认删除并执行同样的安全撤回，定期导出可作为删除对账来源。
+Bot 通过实时 Update 将 group/supergroup 文本写入本地 PostgreSQL 收件箱，但不会在 Telegram update 内生成或发布知识。后台“Telegram 群聊”页面可以查看待整理数量和最近消息；管理员点击“整理待处理消息”后，系统才会合并同一作者的连续发言，识别管理员显式 Reply 与紧邻普通回答，并执行作者验证、脱敏、产品边界、质量、去重和冲突检查。问答配对不设置时间间隔上限，但非 Reply 不跨越其他作者消息猜测。生成的 Telegram 候选带 `manual_review_required` 并保持 `pending`，必须在“知识候选”页面人工编辑、批准或拒绝；批准后自动创建发布任务，再由隔离 Worker 执行正式发布门禁。原始消息只保存在本地数据库，默认保留 30 天，可用 `TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS` 调整。Bot、匿名 `sender_chat` 内容不会进入候选。要采集普通群消息，需要关闭 BotFather Privacy Mode，或把 Bot 设为群管理员，并授予读取消息及查询管理员列表所需权限。
 
-Bot 菜单中的 `/learning` 显示本群自动学习状态、上下文上限、候选/发布进度和最近分析时间。当前群管理员可用 `/learning_on`、`/learning_off` 持久化开关；身份由 Telegram `getChatAdministrators` 或有效期内的 `owner` / `administrator` 可信作者记录验证，变更写入独立设置表和追加式审计事件。该入口只存在于 Telegram，Web 聊天页不采集对话用于知识演进。
+Bot 同时订阅 `edited_message`：编辑后的正文会覆盖本地收件箱记录并重新标记为待整理。Telegram Bot API 不提供通用删除事件，因此删除消息目前不能自动同步；已生成的错误候选需要管理员在后台拒绝，已经发布的错误知识需要走受审计的修订或撤回流程。
 
 Bot 菜单中的 `/status` 会显示知识库自动更新是否启用、增量/全量计划、最近刷新时间和结果。Web 聊天页头部显示同一状态；两端只读取调度器的脱敏回执，不获得知识写入权限。安装外部 scheduler 后设置 `KNOWLEDGE_AUTO_REFRESH_ENABLED=true`，并确保 `.rag/knowledge-refresh` 对客服容器只读可见。成功回执超过 `KNOWLEDGE_AUTO_REFRESH_STALE_AFTER_MINUTES` 后，状态会显示为刷新延迟。
 
@@ -452,7 +451,7 @@ GET|POST /admin/api/support/conversations/:id/messages
 GET /admin/api/support/knowledge-gaps
 ```
 
-`/admin/api/*` 必须使用 `Authorization: Bearer <token>`，并按 `viewer`、`reviewer`、`publisher`、`admin` 实施 RBAC。管理令牌只保存 SHA-256 哈希；未配置 `KNOWLEDGE_ADMIN_TOKENS_JSON` 时管理 API 返回 `503`，公开聊天不受影响。管理页面主要用于自动治理可观测与紧急恢复；日常发布不依赖人工登录。页面使用同源请求、严格 CSP、`no-store` 和独立限流，不给公开 `/api/chat` 增加鉴权。
+`/admin` 使用 PostgreSQL 管理员账号和密码登录，并按 `viewer`、`reviewer`、`publisher`、`admin` 实施 RBAC。密码只保存 scrypt 哈希，登录后签发有期限、可撤销的数据库 Session；管理员重置其他账号密码或禁用账号会撤销其现有 Session，本人验证当前密码改密时保留当前会话并撤销其他会话。后台阻止当前管理员修改自己的角色或状态，避免误锁定。没有数据库管理员时页面自动进入一次性首管理员初始化，创建成功后入口永久关闭；公开聊天不受影响。管理页面主要用于自动治理可观测与紧急恢复；日常发布不依赖人工登录。页面使用同源请求、严格 CSP、`no-store` 和独立限流，不给公开 `/api/chat` 增加鉴权。
 
 通过 `pnpm run app:dev` 或 `pnpm run api:dev` 启动的 API 会为 `/api/chat` 和 `/api/chat/stream` 输出 JSON line 结构化日志，包含 channel、intent、agentRoute、引用数、耗时、状态码、错误码、消息长度和脱敏截断后的消息预览等字段。日志只记录 `sessionId/userId` 是否存在，不打印用户 ID 明文，并会脱敏密钥、交易哈希、地址、邮箱和手机号等敏感片段。
 

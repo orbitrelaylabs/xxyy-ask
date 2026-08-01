@@ -43,6 +43,33 @@ describe('live Telegram knowledge capture', () => {
     });
   });
 
+  it('exports a verified adjacent administrator message without fabricating a reply', () => {
+    const question: TelegramMessage = {
+      chat: { id: -100123, type: 'supergroup' },
+      date: 1_774_490_400,
+      from: { id: 456 },
+      message_id: 10,
+      text: 'XXYY 如何设置价格提醒？',
+    };
+    const answer: TelegramMessage = {
+      chat: { id: -100123, type: 'supergroup' },
+      date: 1_774_490_520,
+      from: { id: 123 },
+      message_id: 11,
+      text: '在提醒设置中开启价格提醒，保存后生效。',
+    };
+
+    expect(
+      createLiveTelegramKnowledgeExport(answer, [question, answer], { allowAdjacent: true }),
+    ).toMatchObject({
+      id: -100123,
+      messages: [
+        { from_id: 'user456', id: 10, text: question.text },
+        { from_id: 'user123', id: 11, text: answer.text },
+      ],
+    });
+  });
+
   it('rejects anonymous, bot-authored, and non-reply messages', () => {
     const base = {
       chat: { id: -100123, type: 'supergroup' as const },
@@ -139,6 +166,9 @@ describe('live Telegram knowledge capture', () => {
         { id: 13, reply_to_message_id: 12, text: finalAnswer.text },
       ],
     });
+    expect(buffer.getRecentMessages(finalAnswer).map((message) => message.message_id)).toEqual([
+      10, 11, 12, 13,
+    ]);
   });
 
   it('limits retained reply context and tolerates cyclic external input', () => {

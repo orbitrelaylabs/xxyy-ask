@@ -147,7 +147,7 @@ describe('createCustomerAgentChatService', () => {
       confidence: 0.82,
       intent: 'product_qa',
     });
-    expect(retrieveCalls).toEqual([{ question: 'XXYY Pro 有哪些权益？', topK: 8 }]);
+    expect(retrieveCalls).toEqual([{ question: 'XXYY Pro 有哪些权益？', topK: 56 }]);
   });
 
   it('uses an injected MCP client behind the Skill capability bridge', async () => {
@@ -184,6 +184,7 @@ describe('createCustomerAgentChatService', () => {
       {
         query: 'XXYY Pro 有哪些权益？',
         question: 'XXYY Pro 有哪些权益？',
+        topK: 7,
       },
       expect.any(AbortSignal),
     );
@@ -406,7 +407,7 @@ describe('createCustomerAgentChatService', () => {
     expect(response.answer).toContain('我不能直接查询你的钱包余额');
   });
 
-  it('plans each request from the current user message', async () => {
+  it('keeps each request in scope while using bounded evidence follow-up queries', async () => {
     const retrieveCalls: string[] = [];
     const retriever: Retriever = {
       retrieve(question) {
@@ -448,7 +449,7 @@ describe('createCustomerAgentChatService', () => {
     await service.ask({ channel: 'web', message: 'XXYY Pro 有哪些权益？', sessionId: 's1' });
     await service.ask({ channel: 'web', message: '怎么升级？', sessionId: 's1' });
 
-    expect(retrieveCalls.at(-1)).toBe('怎么升级？');
+    expect(retrieveCalls.at(-1)).toBe('怎么升级？ 官方文档 具体限制');
 
     await service.ask({
       channel: 'web',
@@ -460,7 +461,7 @@ describe('createCustomerAgentChatService', () => {
       sessionId: 's1',
     });
 
-    expect(retrieveCalls.at(-1)).toBe('关于“XXYY Pro 有哪些权益？”，怎么升级？');
+    expect(retrieveCalls.at(-1)).toBe('XXYY Pro 怎么升级');
   });
 
   it('requires LLM planner config for ambiguous requests', async () => {
@@ -627,7 +628,7 @@ describe('createCustomerAgentChatService', () => {
           preferredSourceTypes: ['admin_verified', 'official_docs', 'x_updates'],
           version: '1',
         }),
-        topK: 8,
+        topK: 48,
       }),
     );
     const answerInput = answer.mock.calls[0]?.[0];

@@ -31,6 +31,13 @@ function createSendMessageMock(): ReturnType<
   return vi.fn(() => Promise.resolve());
 }
 
+function createGroupResponsesEnabledConfig() {
+  return loadTelegramBotConfig({
+    TELEGRAM_BOT_TOKEN: 'bot-token',
+    TELEGRAM_GROUP_RESPONSES_ENABLED: 'true',
+  });
+}
+
 function createLearningStatus(
   overrides: Partial<TelegramKnowledgeLearningStatus> = {},
 ): TelegramKnowledgeLearningStatus {
@@ -61,6 +68,7 @@ describe('loadTelegramBotConfig', () => {
       TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES: '18',
       TELEGRAM_AUTO_LEARNING_ENABLED: 'true',
       TELEGRAM_BOT_TOKEN: 'bot-token',
+      TELEGRAM_GROUP_RESPONSES_ENABLED: 'true',
       TELEGRAM_POLL_TIMEOUT_SECONDS: '12',
       TELEGRAM_PUBLIC_BASE_URL: 'https://ask.example.com/base/',
       TELEGRAM_UPDATES_LIMIT: '25',
@@ -69,6 +77,7 @@ describe('loadTelegramBotConfig', () => {
     expect(config.botToken).toBe('bot-token');
     expect(config.autoLearningContextMessages).toBe(18);
     expect(config.autoLearningDefaultEnabled).toBe(true);
+    expect(config.groupResponsesEnabled).toBe(true);
     expect(config.pollTimeoutSeconds).toBe(12);
     expect(config.publicBaseUrl).toBe('https://ask.example.com/base/');
     expect(config.updatesLimit).toBe(25);
@@ -81,6 +90,18 @@ describe('loadTelegramBotConfig', () => {
         TELEGRAM_BOT_TOKEN: 'bot-token',
       }),
     ).toThrow('TELEGRAM_AUTO_LEARNING_ENABLED must be true or false');
+  });
+
+  it('disables group responses by default and validates the explicit override', () => {
+    expect(loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }).groupResponsesEnabled).toBe(
+      false,
+    );
+    expect(() =>
+      loadTelegramBotConfig({
+        TELEGRAM_BOT_TOKEN: 'bot-token',
+        TELEGRAM_GROUP_RESPONSES_ENABLED: 'sometimes',
+      }),
+    ).toThrow('TELEGRAM_GROUP_RESPONSES_ENABLED must be true or false');
   });
 
   it('bounds automatic learning context between two and fifty messages', () => {
@@ -100,6 +121,83 @@ describe('loadTelegramBotConfig', () => {
 });
 
 describe('createTelegramBot', () => {
+  it('registers group membership and message activity without invoking the chat model', async () => {
+    const ask = vi.fn(() => Promise.resolve(createResponse()));
+    const observeMembership = vi.fn(() => Promise.resolve());
+    const observeMessage = vi.fn(() => Promise.resolve());
+    const bot = createTelegramBot({
+      api: {
+        getUpdates: vi.fn(),
+        sendMessage: createSendMessageMock(),
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      groupRegistry: { observeMembership, observeMessage },
+    });
+
+    await bot.handleUpdate({
+      my_chat_member: {
+        chat: { id: -100123, title: 'XXYY Support', type: 'supergroup' },
+        date: 1_775_001_600,
+        new_chat_member: { status: 'member' },
+      },
+      update_id: 9,
+    });
+    await bot.handleUpdate({
+      message: {
+        chat: { id: -100123, title: 'XXYY Support', type: 'supergroup' },
+        date: 1_775_001_660,
+        from: { id: 456 },
+        message_id: 1,
+        text: '普通群消息',
+      },
+      update_id: 10,
+    });
+
+    expect(observeMembership).toHaveBeenCalledWith({
+      chatId: '-100123',
+      chatType: 'supergroup',
+      membershipStatus: 'active',
+      observedAt: '2026-04-01T00:00:00.000Z',
+      title: 'XXYY Support',
+    });
+    expect(observeMessage).toHaveBeenCalledWith({
+      chatId: '-100123',
+      chatType: 'supergroup',
+      observedAt: '2026-04-01T00:01:00.000Z',
+      title: 'XXYY Support',
+    });
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it('marks a group inactive when Telegram reports that the bot left', async () => {
+    const observeMembership = vi.fn(() => Promise.resolve());
+    const bot = createTelegramBot({
+      api: {
+        getUpdates: vi.fn(),
+        sendMessage: createSendMessageMock(),
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask: vi.fn(() => Promise.resolve(createResponse())) },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      groupRegistry: { observeMembership, observeMessage: vi.fn(() => Promise.resolve()) },
+    });
+
+    await bot.handleUpdate({
+      my_chat_member: {
+        chat: { id: -456, title: 'Former group', type: 'group' },
+        date: 1_775_001_600,
+        new_chat_member: { status: 'left' },
+      },
+      update_id: 11,
+    });
+
+    expect(observeMembership).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: '-456', membershipStatus: 'left' }),
+    );
+  });
+
   it('shows automatic knowledge refresh status without calling the chat model', async () => {
     const ask = vi.fn(() => Promise.resolve(createResponse()));
     const sendMessage = createSendMessageMock();
@@ -199,10 +297,11 @@ describe('createTelegramBot', () => {
     });
   });
 
-  it('silently captures verified group replies for automatic knowledge governance', async () => {
+  it('silently archives group replies without running real-time knowledge governance', async () => {
     const ask = vi.fn(() => Promise.resolve(createResponse()));
     const sendMessage = createSendMessageMock();
     const captureReply = vi.fn(() => Promise.resolve(true));
+    const capture = vi.fn(() => Promise.resolve());
     const bot = createTelegramBot({
       api: {
         getUpdates: vi.fn(),
@@ -211,6 +310,7 @@ describe('createTelegramBot', () => {
       },
       chatService: { ask },
       config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      groupMessageArchive: { capture },
       knowledgeAutomation: {
         captureReply,
         getLearningStatus: vi.fn(() => Promise.resolve(createLearningStatus())),
@@ -234,15 +334,20 @@ describe('createTelegramBot', () => {
 
     await bot.handleUpdate({ message, update_id: 10 });
 
-    expect(captureReply).toHaveBeenCalledWith(message);
+    expect(capture).toHaveBeenCalledTimes(2);
+    expect(capture).toHaveBeenLastCalledWith(
+      expect.objectContaining({ messageId: '11', replyToMessageId: '10' }),
+    );
+    expect(captureReply).not.toHaveBeenCalled();
     expect(ask).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('reprocesses edited group replies for knowledge governance without sending a new answer', async () => {
+  it('updates the local inbox for edited group replies without real-time curation', async () => {
     const ask = vi.fn(() => Promise.resolve(createResponse()));
     const sendMessage = createSendMessageMock();
     const captureReply = vi.fn(() => Promise.resolve(false));
+    const capture = vi.fn(() => Promise.resolve());
     const bot = createTelegramBot({
       api: {
         getUpdates: vi.fn(),
@@ -251,6 +356,7 @@ describe('createTelegramBot', () => {
       },
       chatService: { ask },
       config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      groupMessageArchive: { capture },
       knowledgeAutomation: {
         captureReply,
         getLearningStatus: vi.fn(() => Promise.resolve(createLearningStatus())),
@@ -272,15 +378,20 @@ describe('createTelegramBot', () => {
 
     await bot.handleUpdate({ edited_message: editedMessage, update_id: 11 });
 
-    expect(captureReply).toHaveBeenCalledWith(editedMessage, { edited: true });
+    expect(capture).toHaveBeenCalledTimes(2);
+    expect(capture).toHaveBeenLastCalledWith(
+      expect.objectContaining({ messageId: '11', text: '编辑后的管理员答案。' }),
+    );
+    expect(captureReply).not.toHaveBeenCalled();
     expect(ask).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('observes ordinary group messages for learning without answering them', async () => {
+  it('archives ordinary group messages without answering or curating them', async () => {
     const ask = vi.fn(() => Promise.resolve(createResponse()));
     const sendMessage = createSendMessageMock();
     const captureReply = vi.fn(() => Promise.resolve(false));
+    const capture = vi.fn(() => Promise.resolve());
     const getMe = vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' }));
     const bot = createTelegramBot({
       api: {
@@ -291,6 +402,7 @@ describe('createTelegramBot', () => {
       },
       chatService: { ask },
       config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      groupMessageArchive: { capture },
       knowledgeAutomation: {
         captureReply,
         getLearningStatus: vi.fn(),
@@ -306,10 +418,65 @@ describe('createTelegramBot', () => {
 
     await bot.handleUpdate({ message, update_id: 30 });
 
-    expect(captureReply).toHaveBeenCalledWith(message);
-    expect(getMe).toHaveBeenCalledOnce();
+    expect(capture).toHaveBeenCalledWith(
+      expect.objectContaining({ messageId: '30', text: message.text }),
+    );
+    expect(captureReply).not.toHaveBeenCalled();
+    expect(getMe).not.toHaveBeenCalled();
     expect(ask).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps group mentions and commands silent while preserving read-only observation', async () => {
+    const ask = vi.fn(() => Promise.resolve(createResponse()));
+    const sendMessage = createSendMessageMock();
+    const sendChatAction = vi.fn(() => Promise.resolve());
+    const sendPhoto = vi.fn(() => Promise.resolve());
+    const captureReply = vi.fn(() => Promise.resolve(false));
+    const capture = vi.fn(() => Promise.resolve());
+    const getMe = vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' }));
+    const bot = createTelegramBot({
+      api: {
+        getMe,
+        getUpdates: vi.fn(),
+        sendChatAction,
+        sendMessage,
+        sendPhoto,
+      },
+      chatService: { ask },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      groupMessageArchive: { capture },
+      knowledgeAutomation: {
+        captureReply,
+        getLearningStatus: vi.fn(),
+        setLearningEnabled: vi.fn(),
+      },
+    });
+    const mentionedMessage = {
+      chat: { id: -100123, type: 'supergroup' as const },
+      from: { id: 456 },
+      message_id: 31,
+      text: '@xxyy_ask_bot XXYY Pro 有哪些权益？',
+    };
+
+    await bot.handleUpdate({ message: mentionedMessage, update_id: 31 });
+    await bot.handleUpdate({
+      message: {
+        chat: mentionedMessage.chat,
+        from: { id: 456 },
+        message_id: 32,
+        text: '/status@xxyy_ask_bot',
+      },
+      update_id: 32,
+    });
+
+    expect(capture).toHaveBeenCalledTimes(2);
+    expect(captureReply).not.toHaveBeenCalled();
+    expect(getMe).not.toHaveBeenCalled();
+    expect(ask).not.toHaveBeenCalled();
+    expect(sendChatAction).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendPhoto).not.toHaveBeenCalled();
   });
 
   it('answers an explicit group mention and removes its own username from the question', async () => {
@@ -323,7 +490,7 @@ describe('createTelegramBot', () => {
         sendPhoto: vi.fn(),
       },
       chatService: { ask },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: createGroupResponsesEnabledConfig(),
       knowledgeAutomation: {
         captureReply: vi.fn(() => Promise.resolve(false)),
         getLearningStatus: vi.fn(),
@@ -367,7 +534,7 @@ describe('createTelegramBot', () => {
         sendPhoto: vi.fn(),
       },
       chatService: { ask },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: createGroupResponsesEnabledConfig(),
       knowledgeAutomation: {
         captureReply: vi.fn(() => Promise.resolve(false)),
         getLearningStatus: vi.fn(),
@@ -421,7 +588,7 @@ describe('createTelegramBot', () => {
         sendPhoto: vi.fn(),
       },
       chatService: { ask },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: createGroupResponsesEnabledConfig(),
     });
 
     await bot.handleUpdate({
@@ -472,7 +639,7 @@ describe('createTelegramBot', () => {
         sendPhoto: vi.fn(),
       },
       chatService: { ask },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: createGroupResponsesEnabledConfig(),
     });
     const originalQuestion = {
       chat: { id: -100123, type: 'supergroup' as const },
@@ -523,7 +690,7 @@ describe('createTelegramBot', () => {
         sendPhoto: vi.fn(),
       },
       chatService: { ask },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: createGroupResponsesEnabledConfig(),
     });
     const otherUserQuestion = {
       chat: { id: -100123, type: 'supergroup' as const },
@@ -572,7 +739,7 @@ describe('createTelegramBot', () => {
         sendPhoto: vi.fn(),
       },
       chatService: { ask },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: createGroupResponsesEnabledConfig(),
     });
 
     await bot.handleUpdate({
@@ -599,7 +766,7 @@ describe('createTelegramBot', () => {
         sendPhoto: vi.fn(),
       },
       chatService: { ask },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: createGroupResponsesEnabledConfig(),
     });
 
     await bot.handleUpdate({
@@ -631,6 +798,7 @@ describe('createTelegramBot', () => {
   it('keeps ordinary group media silent but explains unsupported media replied to the bot', async () => {
     const sendMessage = createSendMessageMock();
     const captureReply = vi.fn(() => Promise.resolve(false));
+    const capture = vi.fn(() => Promise.resolve());
     const bot = createTelegramBot({
       api: {
         getMe: vi.fn(() => Promise.resolve({ id: 999, username: 'xxyy_ask_bot' })),
@@ -639,7 +807,8 @@ describe('createTelegramBot', () => {
         sendPhoto: vi.fn(),
       },
       chatService: { ask: vi.fn(() => Promise.resolve(createResponse())) },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: createGroupResponsesEnabledConfig(),
+      groupMessageArchive: { capture },
       knowledgeAutomation: {
         captureReply,
         getLearningStatus: vi.fn(),
@@ -670,7 +839,8 @@ describe('createTelegramBot', () => {
       update_id: 37,
     });
 
-    expect(captureReply).toHaveBeenCalledTimes(2);
+    expect(capture).not.toHaveBeenCalled();
+    expect(captureReply).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(sendMessage).toHaveBeenCalledWith({
       chatId: -100123,
@@ -695,7 +865,7 @@ describe('createTelegramBot', () => {
         sendPhoto: vi.fn(),
       },
       chatService: { ask },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: createGroupResponsesEnabledConfig(),
       logger,
     });
 
@@ -731,7 +901,7 @@ describe('createTelegramBot', () => {
         sendPhoto: vi.fn(),
       },
       chatService: { ask },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: createGroupResponsesEnabledConfig(),
       knowledgeAutomation: {
         captureReply: vi.fn(),
         getLearningStatus,
@@ -776,7 +946,7 @@ describe('createTelegramBot', () => {
         sendPhoto: vi.fn(),
       },
       chatService: { ask },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: createGroupResponsesEnabledConfig(),
       knowledgeAutomation: {
         captureReply: vi.fn(),
         getLearningStatus: vi.fn(),
@@ -819,7 +989,7 @@ describe('createTelegramBot', () => {
         sendPhoto: vi.fn(),
       },
       chatService: { ask },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: createGroupResponsesEnabledConfig(),
       knowledgeAutomation: {
         captureReply: vi.fn(),
         getLearningStatus: vi.fn(),

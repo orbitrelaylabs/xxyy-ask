@@ -38,12 +38,23 @@ export interface ProductQueryPlan {
     preferredSourceTypes: SourceType[];
     query: string;
     facet?: string;
+    subquestionId?: string;
+    topK?: number;
   }>;
   requiredFacets: string[];
   standaloneQuestion: string;
   strategy: 'clarify' | 'multi_query' | 'single';
+  subquestions: ProductSubquestion[];
   temporalScope: ProductQuestionUnderstanding['temporalScope'];
   version: '1';
+}
+
+export interface ProductSubquestion {
+  facet: string;
+  id: string;
+  question: string;
+  query: string;
+  topK: number;
 }
 
 export interface ProductRetrievalPolicy {
@@ -192,8 +203,9 @@ export function createStandaloneProductQuestion(
 
   const recentHistory = history.slice(-10).reverse();
   const isProductContext = (message: ChatHistoryMessage) =>
-    !isContextDependentQuestion(message.content) &&
-    /xxyy|\bpro\b|\bbasic\b|功能|权益|套餐|钱包|交易|监控|提醒|设置/iu.test(message.content);
+    !/^(?:那|那么|这个|该|它|还有|然后|另外)(?:呢|吗|么|怎么|如何)?[？?。.]?$/u.test(
+      message.content.trim(),
+    ) && /xxyy|\bpro\b|\bbasic\b|功能|权益|套餐|钱包|交易|监控|提醒|设置/iu.test(message.content);
   const previousContext =
     recentHistory.find((message) => message.role === 'user' && isProductContext(message))
       ?.content ?? recentHistory.find(isProductContext)?.content;
@@ -204,6 +216,22 @@ export function createStandaloneProductQuestion(
   if (/^(?:那|那么)?\s*(?:免费版|basic)(?:呢|怎么样|有什么)?[？?。.]?$/iu.test(current)) {
     const focus = /权益/u.test(previousContext) ? '功能和权益' : '功能';
     return `XXYY Basic 免费版当前有哪些${focus}？`;
+  }
+
+  if (
+    /^(?:那|那么)?\s*(?:手机端|移动端|手机上)(?:呢|怎么操作|怎么设置|如何操作)?[？?。.]?$/u.test(
+      current,
+    )
+  ) {
+    const action = productActionFromContext(previousContext);
+    return action === undefined ? 'XXYY 移动端支持哪些相关功能？' : `XXYY 移动端${action}`;
+  }
+
+  if (/^(?:那|那么)?\s*(?:有)?(?:数量)?(?:上限|限制)(?:吗|么|呢)?[？?。.]?$/u.test(current)) {
+    const topic = productTopicFromContext(previousContext);
+    if (topic !== undefined) {
+      return `${topic}有数量限制吗？`;
+    }
   }
 
   const conciseCurrent = current.replace(/^(?:那|那么|这个|该|它)\s*/u, '').trim();
@@ -217,6 +245,11 @@ export function createProductQueryPlan(
 ): ProductQueryPlan {
   const retrievalPolicy = createProductRetrievalPolicy(understanding);
   if (understanding.kind === 'capability_overview') {
+    const subquestions: ProductSubquestion[] = [
+      createSubquestion('功能目录', 'XXYY 当前支持的产品功能总览', 8, 1),
+      createSubquestion('交易', 'XXYY 当前交易、数据分析和行情功能', 7, 2),
+      createSubquestion('钱包、监控、移动端', 'XXYY 当前钱包管理、钱包监控和移动端功能', 7, 3),
+    ];
     return {
       maxSearches: 3,
       originalQuestion,
@@ -225,25 +258,62 @@ export function createProductQueryPlan(
           facet: '功能目录',
           preferredSourceTypes: retrievalPolicy.preferredSourceTypes,
           query: createInitialProductSearchQuery(standaloneQuestion, understanding),
+          subquestionId: 'sq1',
+          topK: 8,
         },
         {
           facet: '交易',
           preferredSourceTypes: retrievalPolicy.preferredSourceTypes,
           query: 'XXYY 当前交易 数据分析 行情 K线 支持功能 官方文档',
+          subquestionId: 'sq2',
+          topK: 7,
         },
         {
           facet: '钱包',
           preferredSourceTypes: retrievalPolicy.preferredSourceTypes,
-          query: 'XXYY 当前钱包管理 钱包监控 Telegram 通知 移动端 官方文档',
+          query: 'XXYY 当前钱包管理 钱包监控 Telegram 通知 移动端支持功能 官方文档',
+          subquestionId: 'sq3',
+          topK: 7,
         },
       ],
       requiredFacets: ['交易', '钱包', '监控', '移动端'],
       standaloneQuestion,
       strategy: 'multi_query',
+      subquestions,
       temporalScope: understanding.temporalScope,
       version: '1',
     };
   }
+
+  const subquestions = decomposeProductQuestion(standaloneQuestion);
+  if (subquestions.length > 1) {
+    return {
+      maxSearches: Math.min(4, subquestions.length),
+      originalQuestion,
+      queries: subquestions.map((subquestion) => ({
+        facet: subquestion.facet,
+        preferredSourceTypes: retrievalPolicy.preferredSourceTypes,
+        query: subquestion.query,
+        subquestionId: subquestion.id,
+        topK: subquestion.topK,
+      })),
+      requiredFacets: subquestions.map((subquestion) => subquestion.facet),
+      standaloneQuestion,
+      strategy: 'multi_query',
+      subquestions,
+      temporalScope: understanding.temporalScope,
+      version: '1',
+    };
+  }
+
+  const singleSubquestion =
+    subquestions[0] ??
+    createSubquestion(
+      createProductSubquestionFacet(standaloneQuestion),
+      standaloneQuestion,
+      topKForQuestion(standaloneQuestion),
+      1,
+    );
 
   return {
     maxSearches: 2,
@@ -252,14 +322,73 @@ export function createProductQueryPlan(
       {
         preferredSourceTypes: retrievalPolicy.preferredSourceTypes,
         query: standaloneQuestion,
+        subquestionId: singleSubquestion.id,
+        topK: singleSubquestion.topK,
       },
     ],
     requiredFacets: [],
     standaloneQuestion,
     strategy: 'single',
+    subquestions: [singleSubquestion],
     temporalScope: understanding.temporalScope,
     version: '1',
   };
+}
+
+export function decomposeProductQuestion(question: string): ProductSubquestion[] {
+  const normalized = question.normalize('NFKC').trim();
+  if (normalized.length === 0) return [];
+  const marked = normalized
+    .replace(/[？?；;]+\s*/gu, '|')
+    .replace(
+      /[，,]\s*(?=(?:怎么|如何|是否|能否|可以|还有|另外|升级后|开通后|设置后|并且|同时|when|how|what|which|is|can))/giu,
+      '|',
+    )
+    .replace(/\s+(?:and|also)\s+(?=(?:how|what|which|is|can|does|when)\b)/giu, '|')
+    .replace(/(?:以及|并且|另外|同时)\s*(?=(?:怎么|如何|是否|能否|可以|还有))/gu, '|')
+    .replace(/和\s*(?=(?:怎么|如何|是否|能否|可以))/gu, '|');
+  const segments = marked
+    .split('|')
+    .map((segment) => segment.replace(/^[，,。.!！\s]+|[，,。.!！\s]+$/gu, '').trim())
+    .filter((segment) => segment.length >= 2);
+  if (segments.length <= 1) {
+    return [
+      createSubquestion(
+        createProductSubquestionFacet(normalized),
+        normalized,
+        topKForQuestion(normalized),
+        1,
+      ),
+    ];
+  }
+
+  const sharedSubject = extractSharedProductSubject(normalized);
+  return [...new Set(segments)].slice(0, 4).map((segment, index) => {
+    const standaloneSegment =
+      sharedSubject === undefined || hasExplicitProductSubject(segment)
+        ? segment
+        : `${sharedSubject} ${segment}`;
+    return createSubquestion(
+      createProductSubquestionFacet(standaloneSegment),
+      standaloneSegment,
+      topKForQuestion(standaloneSegment),
+      index + 1,
+    );
+  });
+}
+
+export function createProductSubquestionFacet(question: string): string {
+  const facet = question
+    .replace(/[？?。.!！]/gu, '')
+    .replace(/^(?:请|帮我|麻烦|想知道|请问)\s*/u, '')
+    .replace(/(?:当前|现在|目前)?(?:都)?(?:有|是)?(?:哪些|什么)(?=\S)/gu, '')
+    .replace(/(?:怎么|如何|怎样)(?=\S)/gu, '')
+    .replace(/(?:是否|能否|可否|可以不可以)/gu, '')
+    .replace(/(?:升级|开通|设置)后(?=永久|长期|有效)/gu, '')
+    .replace(/(?:吗|么|呢)$/u, '')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  return (facet.length >= 2 ? facet : question.trim()).slice(0, 80);
 }
 
 export function createProductRetrievalPolicy(
@@ -289,6 +418,14 @@ export function selectNextProductQuery(
   missingFacets: readonly string[],
   searchedQueries: readonly string[],
 ): string | undefined {
+  return selectNextProductQuerySpec(plan, missingFacets, searchedQueries)?.query;
+}
+
+export function selectNextProductQuerySpec(
+  plan: ProductQueryPlan,
+  missingFacets: readonly string[],
+  searchedQueries: readonly string[],
+): ProductQueryPlan['queries'][number] | undefined {
   const searched = new Set(searchedQueries.map((query) => compactQuery(query)));
   const candidates = plan.queries.filter(
     (candidate) => !searched.has(compactQuery(candidate.query)),
@@ -299,7 +436,7 @@ export function selectNextProductQuery(
         (facet) => candidate.query.includes(facet) || candidate.facet?.includes(facet),
       ),
     ) ?? candidates[0]
-  )?.query;
+  );
 }
 
 export function isCapabilityOverviewQuestion(question: string): boolean {
@@ -367,10 +504,70 @@ function languageForQuestion(question: string): ProductQuestionUnderstanding['la
 function isContextDependentQuestion(question: string): boolean {
   return (
     question.length <= 48 &&
-    /^(?:那|那么|这个|该|它|还有|然后|以及|另外|怎么|如何|能否|可以|是否|为什么|在哪里|多少钱|多久)/u.test(
+    /^(?:那|那么|这个|该|它|还有|然后|以及|另外|怎么|如何|能否|可以|是否|为什么|在哪里|多少钱|多久|手机端|移动端|手机上|有数量|数量上限|数量限制|有限制|有上限)/u.test(
       question,
     )
   );
+}
+
+function productActionFromContext(context: string): string | undefined {
+  const normalized = context
+    .normalize('NFKC')
+    .replace(/^关于[“"]?|[”"]$/gu, '')
+    .replace(/^(?:请|请问|帮我|麻烦)?\s*(?:XXYY\s*)?/iu, '')
+    .replace(/[？?。.!！]+$/u, '')
+    .trim();
+  if (normalized.length < 2) return undefined;
+  if (/^(?:怎么|如何|怎样|在哪里|能否|可以)/u.test(normalized)) return normalized;
+  if (/设置|配置|登录|升级|开通|操作|使用/u.test(normalized)) return `如何${normalized}`;
+  return undefined;
+}
+
+function productTopicFromContext(context: string): string | undefined {
+  const normalized = context
+    .normalize('NFKC')
+    .replace(/^(?:请|请问|帮我|麻烦)?\s*/u, '')
+    .replace(/(?:怎么|如何|怎样)(?:设置|配置|使用|操作)?/gu, '')
+    .replace(/(?:有)?(?:数量)?(?:上限|限制)(?:吗|么)?/gu, '')
+    .replace(/[？?。.!！]+$/u, '')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  if (normalized.length < 2) return undefined;
+  return /xxyy/iu.test(normalized) ? normalized : `XXYY ${normalized}`;
+}
+
+function createSubquestion(
+  facet: string,
+  question: string,
+  topK: number,
+  index: number,
+): ProductSubquestion {
+  const normalizedQuestion = question.trim().replace(/[。.!！]+$/u, '');
+  return {
+    facet: facet.trim().slice(0, 80),
+    id: `sq${index}`,
+    question: normalizedQuestion,
+    query: normalizedQuestion,
+    topK,
+  };
+}
+
+function topKForQuestion(question: string): number {
+  if (/比较|对比|区别|分别|compare|versus|\bvs\b/iu.test(question)) return 8;
+  if (/如何|怎么|怎样|步骤|设置|配置|how\s+to/iu.test(question)) return 8;
+  if (/哪些|列表|包括|包含|所有|全部/iu.test(question)) return 7;
+  return 6;
+}
+
+function extractSharedProductSubject(question: string): string | undefined {
+  const explicit = question.match(/\bXXYY\b\s*(?:Pro|Basic)?|XXYY\s*(?:Pro|Basic)?/iu)?.[0];
+  if (explicit !== undefined && explicit.trim().length > 0) return explicit.trim();
+  const plan = question.match(/\b(?:Pro|Basic)\b/iu)?.[0];
+  return plan === undefined ? 'XXYY' : `XXYY ${plan}`;
+}
+
+function hasExplicitProductSubject(question: string): boolean {
+  return /\bXXYY\b|XXYY|\bPro\b|\bBasic\b/iu.test(question);
 }
 
 function compactQuery(query: string): string {

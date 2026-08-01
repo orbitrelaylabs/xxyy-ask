@@ -791,7 +791,7 @@ function normalizeYouTubeUrl(value: string): string | undefined {
   }
 }
 
-function isDirectSourceQuestion(question: string): boolean {
+export function isDirectSourceQuestion(question: string): boolean {
   return /哪条推文|哪条推特|哪篇推文|哪篇推特|具体推文|具体推特|tweet|x\s*post/iu.test(
     question.normalize('NFKC'),
   );

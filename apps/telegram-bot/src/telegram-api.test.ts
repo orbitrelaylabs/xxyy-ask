@@ -109,7 +109,7 @@ describe('createTelegramApiClient', () => {
     expect(updates).toEqual([{ update_id: 1 }]);
     expect(fetch).toHaveBeenCalledWith('https://telegram.test/bot123:abc/getUpdates', {
       body: JSON.stringify({
-        allowed_updates: ['message', 'edited_message'],
+        allowed_updates: ['message', 'edited_message', 'my_chat_member'],
         limit: 25,
         offset: 42,
         timeout: 12,

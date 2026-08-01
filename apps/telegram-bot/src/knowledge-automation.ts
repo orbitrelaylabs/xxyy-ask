@@ -3,6 +3,8 @@ import {
   createKnowledgeGovernanceService,
   createOpenAiKnowledgeCuratorModel,
   createPgKnowledgeCandidateStore,
+  createPgTelegramGroupRegistryStore,
+  createPgTelegramGroupMessageStore,
   createPgKnowledgeMatchInspector,
   createPgKnowledgePublicationJobStore,
   createPgTelegramKnowledgeLearningSettingsStore,
@@ -15,10 +17,13 @@ import {
 } from '@xxyy/rag-core';
 
 import type { TelegramKnowledgeAutomation, TelegramMessage } from './bot.js';
+import type { TelegramGroupMessageArchive, TelegramGroupRegistry } from './bot.js';
 
 export interface TelegramKnowledgeAutomationRuntime {
   automation: TelegramKnowledgeAutomation;
   close(): Promise<void>;
+  groupMessageArchive: TelegramGroupMessageArchive;
+  groupRegistry: TelegramGroupRegistry;
 }
 
 const TELEGRAM_ADMIN_CACHE_TTL_MS = 5 * 60 * 1_000;
@@ -28,6 +33,7 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
   config: RagConfig;
   contextMessageLimit: number;
   defaultEnabled: boolean;
+  messageRetentionDays?: number;
   now?: () => Date;
   telegramApiBaseUrl?: string;
 }): TelegramKnowledgeAutomationRuntime {
@@ -36,6 +42,8 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
   const publicationJobStore = createPgKnowledgePublicationJobStore({ client: pool });
   const trustedAuthorStore = createPgTrustedAuthorStore({ client: pool });
   const learningSettingsStore = createPgTelegramKnowledgeLearningSettingsStore({ client: pool });
+  const groupRegistry = createPgTelegramGroupRegistryStore({ client: pool });
+  const groupMessageStore = createPgTelegramGroupMessageStore({ client: pool });
   const curatorModel =
     options.config.openAiApiKey === undefined || options.config.openAiModel === undefined
       ? undefined
@@ -56,6 +64,19 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
     ...(curatorModel === undefined ? {} : { curatorModel }),
   });
   const now = options.now ?? (() => new Date());
+  const messageRetentionDays = Math.max(1, Math.min(options.messageRetentionDays ?? 30, 365));
+  let lastMessagePurgeAt = 0;
+  const groupMessageArchive: TelegramGroupMessageArchive = {
+    async capture(input) {
+      await groupMessageStore.capture(input);
+      const checkedAt = now().getTime();
+      if (checkedAt - lastMessagePurgeAt < 24 * 60 * 60 * 1_000) return;
+      lastMessagePurgeAt = checkedAt;
+      await groupMessageStore.purgeOlderThan(
+        new Date(checkedAt - messageRetentionDays * 24 * 60 * 60 * 1_000).toISOString(),
+      );
+    },
+  };
   const administratorCache = new Map<string, { ids: ReadonlySet<string>; verifiedAt: string }>();
   const learningSettingCache = new Map<
     string,
@@ -134,10 +155,39 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
         }
         const checkedAt = now();
         conversationBuffer.remember(message, checkedAt);
-        const rawExport = createLiveTelegramKnowledgeExport(
-          message,
-          conversationBuffer.getReplyChain(message),
-        );
+        let administratorSnapshot: { ids: ReadonlySet<string>; verifiedAt: string } | undefined;
+        let contextMessages: readonly TelegramMessage[];
+        let allowAdjacent = false;
+        if (message.reply_to_message === undefined) {
+          administratorSnapshot = await readAdministratorSnapshot(chatId, checkedAt);
+          const authorUserId =
+            message.from?.id === undefined
+              ? undefined
+              : normalizeTelegramUserId(String(message.from.id));
+          const trustedAuthor =
+            authorUserId === undefined
+              ? undefined
+              : await trustedAuthorStore.resolve({
+                  at: checkedAt.toISOString(),
+                  chatId,
+                  userId: authorUserId,
+                });
+          const verifiedAdministrator =
+            authorUserId !== undefined &&
+            (administratorSnapshot?.ids.has(authorUserId) === true ||
+              trustedAuthor?.role === 'administrator' ||
+              trustedAuthor?.role === 'owner');
+          if (!verifiedAdministrator) {
+            return false;
+          }
+          contextMessages = conversationBuffer.getRecentMessages(message);
+          allowAdjacent = true;
+        } else {
+          contextMessages = conversationBuffer.getReplyChain(message);
+        }
+        const rawExport = createLiveTelegramKnowledgeExport(message, contextMessages, {
+          allowAdjacent,
+        });
         if (rawExport === undefined) {
           return false;
         }
@@ -148,7 +198,7 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
             sourceChatId: chatId,
           });
         }
-        const administratorSnapshot = await readAdministratorSnapshot(chatId, checkedAt);
+        administratorSnapshot ??= await readAdministratorSnapshot(chatId, checkedAt);
         try {
           const result = await governance.importTelegram({
             curationMode: 'auto',
@@ -241,6 +291,8 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
         };
       },
     },
+    groupMessageArchive,
+    groupRegistry,
     close() {
       return pool.end();
     },
@@ -250,12 +302,13 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
 export function createLiveTelegramKnowledgeExport(
   message: TelegramMessage,
   contextMessages: readonly TelegramMessage[] = [],
+  options: { allowAdjacent?: boolean } = {},
 ): Record<string, unknown> | undefined {
   const question = message.reply_to_message;
   if (
-    question === undefined ||
-    question.text?.trim().length === 0 ||
-    question.from?.is_bot === true ||
+    (question === undefined && options.allowAdjacent !== true) ||
+    (question !== undefined &&
+      (question.text?.trim().length === 0 || question.from?.is_bot === true)) ||
     message.text?.trim().length === 0 ||
     message.from === undefined ||
     message.from.is_bot === true ||
@@ -263,7 +316,11 @@ export function createLiveTelegramKnowledgeExport(
   ) {
     return undefined;
   }
-  const messages = uniqueTelegramMessages([...contextMessages, question, message]).filter(
+  const messages = uniqueTelegramMessages([
+    ...contextMessages,
+    ...(question === undefined ? [] : [question]),
+    message,
+  ]).filter(
     (candidate) =>
       candidate.chat.id === message.chat.id &&
       candidate.text !== undefined &&
@@ -287,17 +344,16 @@ export function createLiveTelegramKnowledgeExport(
 
 export interface TelegramConversationBuffer {
   clear(chatId: string): void;
+  getRecentMessages(message: TelegramMessage): TelegramMessage[];
   getReplyChain(message: TelegramMessage): TelegramMessage[];
   remember(message: TelegramMessage, seenAt: Date): void;
 }
 
 interface BufferedTelegramMessage {
   message: TelegramMessage;
-  seenAtMs: number;
 }
 
 const TELEGRAM_LEARNING_SETTING_CACHE_TTL_MS = 30 * 1_000;
-const TELEGRAM_CONVERSATION_BUFFER_TTL_MS = 60 * 60 * 1_000;
 const TELEGRAM_CONVERSATION_BUFFER_MAX_MESSAGES = 200;
 
 export function createTelegramConversationBuffer(
@@ -326,12 +382,22 @@ export function createTelegramConversationBuffer(
       return chain.reverse();
     },
 
-    remember(message, seenAt) {
+    getRecentMessages(message) {
+      const chat = chats.get(String(message.chat.id));
+      if (chat === undefined) {
+        return [message];
+      }
+      return [...chat.values()]
+        .map((entry) => entry.message)
+        .filter((candidate) => candidate.chat.id === message.chat.id)
+        .slice(-limit);
+    },
+
+    remember(message) {
       const chatId = String(message.chat.id);
       const chat = chats.get(chatId) ?? new Map<number, BufferedTelegramMessage>();
       chats.set(chatId, chat);
-      pruneBufferedMessages(chat, seenAt.getTime());
-      rememberTelegramMessage(chat, message, seenAt.getTime(), new Set(), limit);
+      rememberTelegramMessage(chat, message, new Set(), limit);
       while (chat.size > TELEGRAM_CONVERSATION_BUFFER_MAX_MESSAGES) {
         const oldestId = chat.keys().next().value as number | undefined;
         if (oldestId === undefined) {
@@ -346,7 +412,6 @@ export function createTelegramConversationBuffer(
 function rememberTelegramMessage(
   chat: Map<number, BufferedTelegramMessage>,
   message: TelegramMessage,
-  seenAtMs: number,
   visited: Set<number>,
   remainingDepth: number,
 ): void {
@@ -356,7 +421,7 @@ function rememberTelegramMessage(
   visited.add(message.message_id);
   const parent = message.reply_to_message;
   if (parent !== undefined) {
-    rememberTelegramMessage(chat, parent, seenAtMs, visited, remainingDepth - 1);
+    rememberTelegramMessage(chat, parent, visited, remainingDepth - 1);
   }
   const existing = chat.get(message.message_id);
   const preservedMessage =
@@ -364,18 +429,7 @@ function rememberTelegramMessage(
       ? existing.message
       : message;
   chat.delete(message.message_id);
-  chat.set(message.message_id, { message: preservedMessage, seenAtMs });
-}
-
-function pruneBufferedMessages(
-  chat: Map<number, BufferedTelegramMessage>,
-  currentTimeMs: number,
-): void {
-  for (const [messageId, entry] of chat) {
-    if (currentTimeMs - entry.seenAtMs > TELEGRAM_CONVERSATION_BUFFER_TTL_MS) {
-      chat.delete(messageId);
-    }
-  }
+  chat.set(message.message_id, { message: preservedMessage });
 }
 
 function uniqueTelegramMessages(messages: readonly TelegramMessage[]): TelegramMessage[] {

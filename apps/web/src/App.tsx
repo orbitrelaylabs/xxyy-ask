@@ -20,6 +20,30 @@ const QUICK_PROMPTS = [
 ];
 
 const SESSION_STORAGE_KEY = 'xxyy.ask.sessionId';
+type FeedbackFailureReason =
+  | 'context_misunderstood'
+  | 'incorrect'
+  | 'incorrect_steps'
+  | 'incomplete'
+  | 'knowledge_missing'
+  | 'off_topic'
+  | 'outdated'
+  | 'too_verbose'
+  | 'unsupported_citation'
+  | 'other';
+
+const FEEDBACK_FAILURE_OPTIONS: Array<{ label: string; value: FeedbackFailureReason }> = [
+  { label: '答非所问', value: 'off_topic' },
+  { label: '回答不完整', value: 'incomplete' },
+  { label: '内容已过时', value: 'outdated' },
+  { label: '事实不正确', value: 'incorrect' },
+  { label: '操作步骤有误', value: 'incorrect_steps' },
+  { label: '引用不支持结论', value: 'unsupported_citation' },
+  { label: '误解了上下文', value: 'context_misunderstood' },
+  { label: '知识库缺少内容', value: 'knowledge_missing' },
+  { label: '回答太啰嗦', value: 'too_verbose' },
+  { label: '其他', value: 'other' },
+];
 export function appendAssistantAnswerDelta(message: ChatMessage, delta: string): ChatMessage {
   const { meta: _meta, statusMessage: _statusMessage, ...rest } = message;
   return {
@@ -290,6 +314,7 @@ export function App(): ReactElement {
   const submitFeedback = async (
     message: ChatMessage,
     rating: 'positive' | 'negative',
+    failureReason?: FeedbackFailureReason,
   ): Promise<void> => {
     if (message.question === undefined || message.intent === undefined) {
       return;
@@ -307,6 +332,7 @@ export function App(): ReactElement {
           intent: message.intent,
           question: message.question,
           rating,
+          ...(failureReason === undefined ? {} : { failureReason }),
           sessionId,
         }),
         headers: { 'Content-Type': 'application/json' },
@@ -705,7 +731,11 @@ function MessageList({
 }: {
   messages: ChatMessage[];
   messagesRef: RefObject<HTMLDivElement | null>;
-  onFeedback: (message: ChatMessage, rating: 'positive' | 'negative') => Promise<void>;
+  onFeedback: (
+    message: ChatMessage,
+    rating: 'positive' | 'negative',
+    failureReason?: FeedbackFailureReason,
+  ) => Promise<void>;
 }): ReactElement {
   return (
     <div aria-live="polite" className="messages" ref={messagesRef}>
@@ -721,7 +751,11 @@ function MessageBubble({
   onFeedback,
 }: {
   message: ChatMessage;
-  onFeedback: (message: ChatMessage, rating: 'positive' | 'negative') => Promise<void>;
+  onFeedback: (
+    message: ChatMessage,
+    rating: 'positive' | 'negative',
+    failureReason?: FeedbackFailureReason,
+  ) => Promise<void>;
 }): ReactElement {
   const messageClassName = ['message', message.role, message.status === 'error' ? 'is-error' : '']
     .filter(Boolean)
@@ -764,8 +798,13 @@ function FeedbackControls({
   onFeedback,
 }: {
   message: ChatMessage;
-  onFeedback: (message: ChatMessage, rating: 'positive' | 'negative') => Promise<void>;
+  onFeedback: (
+    message: ChatMessage,
+    rating: 'positive' | 'negative',
+    failureReason?: FeedbackFailureReason,
+  ) => Promise<void>;
 }): ReactElement | undefined {
+  const [showNegativeReasons, setShowNegativeReasons] = useState(false);
   if (
     message.id === 'welcome' ||
     message.status !== undefined ||
@@ -803,12 +842,31 @@ function FeedbackControls({
         className={message.feedbackStatus === 'negative' ? 'is-selected' : ''}
         disabled={disabled}
         onClick={() => {
-          void onFeedback(message, 'negative');
+          setShowNegativeReasons(true);
         }}
         type="button"
       >
         👎
       </button>
+      {showNegativeReasons && !disabled ? (
+        <select
+          aria-label="请选择回答问题"
+          defaultValue=""
+          onChange={(event) => {
+            const failureReason = event.currentTarget.value as FeedbackFailureReason;
+            if (failureReason.length > 0) void onFeedback(message, 'negative', failureReason);
+          }}
+        >
+          <option disabled value="">
+            请选择原因
+          </option>
+          {FEEDBACK_FAILURE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : null}
     </div>
   );
 }

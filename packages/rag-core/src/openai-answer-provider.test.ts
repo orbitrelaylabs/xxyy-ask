@@ -114,6 +114,87 @@ describe('createOpenAiAnswerProvider', () => {
     expect(JSON.stringify(requests[0])).toContain('XXYY 支持一键买卖代币');
   });
 
+  it('falls back to a numbered evidence answer when the model omits a compound subquestion', async () => {
+    const requests: unknown[] = [];
+    const provider = createOpenAiAnswerProvider({
+      apiKey: 'test-key',
+      baseUrl: 'https://llm.example/v1',
+      fetchImpl: (_input, init) => {
+        requests.push(JSON.parse(String(init?.body)));
+        return Promise.resolve(
+          jsonResponse({
+            choices: [{ message: { content: 'XXYY Pro 权益包括独享节点。' } }],
+          }),
+        );
+      },
+      model: 'gpt-test',
+    });
+    const index = createFixtureIndex([
+      {
+        file: '/docs/pro-rights.md',
+        id: 'official_docs:pro-rights:chunk:0001',
+        sourceType: 'official_docs',
+        text: 'XXYY Pro 权益包括独享节点。',
+        title: 'XXYY Pro 权益',
+      },
+      {
+        file: '/docs/pro-upgrade.md',
+        id: 'official_docs:pro-upgrade:chunk:0001',
+        sourceType: 'official_docs',
+        text: '进入会员页面，点击升级 XXYY Pro。',
+        title: '升级 XXYY Pro',
+      },
+      {
+        file: '/docs/permanent-pro.md',
+        id: 'official_docs:permanent-pro:chunk:0001',
+        sourceType: 'official_docs',
+        text: '永久 Pro 一次升级长期有效，无需再次兑换。',
+        title: '永久 Pro',
+      },
+    ]);
+
+    const response = await provider.answer({
+      classification,
+      evidenceCoverage: [
+        { covered: true, evidenceIds: ['rights'], facet: 'XXYY Pro 权益' },
+        { covered: true, evidenceIds: ['upgrade'], facet: 'XXYY Pro 升级' },
+        { covered: true, evidenceIds: ['permanent'], facet: 'XXYY Pro 永久有效' },
+      ],
+      question: 'XXYY Pro 有什么权益，怎么升级，升级后是否永久有效？',
+      retrievedChunks: retrieve('XXYY Pro 权益 升级 永久有效', index),
+      subquestions: [
+        {
+          facet: 'XXYY Pro 权益',
+          id: 'sq1',
+          question: 'XXYY Pro 有什么权益',
+          query: 'XXYY Pro 权益',
+          topK: 6,
+        },
+        {
+          facet: 'XXYY Pro 升级',
+          id: 'sq2',
+          question: 'XXYY Pro 怎么升级',
+          query: 'XXYY Pro 升级',
+          topK: 8,
+        },
+        {
+          facet: 'XXYY Pro 永久有效',
+          id: 'sq3',
+          question: 'XXYY Pro 升级后是否永久有效',
+          query: 'XXYY Pro 永久有效',
+          topK: 6,
+        },
+      ],
+    });
+
+    expect(JSON.stringify(requests[0])).toContain('必须逐项回答的子问题');
+    expect(response.answer).toContain('1. XXYY Pro 权益');
+    expect(response.answer).toContain('2. XXYY Pro 升级');
+    expect(response.answer).toContain('点击升级');
+    expect(response.answer).toContain('3. XXYY Pro 永久有效');
+    expect(response.answer).toContain('长期有效');
+  });
+
   it('omits citations and attachments when the model says the knowledge is insufficient', async () => {
     const provider = createOpenAiAnswerProvider({
       apiKey: 'test-key',
