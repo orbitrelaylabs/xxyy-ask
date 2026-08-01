@@ -9,6 +9,7 @@ import {
   createPgKnowledgeGraphStore,
   createPgKnowledgeMatchInspector,
   createPgKnowledgePublicationJobStore,
+  createPgQualityEvaluationJobStore,
   createPgSupportOperationsStore,
   createPgTelegramGroupRegistryStore,
   createPgTelegramGroupMessageStore,
@@ -52,6 +53,7 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
     const feedback = createPgFeedbackStore({ client: pool });
     const knowledgeGraph = createPgKnowledgeGraphStore({ client: pool });
     const publicationJobs = createPgKnowledgePublicationJobStore({ client: pool });
+    const qualityEvaluations = createPgQualityEvaluationJobStore({ client: pool });
     const supportOperations = createPgSupportOperationsStore({ client: pool });
     const telegramGroups = createPgTelegramGroupRegistryStore({ client: pool });
     const telegramMessages = createPgTelegramGroupMessageStore({ client: pool });
@@ -123,6 +125,7 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
       governance,
       knowledgeGraph,
       publicationJobs,
+      qualityEvaluations,
       supportOperations,
       telegramGroups,
       telegramMessages,

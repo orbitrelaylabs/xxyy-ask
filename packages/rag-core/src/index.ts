@@ -117,6 +117,19 @@ export type {
   PgKnowledgeGraphStore,
 } from './knowledge-graph.js';
 export {
+  createPgQualityEvaluationJobStore,
+  migrateQualityEvaluationJobs,
+} from './quality-evaluation-jobs.js';
+export type {
+  PgQualityEvaluationJobStore,
+  QualityEvaluationFailure,
+  QualityEvaluationJob,
+  QualityEvaluationJobStatus,
+  QualityEvaluationMetrics,
+  QualityEvaluationMode,
+  QualityEvaluationReport,
+} from './quality-evaluation-jobs.js';
+export {
   createPgKnowledgeCandidateStore,
   InvalidKnowledgeCandidateStateError,
   sanitizeKnowledgeCandidateText,

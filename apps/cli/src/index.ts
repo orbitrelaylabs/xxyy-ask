@@ -42,6 +42,7 @@ import {
   createPgPool,
   createPgKnowledgeMatchInspector,
   createPgKnowledgePublicationJobStore,
+  createPgQualityEvaluationJobStore,
   createPgTrustedAuthorStore,
   createPgVectorStore,
   createChatService,
@@ -82,6 +83,11 @@ import type {
   QualityTracer,
   QualityTraceRecord,
   PgClientLike,
+  PgQualityEvaluationJobStore,
+  QualityEvaluationFailure,
+  QualityEvaluationJob,
+  QualityEvaluationMetrics,
+  QualityEvaluationReport,
   ReplaceChunksOptions,
   Retriever,
   TrustedAuthor,
@@ -182,6 +188,7 @@ type CliCommand =
   | { command: 'knowledge:publish'; id: string }
   | { command: 'knowledge:automation:work'; limit: number; workerId?: string }
   | { command: 'knowledge:publication:work'; workerId?: string }
+  | { command: 'quality:evaluation:worker'; once: boolean; pollMs: number; workerId?: string }
   | { command: 'migrate' }
   | { command: 'stats' }
   | { command: 'sync:x' }
@@ -279,6 +286,7 @@ const HELP_TEXT = [
   '  pnpm rag:knowledge:publish -- <id>',
   '  pnpm rag:knowledge:automation:work -- [--limit 20] [--worker-id <id>]',
   '  pnpm rag:knowledge:publication:work -- [--worker-id <id>]',
+  '  pnpm rag:quality:evaluation:worker -- [--once] [--poll-ms 2000] [--worker-id <id>]',
   '  pnpm rag:ask -- "question"',
   '  pnpm rag:ask -- --debug-retrieve "question"',
 ].join('\n');
@@ -360,6 +368,10 @@ export function parseCliArgs(args: readonly string[]): CliCommand {
 
   if (command === 'knowledge:publication:work') {
     return parseKnowledgePublicationWorkArgs(rawRest);
+  }
+
+  if (command === 'quality:evaluation:worker') {
+    return parseQualityEvaluationWorkerArgs(rawRest);
   }
 
   if (command === 'ask') {
@@ -724,6 +736,44 @@ function parseKnowledgePublicationWorkArgs(rawArgs: readonly string[]): CliComma
     };
   }
   return { command: 'knowledge:publication:work', workerId: args[1] };
+}
+
+function parseQualityEvaluationWorkerArgs(rawArgs: readonly string[]): CliCommand {
+  const args = stripPnpmSeparator(rawArgs);
+  let once = false;
+  let pollMs = 2_000;
+  let workerId: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--once') {
+      once = true;
+      continue;
+    }
+    if (arg === '--poll-ms' || arg === '--worker-id') {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith('--')) {
+        return { command: 'help', error: `${arg} requires a value.` };
+      }
+      index += 1;
+      if (arg === '--worker-id') {
+        workerId = value;
+      } else {
+        const parsed = Number(value);
+        if (!Number.isSafeInteger(parsed) || parsed < 500 || parsed > 60_000) {
+          return { command: 'help', error: '--poll-ms must be between 500 and 60000.' };
+        }
+        pollMs = parsed;
+      }
+      continue;
+    }
+    return { command: 'help', error: `Unknown quality evaluation worker option: ${arg}` };
+  }
+  return {
+    command: 'quality:evaluation:worker',
+    once,
+    pollMs,
+    ...(workerId === undefined ? {} : { workerId }),
+  };
 }
 
 function parseKnowledgeAutomationWorkArgs(rawArgs: readonly string[]): CliCommand {
@@ -2301,6 +2351,10 @@ export async function runCli(
     }
   }
 
+  if (parsed.command === 'quality:evaluation:worker') {
+    return runQualityEvaluationWorker({ ...io, cwd: workspaceCwd }, parsed);
+  }
+
   try {
     const tracer = noopQualityTracer;
     const runtime = createCliChatRuntime(config, tracer, io.env);
@@ -2429,6 +2483,180 @@ export function formatProviderRetrievalReport(report: ProviderRetrievalReport): 
   }
 
   return lines.join('\n');
+}
+
+async function runQualityEvaluationWorker(
+  io: CliIo,
+  command: Extract<CliCommand, { command: 'quality:evaluation:worker' }>,
+): Promise<number> {
+  const config = loadRagConfig(io.env);
+  const pool = createPgPool(config.databaseUrl);
+  const store = createPgQualityEvaluationJobStore({ client: pool });
+  const workerId = command.workerId ?? `quality-worker:${hostname()}:${process.pid}`;
+  let stopping = false;
+  const stop = () => {
+    stopping = true;
+  };
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
+  try {
+    writeLine(io.stdout, `Quality evaluation worker started (${workerId}).`);
+    do {
+      const job = await store.claimNext({ workerId });
+      if (job === undefined) {
+        if (command.once) break;
+        await delay(command.pollMs);
+        continue;
+      }
+      writeLine(io.stdout, `Quality evaluation job ${job.id} started (${job.mode}).`);
+      try {
+        const result = await executeQualityEvaluationJob(io, store, job);
+        await store.complete({
+          attemptCount: job.attemptCount,
+          failures: result.failures,
+          gateReasons: result.release.gates.reasons,
+          gatesPassed: result.release.gates.passed,
+          generatedAt: result.release.generatedAt,
+          id: job.id,
+          metrics: result.metrics,
+          passedCases: result.release.passedCases,
+          totalCases: result.release.totalCases,
+          workerId,
+        });
+        writeLine(
+          io.stdout,
+          `Quality evaluation job ${job.id} completed (${result.release.passedCases}/${result.release.totalCases}, gate ${result.release.gates.passed ? 'PASS' : 'FAIL'}).`,
+        );
+      } catch (error) {
+        await store.fail({
+          attemptCount: job.attemptCount,
+          errorCode: qualityEvaluationErrorCode(error),
+          id: job.id,
+          workerId,
+        });
+        writeLine(io.stderr, `Quality evaluation job ${job.id} failed safely.`);
+      }
+    } while (!stopping && !command.once);
+    return 0;
+  } finally {
+    process.removeListener('SIGINT', stop);
+    process.removeListener('SIGTERM', stop);
+    await pool.end();
+  }
+}
+
+async function executeQualityEvaluationJob(
+  io: CliIo,
+  store: PgQualityEvaluationJobStore,
+  job: QualityEvaluationJob,
+): Promise<{
+  failures: QualityEvaluationFailure[];
+  metrics: QualityEvaluationMetrics;
+  release: QualityReleaseReport;
+}> {
+  let release: QualityReleaseReport;
+  let failures: QualityEvaluationFailure[];
+  let precisionAtK: number | undefined;
+  let judgeMetrics: Partial<QualityEvaluationMetrics> = {};
+  if (job.mode === 'provider_retrieval') {
+    const report = await evaluateProviderRetrieval(io, undefined);
+    release = createProviderRetrievalReleaseReport(report);
+    precisionAtK = report.summary.averagePrecisionAtK;
+    failures = report.results
+      .filter((result) => !result.passed)
+      .map((result) => ({
+        failures: [
+          `Recall@K ${formatMetric(result.result.recallAtK)}`,
+          `forbidden hits ${result.result.forbiddenHitCount ?? 0}`,
+        ],
+        name: result.name,
+        retrieval: qualityRetrievalMetrics(result.result),
+      }));
+  } else {
+    const report = await evaluate(io, {
+      command: 'evaluate',
+      judge: job.withJudge,
+      providerBacked: job.mode === 'provider',
+      retrievalOnly: false,
+    });
+    release = createEvaluationReleaseReport(report, job.mode === 'provider');
+    precisionAtK = report.retrievalSummary?.averagePrecisionAtK;
+    judgeMetrics =
+      report.judgeSummary === undefined
+        ? {}
+        : {
+            averageCompleteness: report.judgeSummary.averageCompleteness,
+            averageCorrectness: report.judgeSummary.averageCorrectness,
+            averageGroundedness: report.judgeSummary.averageGroundedness,
+            averageRelevance: report.judgeSummary.averageRelevance,
+            averageSafeRefusal: report.judgeSummary.averageSafeRefusal,
+          };
+    failures = report.results
+      .filter((result) => !result.passed)
+      .map((result) => ({
+        actualIntent: result.actualIntent,
+        citationCount: result.citationCount,
+        expectedIntent: result.expectedIntent,
+        failures: result.failureReasons.slice(0, 50),
+        name: result.name,
+        ...(result.retrievalEvaluation === undefined
+          ? {}
+          : { retrieval: qualityRetrievalMetrics(result.retrievalEvaluation) }),
+      }));
+  }
+  const baseline = (await store.listReports({ limit: 100, mode: job.mode })).find(
+    (report) => report.isBaseline,
+  );
+  release = applyQualityReleaseGates(
+    release,
+    baseline === undefined ? undefined : qualityReportAsReleaseReport(baseline),
+  );
+  return {
+    failures,
+    metrics: {
+      ...release.metrics,
+      ...judgeMetrics,
+      ...(precisionAtK === undefined ? {} : { precisionAtK }),
+    },
+    release,
+  };
+}
+
+function qualityReportAsReleaseReport(report: QualityEvaluationReport): QualityReleaseReport {
+  return {
+    generatedAt: report.generatedAt,
+    gates: { passed: report.gatesPassed, reasons: report.gateReasons },
+    metrics: report.metrics,
+    mode: report.mode,
+    passedCases: report.passedCases,
+    schemaVersion: '1',
+    totalCases: report.totalCases,
+  };
+}
+
+function qualityRetrievalMetrics(result: ReturnType<typeof evaluateRetrievalRanking>) {
+  return {
+    ...(result.forbiddenHitCount === undefined
+      ? {}
+      : { forbiddenHitCount: result.forbiddenHitCount }),
+    ...(result.ndcgAtK === undefined ? {} : { ndcgAtK: result.ndcgAtK }),
+    ...(result.precisionAtK === undefined ? {} : { precisionAtK: result.precisionAtK }),
+    ...(result.recallAtK === undefined ? {} : { recallAtK: result.recallAtK }),
+    ...(result.reciprocalRank === undefined ? {} : { reciprocalRank: result.reciprocalRank }),
+  };
+}
+
+function qualityEvaluationErrorCode(error: unknown): string {
+  if (error instanceof AnswerJudgeConfigurationError) return 'judge_configuration_missing';
+  if (error instanceof EmbeddingConfigurationError) return 'embedding_configuration_missing';
+  if (error instanceof LlmConfigurationError) return 'llm_configuration_missing';
+  if (error instanceof VectorStoreConfigurationError) return 'vector_store_configuration_missing';
+  if (error instanceof VectorStoreUnavailableError) return 'vector_store_unavailable';
+  return 'evaluation_failed';
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 async function ingest(

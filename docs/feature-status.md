@@ -10,6 +10,7 @@
 - [x] HTTP 服务面：保留 `GET /`、`GET /health`、`GET /health/deep`、`GET /api/knowledge-refresh-status`、`POST /api/chat`、`POST /api/chat/stream` 和 `GET /assets/*`。
 - [x] Web UI：`GET /` 提供静态聊天界面，支持普通回答、流式回答、引用展示、产品知识库附件，以及基于调度器脱敏回执的自动更新状态徽标。
 - [x] 客服运营闭环：Web 会话和有界多轮上下文持久化到 PostgreSQL；用户显式转人工后创建幂等工单，`/admin` 可查看脱敏会话、指派、回复、解决/关闭并观察知识缺口，Web 会自动接收人工回复。
+- [x] Admin 回答质量中心：`/admin` 可创建快速确定性、正式 pgvector/Embedding 召回和完整 Agent/Judge 三类白名单评测任务，查看通过率、Recall、Precision、MRR、nDCG、错误知识命中、延迟、Token、Judge 分数、门禁原因和脱敏失败案例。任务由独立本地 `quality-worker` 从 PostgreSQL 租约队列执行；`viewer/publisher/admin` 分别承担查看、运行和基线批准权限，API 不执行任意命令。
 - [x] Versioned Agent SDK/API：`@xxyy/agent-sdk` 封装问答、SSE、反馈和转人工；`/api/v1` 使用独立 Bearer Key 并提供 OpenAPI 3.1，未配置 Key 时失败关闭。
 - [x] Telegram Bot：`pnpm run telegram:dev` 通过 Telegram Bot API long polling 接收消息；私聊文本直接回答。群聊默认只读，不发送命令回复、客服答案、媒体或异常。群文本实时幂等写入本地 PostgreSQL 收件箱，不在 Update 内创建候选；原始消息默认保留 30 天。Web 不采集客服对话用于知识演进。
 - [x] Telegram 群注册表与收件箱：Bot 订阅 `my_chat_member` 并登记群元数据，同时保存 Telegram 已交付的群文本、Reply 关系、作者 ID、编辑和处理状态。`GET /admin` 的“Telegram 群聊”页面显示待整理数量、最近消息和一键整理入口。

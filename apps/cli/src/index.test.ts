@@ -310,6 +310,24 @@ describe('parseCliArgs', () => {
     );
     expect(
       parseCliArgs([
+        'quality:evaluation:worker',
+        '--once',
+        '--poll-ms',
+        '1500',
+        '--worker-id',
+        'quality:test',
+      ]),
+    ).toEqual({
+      command: 'quality:evaluation:worker',
+      once: true,
+      pollMs: 1500,
+      workerId: 'quality:test',
+    });
+    expect(parseCliArgs(['quality:evaluation:worker', '--poll-ms', '10'])).toMatchObject({
+      command: 'help',
+    });
+    expect(
+      parseCliArgs([
         'knowledge:author:trust',
         '--chat-id',
         '-100123',

@@ -19,6 +19,11 @@ describe('knowledge admin authorization', () => {
       hasKnowledgeAdminPermission({ ...reviewer, role: 'viewer' }, 'telegram_group:read'),
     ).toBe(true);
     expect(hasKnowledgeAdminPermission(publisher, 'publication:request')).toBe(true);
+    expect(hasKnowledgeAdminPermission(publisher, 'quality:run')).toBe(true);
+    expect(hasKnowledgeAdminPermission(reviewer, 'quality:run')).toBe(false);
+    expect(hasKnowledgeAdminPermission({ ...reviewer, role: 'viewer' }, 'quality:read')).toBe(true);
+    expect(hasKnowledgeAdminPermission(publisher, 'quality:baseline')).toBe(false);
+    expect(hasKnowledgeAdminPermission(admin, 'quality:baseline')).toBe(true);
     expect(hasKnowledgeAdminPermission(publisher, 'user:manage')).toBe(false);
     expect(hasKnowledgeAdminPermission(admin, 'user:manage')).toBe(true);
   });

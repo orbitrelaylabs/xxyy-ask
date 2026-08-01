@@ -7,6 +7,9 @@ export type KnowledgeAdminPermission =
   | 'candidate:review'
   | 'import:telegram'
   | 'publication:request'
+  | 'quality:baseline'
+  | 'quality:read'
+  | 'quality:run'
   | 'support:manage'
   | 'support:read'
   | 'telegram_group:read'
@@ -25,6 +28,9 @@ const PERMISSION_LEVEL: Record<KnowledgeAdminPermission, number> = {
   'candidate:review': ROLE_LEVEL.reviewer,
   'import:telegram': ROLE_LEVEL.reviewer,
   'publication:request': ROLE_LEVEL.publisher,
+  'quality:baseline': ROLE_LEVEL.admin,
+  'quality:read': ROLE_LEVEL.viewer,
+  'quality:run': ROLE_LEVEL.publisher,
   'support:manage': ROLE_LEVEL.reviewer,
   'support:read': ROLE_LEVEL.viewer,
   'telegram_group:read': ROLE_LEVEL.viewer,

@@ -12,6 +12,7 @@ import type {
   PgKnowledgeAdminUserStore,
   PgKnowledgeGraphStore,
   PgKnowledgePublicationJobStore,
+  PgQualityEvaluationJobStore,
   PgSupportOperationsStore,
   PgTelegramGroupMessageStore,
   PgTelegramGroupRegistryStore,
@@ -910,6 +911,96 @@ describe('handleKnowledgeAdminApi', () => {
     expect(response.statusCode).toBe(503);
     expect(response.json).toMatchObject({ error: 'knowledge_store_unavailable' });
   });
+
+  it('lists quality reports and lets publishers enqueue only fixed evaluation modes', async () => {
+    const job = {
+      attemptCount: 0,
+      createdAt: '2026-08-01T08:00:00.000Z',
+      id: 'quality-eval:1',
+      mode: 'provider_retrieval' as const,
+      requestedBy: 'admin:alice',
+      status: 'queued' as const,
+      updatedAt: '2026-08-01T08:00:00.000Z',
+      withJudge: false,
+    };
+    const request = vi.fn(() => Promise.resolve(job));
+    const listJobs = vi.fn(() => Promise.resolve([job]));
+    const listReports = vi.fn(() => Promise.resolve([]));
+    const services = knowledgeAdminServices({
+      qualityEvaluations: qualityEvaluationStore({ listJobs, listReports, request }),
+    });
+
+    const overview = await callAdmin({
+      authenticator: authenticator('viewer'),
+      getServices: () => Promise.resolve(services),
+      method: 'GET',
+      token: TOKEN,
+      url: '/admin/api/quality/overview',
+    });
+    const queued = await callAdmin({
+      authenticator: authenticator('publisher'),
+      body: { mode: 'provider_retrieval' },
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/quality/jobs',
+    });
+
+    expect(overview.statusCode).toBe(200);
+    expect(overview.json).toMatchObject({ jobs: [{ id: job.id }], reports: [] });
+    expect(queued.statusCode).toBe(202);
+    expect(request).toHaveBeenCalledWith({
+      mode: 'provider_retrieval',
+      requestedBy: 'admin:alice',
+    });
+  });
+
+  it('protects paid quality runs and baseline approval with RBAC', async () => {
+    const request = vi.fn();
+    const approveBaseline = vi.fn(() =>
+      Promise.resolve({
+        createdAt: '2026-08-01T08:00:00.000Z',
+        failures: [],
+        generatedAt: '2026-08-01T08:00:00.000Z',
+        gatesPassed: true,
+        gateReasons: [],
+        id: 'quality-report:1',
+        isBaseline: true,
+        jobId: 'quality-eval:1',
+        metrics: { casePassRate: 1 },
+        mode: 'deterministic' as const,
+        passedCases: 60,
+        totalCases: 60,
+        withJudge: false,
+      }),
+    );
+    const services = knowledgeAdminServices({
+      qualityEvaluations: qualityEvaluationStore({ approveBaseline, request }),
+    });
+    const forbidden = await callAdmin({
+      authenticator: authenticator('reviewer'),
+      body: { mode: 'provider', withJudge: true },
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/quality/jobs',
+    });
+    const approved = await callAdmin({
+      authenticator: authenticator('admin'),
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/quality/reports/quality-report%3A1/baseline',
+    });
+
+    expect(forbidden.statusCode).toBe(403);
+    expect(request).not.toHaveBeenCalled();
+    expect(approved.statusCode).toBe(200);
+    expect(approveBaseline).toHaveBeenCalledWith({
+      actor: 'admin:alice',
+      reportId: 'quality-report:1',
+    });
+  });
 });
 
 interface CapturedResponse {
@@ -1033,10 +1124,28 @@ function knowledgeAdminServices(
     knowledgeGraph: knowledgeGraphStore(),
     importTelegram: () => Promise.reject(new Error('not used')),
     publicationJobs: publicationStore(),
+    qualityEvaluations: qualityEvaluationStore(),
     processTelegramInbox: () => Promise.reject(new Error('not used')),
     supportOperations: supportOperationsStore(),
     telegramGroups: telegramGroupStore(),
     telegramMessages: telegramMessageStore(),
+    ...overrides,
+  };
+}
+
+function qualityEvaluationStore(
+  overrides: Partial<PgQualityEvaluationJobStore> = {},
+): PgQualityEvaluationJobStore {
+  return {
+    approveBaseline: () => Promise.reject(new Error('not used')),
+    claimNext: () => Promise.resolve(undefined),
+    complete: () => Promise.reject(new Error('not used')),
+    fail: () => Promise.reject(new Error('not used')),
+    getReport: () => Promise.resolve(undefined),
+    listJobs: () => Promise.resolve([]),
+    listReports: () => Promise.resolve([]),
+    migrate: () => Promise.resolve(),
+    request: () => Promise.reject(new Error('not used')),
     ...overrides,
   };
 }

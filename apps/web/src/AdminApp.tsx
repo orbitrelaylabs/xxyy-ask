@@ -23,6 +23,9 @@ import type {
   KnowledgeGraphRelationStatus,
   PublicationJob,
   PublicationStatus,
+  QualityEvaluationJob,
+  QualityEvaluationMode,
+  QualityEvaluationReport,
   QualityTrend,
   SupportConversation,
   SupportConversationMessage,
@@ -45,6 +48,7 @@ type AdminTab =
   | 'graph'
   | 'imports'
   | 'publications'
+  | 'quality'
   | 'support'
   | 'users';
 
@@ -174,6 +178,9 @@ export function AdminApp(): ReactElement {
           ) : undefined}
           {activeTab === 'publications' ? (
             <PublicationsPanel permissions={permissions} token={token} />
+          ) : undefined}
+          {activeTab === 'quality' ? (
+            <QualityEvaluationPanel permissions={permissions} token={token} />
           ) : undefined}
           {activeTab === 'authors' ? (
             <TrustedAuthorsPanel permissions={permissions} token={token} />
@@ -882,6 +889,7 @@ function AdminSidebar({
     { id: 'candidates', label: '知识候选', meta: '群聊审核与冲突检查' },
     { id: 'graph', label: '知识图谱', meta: '实体关系、证据与启停治理' },
     { id: 'publications', label: '发布任务', meta: '自动队列与故障观察' },
+    { id: 'quality', label: '回答质量', meta: '评测指标、失败案例与基线' },
     { id: 'authors', label: '可信作者', meta: 'Telegram 角色有效期' },
     { id: 'imports', label: 'Telegram 导入', meta: '自动清洗、决策与入队' },
   ];
@@ -920,6 +928,334 @@ function AdminSidebar({
       </div>
     </aside>
   );
+}
+
+function QualityEvaluationPanel({
+  permissions,
+  token,
+}: {
+  permissions: ReadonlySet<AdminPermission>;
+  token: string;
+}): ReactElement {
+  const [jobs, setJobs] = useState<QualityEvaluationJob[]>([]);
+  const [reports, setReports] = useState<QualityEvaluationReport[]>([]);
+  const [selectedReportId, setSelectedReportId] = useState<string>();
+  const [withJudge, setWithJudge] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ kind: 'error' | 'success'; text: string }>();
+  const selectedReport = reports.find((report) => report.id === selectedReportId) ?? reports[0];
+
+  const load = useCallback(async (): Promise<void> => {
+    if (!permissions.has('quality:read')) return;
+    try {
+      const result = await knowledgeAdminRequest<{
+        jobs: QualityEvaluationJob[];
+        reports: QualityEvaluationReport[];
+      }>(token, '/quality/overview');
+      setJobs(result.jobs);
+      setReports(result.reports);
+      setSelectedReportId((current) =>
+        current !== undefined && result.reports.some((report) => report.id === current)
+          ? current
+          : result.reports[0]?.id,
+      );
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    }
+  }, [permissions, token]);
+
+  useEffect(() => void load(), [load]);
+  useEffect(() => {
+    if (!jobs.some((job) => job.status === 'queued' || job.status === 'running')) return;
+    const timer = window.setInterval(() => void load(), 3_000);
+    return () => window.clearInterval(timer);
+  }, [jobs, load]);
+
+  const run = async (mode: QualityEvaluationMode): Promise<void> => {
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      const result = await knowledgeAdminRequest<{ job: QualityEvaluationJob }>(
+        token,
+        '/quality/jobs',
+        {
+          body: { mode, ...(mode === 'provider' ? { withJudge } : {}) },
+          method: 'POST',
+        },
+      );
+      await load();
+      setNotice({
+        kind: 'success',
+        text:
+          result.job.status === 'queued'
+            ? '评测任务已进入隔离 Worker 队列。'
+            : '同类型评测已在队列中，未重复创建。',
+      });
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveBaseline = async (): Promise<void> => {
+    if (selectedReport === undefined) return;
+    setBusy(true);
+    try {
+      await knowledgeAdminRequest(
+        token,
+        `/quality/reports/${encodeURIComponent(selectedReport.id)}/baseline`,
+        { method: 'POST' },
+      );
+      await load();
+      setNotice({ kind: 'success', text: '该报告已批准为同模式的新质量基线。' });
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const latest = reports[0];
+  return (
+    <div className="admin-stack">
+      {notice === undefined ? undefined : (
+        <div className={`admin-alert ${notice.kind}`}>{notice.text}</div>
+      )}
+      <section className="admin-panel">
+        <div className="admin-panel-header">
+          <div>
+            <h2>回答质量中心</h2>
+            <span>评测由独立本地 Worker 执行；页面不会执行任意命令</span>
+          </div>
+          <button className="admin-secondary-button" disabled={busy} onClick={() => void load()}>
+            刷新
+          </button>
+        </div>
+        <div className="metric-grid">
+          <Metric
+            label="用例通过率"
+            value={latest === undefined ? 0 : Math.round(latest.metrics.casePassRate * 100)}
+          />
+          <Metric label="Recall ×100" value={Math.round((latest?.metrics.recallAtK ?? 0) * 100)} />
+          <Metric
+            label="MRR ×100"
+            value={Math.round((latest?.metrics.meanReciprocalRank ?? 0) * 100)}
+          />
+          <Metric label="错误知识命中" value={latest?.metrics.forbiddenHitCount ?? 0} />
+          <Metric
+            label="Judge 正确性 ×100"
+            value={Math.round((latest?.metrics.averageCorrectness ?? 0) * 100)}
+          />
+          <Metric label="失败案例" value={latest?.failures.length ?? 0} />
+          <Metric label="P95 延迟 ms" value={Math.round(latest?.metrics.p95LatencyMs ?? 0)} />
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <SectionHeading
+          description="快速评测不调用外部模型；正式召回会调用 Embedding；完整 Agent 会调用正式回答模型并产生费用。"
+          title="运行评测"
+        />
+        <div className="admin-actions">
+          <button
+            className="admin-primary-button"
+            disabled={busy || !permissions.has('quality:run')}
+            onClick={() => void run('deterministic')}
+            type="button"
+          >
+            运行快速评测
+          </button>
+          <button
+            className="admin-secondary-button"
+            disabled={busy || !permissions.has('quality:run')}
+            onClick={() => void run('provider_retrieval')}
+            type="button"
+          >
+            运行正式召回评测
+          </button>
+          <button
+            className="admin-secondary-button"
+            disabled={busy || !permissions.has('quality:run')}
+            onClick={() => void run('provider')}
+            type="button"
+          >
+            运行完整 Agent 评测
+          </button>
+          <label>
+            <input
+              checked={withJudge}
+              disabled={!permissions.has('quality:run')}
+              onChange={(event) => setWithJudge(event.target.checked)}
+              type="checkbox"
+            />{' '}
+            完整评测增加独立 Judge（额外费用）
+          </label>
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <SectionHeading description="任务自动刷新；失败只展示脱敏错误码。" title="评测任务" />
+        <div className="publication-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>模式</th>
+                <th>状态</th>
+                <th>请求人</th>
+                <th>时间</th>
+                <th>结果</th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.map((job) => (
+                <tr key={job.id}>
+                  <td>{qualityModeLabel(job.mode, job.withJudge)}</td>
+                  <td>
+                    <StatusBadge status={job.status} />
+                  </td>
+                  <td>{job.requestedBy}</td>
+                  <td>{formatDate(job.createdAt)}</td>
+                  <td>{job.errorCode ?? (job.reportId === undefined ? '—' : '报告已生成')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {jobs.length === 0 ? <p>暂无评测任务。</p> : undefined}
+        </div>
+      </section>
+
+      <div className="candidate-layout">
+        <section className="admin-panel candidate-list-panel">
+          <SectionHeading description="点击报告查看指标、门禁和失败案例。" title="历史报告" />
+          <div className="candidate-list">
+            {reports.map((report) => (
+              <button
+                className={selectedReport?.id === report.id ? 'active' : undefined}
+                key={report.id}
+                onClick={() => setSelectedReportId(report.id)}
+                type="button"
+              >
+                <strong>{qualityModeLabel(report.mode, report.withJudge)}</strong>
+                <span>
+                  {report.passedCases}/{report.totalCases} · {report.gatesPassed ? 'PASS' : 'FAIL'}
+                </span>
+                <small>
+                  {formatDate(report.generatedAt)}
+                  {report.isBaseline ? ' · 当前基线' : ''}
+                </small>
+              </button>
+            ))}
+          </div>
+        </section>
+        <section className="admin-panel">
+          {selectedReport === undefined ? (
+            <p>暂无评测报告。</p>
+          ) : (
+            <QualityReportDetail
+              busy={busy}
+              canApproveBaseline={permissions.has('quality:baseline')}
+              onApproveBaseline={approveBaseline}
+              report={selectedReport}
+            />
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function QualityReportDetail({
+  busy,
+  canApproveBaseline,
+  onApproveBaseline,
+  report,
+}: {
+  busy: boolean;
+  canApproveBaseline: boolean;
+  onApproveBaseline: () => Promise<void>;
+  report: QualityEvaluationReport;
+}): ReactElement {
+  return (
+    <div className="admin-stack">
+      <div className="admin-panel-header">
+        <div>
+          <h2>{qualityModeLabel(report.mode, report.withJudge)}</h2>
+          <span>{formatDate(report.generatedAt)}</span>
+        </div>
+        <StatusBadge status={report.gatesPassed ? 'passed' : 'failed'} />
+      </div>
+      <div className="metric-grid">
+        <Metric label="通过" value={report.passedCases} />
+        <Metric label="总数" value={report.totalCases} />
+        <Metric label="Recall ×100" value={Math.round((report.metrics.recallAtK ?? 0) * 100)} />
+        <Metric
+          label="Precision ×100"
+          value={Math.round((report.metrics.precisionAtK ?? 0) * 100)}
+        />
+        <Metric
+          label="MRR ×100"
+          value={Math.round((report.metrics.meanReciprocalRank ?? 0) * 100)}
+        />
+        <Metric label="nDCG ×100" value={Math.round((report.metrics.ndcgAtK ?? 0) * 100)} />
+        <Metric label="P50 ms" value={Math.round(report.metrics.p50LatencyMs ?? 0)} />
+        <Metric label="Token" value={report.metrics.totalTokens ?? 0} />
+        <Metric
+          label="Judge 正确性 ×100"
+          value={Math.round((report.metrics.averageCorrectness ?? 0) * 100)}
+        />
+        <Metric
+          label="Judge 依据性 ×100"
+          value={Math.round((report.metrics.averageGroundedness ?? 0) * 100)}
+        />
+      </div>
+      {report.gateReasons.length === 0 ? (
+        <div className="admin-alert success">全部质量门禁通过。</div>
+      ) : (
+        <div className="admin-alert error">{report.gateReasons.join('；')}</div>
+      )}
+      {canApproveBaseline && !report.isBaseline ? (
+        <button
+          className="admin-primary-button"
+          disabled={busy || !report.gatesPassed || report.passedCases !== report.totalCases}
+          onClick={() => void onApproveBaseline()}
+          type="button"
+        >
+          批准为新基线
+        </button>
+      ) : undefined}
+      {report.isBaseline ? (
+        <p>
+          当前基线 · {report.approvedAsBaselineBy ?? '管理员'} ·{' '}
+          {report.approvedAsBaselineAt === undefined
+            ? '时间未知'
+            : formatDate(report.approvedAsBaselineAt)}
+        </p>
+      ) : undefined}
+      <div className="history-list">
+        {report.failures.map((failure) => (
+          <article key={failure.name}>
+            <strong>{failure.name}</strong>
+            <span>{failure.failures.join('；')}</span>
+            <small>
+              {failure.expectedIntent === undefined ? '' : `预期 ${failure.expectedIntent}`}
+              {failure.actualIntent === undefined ? '' : ` · 实际 ${failure.actualIntent}`}
+              {failure.retrieval?.recallAtK === undefined
+                ? ''
+                : ` · Recall ${failure.retrieval.recallAtK.toFixed(3)}`}
+            </small>
+          </article>
+        ))}
+        {report.failures.length === 0 ? <p>没有失败案例。</p> : undefined}
+      </div>
+    </div>
+  );
+}
+
+function qualityModeLabel(mode: QualityEvaluationMode, withJudge: boolean): string {
+  if (mode === 'deterministic') return '快速确定性评测';
+  if (mode === 'provider_retrieval') return '正式召回评测';
+  return withJudge ? '完整 Agent + Judge' : '完整 Agent 评测';
 }
 
 function AdminUsersPanel({
@@ -2925,6 +3261,8 @@ function tabTitle(tab: AdminTab): string {
       return 'Telegram 知识导入';
     case 'publications':
       return '发布任务与恢复';
+    case 'quality':
+      return '回答质量评测与基线';
     case 'support':
       return '客服会话与工单';
     case 'users':

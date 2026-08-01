@@ -271,6 +271,7 @@ pnpm rag:refresh -- --full
 pnpm rag:migrate
 pnpm rag:stats
 pnpm rag:evaluate
+pnpm rag:quality:evaluation:worker # Admin 评测队列的隔离本地 Worker
 pnpm rag:ask -- "XXYY Pro 有哪些权益？"
 pnpm rag:knowledge:author:trust -- --chat-id -100123 --user-id 123 --role knowledge_editor --valid-from 2026-07-01 --reviewer ops:alice
 pnpm rag:knowledge:import:telegram -- export.json
@@ -330,6 +331,8 @@ pnpm chain:mcp:serve
 - LLM relevance judge 或外部 reranker provider 可以按同一接口接入，但应默认关闭，并在有评估用例证明收益后再启用，以避免额外成本和延迟。
 
 ## 回答质量闭环
+
+管理后台“回答质量”页面把日常质量治理集中到 UI：管理员可以查看持久化历史报告和失败案例，按权限创建快速、正式召回或完整 Agent/Judge 评测，并把全量通过且门禁通过的报告批准为同模式基线。Admin API 只写 PostgreSQL 任务；Docker Compose 中独立的 `quality-worker` 执行固定白名单评测并写回脱敏结果，不接受命令、路径或任意参数。工程构建、类型检查和单元测试仍由 `pnpm check` 执行，不属于管理后台远程能力。
 
 默认 `pnpm rag:evaluate` 同时输出答案断言和已标注样本的 Recall@K、Precision@K、MRR、nDCG@K、forbidden hit；没有 retrieval 标注的案例不会被当作零分。发布或模型/检索变更时再显式运行 provider-backed 路径：
 
@@ -449,6 +452,11 @@ GET /admin/api/support/metrics
 GET|PATCH /admin/api/support/tickets/:id
 GET|POST /admin/api/support/conversations/:id/messages
 GET /admin/api/support/knowledge-gaps
+GET /admin/api/quality/overview
+GET|POST /admin/api/quality/jobs
+GET /admin/api/quality/reports
+GET /admin/api/quality/reports/:id
+POST /admin/api/quality/reports/:id/baseline
 ```
 
 `/admin` 使用 PostgreSQL 管理员账号和密码登录，并按 `viewer`、`reviewer`、`publisher`、`admin` 实施 RBAC。密码只保存 scrypt 哈希，登录后签发有期限、可撤销的数据库 Session；管理员重置其他账号密码或禁用账号会撤销其现有 Session，本人验证当前密码改密时保留当前会话并撤销其他会话。后台阻止当前管理员修改自己的角色或状态，避免误锁定。没有数据库管理员时页面自动进入一次性首管理员初始化，创建成功后入口永久关闭；公开聊天不受影响。管理页面主要用于自动治理可观测与紧急恢复；日常发布不依赖人工登录。页面使用同源请求、严格 CSP、`no-store` 和独立限流，不给公开 `/api/chat` 增加鉴权。

@@ -25,6 +25,7 @@ import type {
   KnowledgePublicationJobStatus,
   PgFeedbackStore,
   PgKnowledgePublicationJobStore,
+  PgQualityEvaluationJobStore,
   PgKnowledgeAdminUserStore,
   PgKnowledgeGraphStore,
   PgSupportOperationsStore,
@@ -48,6 +49,7 @@ export interface KnowledgeAdminServices {
   governance: KnowledgeGovernanceService;
   knowledgeGraph: PgKnowledgeGraphStore;
   publicationJobs: PgKnowledgePublicationJobStore;
+  qualityEvaluations: PgQualityEvaluationJobStore;
   supportOperations: PgSupportOperationsStore;
   telegramGroups: PgTelegramGroupRegistryStore;
   telegramMessages: PgTelegramGroupMessageStore;
@@ -115,6 +117,23 @@ const updateAdminUserSchema = z
   .strict()
   .refine((value) => Object.keys(value).length > 0, 'At least one user field is required.');
 const publicationStatusSchema = z.enum(['failed', 'queued', 'running', 'succeeded']);
+const qualityEvaluationModeSchema = z.enum(['deterministic', 'provider_retrieval', 'provider']);
+const qualityEvaluationJobStatusSchema = z.enum(['failed', 'queued', 'running', 'succeeded']);
+const requestQualityEvaluationSchema = z
+  .object({
+    mode: qualityEvaluationModeSchema,
+    withJudge: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.withJudge === true && value.mode !== 'provider') {
+      context.addIssue({
+        code: 'custom',
+        message: 'Judge evaluation is available only for full Agent evaluation.',
+        path: ['withJudge'],
+      });
+    }
+  });
 const telegramGroupStatusSchema = z.enum(['active', 'kicked', 'left', 'unknown']);
 const telegramMessageProcessingStatusSchema = z.enum(['all', 'processed', 'unprocessed']);
 const graphEntityTypeSchema = z.enum(['chain', 'feature', 'launchpad', 'plan', 'product']);
@@ -399,6 +418,11 @@ async function routeKnowledgeAdminRequest(
 
   if (segments[0] === 'knowledge-graph') {
     await routeKnowledgeGraphRequest(options, services, principal, method, segments.slice(1));
+    return;
+  }
+
+  if (segments[0] === 'quality') {
+    await routeQualityEvaluationRequest(options, services, principal, method, segments.slice(1));
     return;
   }
 
@@ -736,6 +760,84 @@ async function routePublicationRequest(
   sendNotFound(options.response);
 }
 
+async function routeQualityEvaluationRequest(
+  options: HandleKnowledgeAdminApiOptions,
+  services: KnowledgeAdminServices,
+  principal: KnowledgeAdminPrincipal,
+  method: string,
+  segments: string[],
+): Promise<void> {
+  requirePermission(principal, 'quality:read');
+  if (segments.length === 1 && segments[0] === 'overview') {
+    requireMethod(method, 'GET');
+    const [jobs, reports] = await Promise.all([
+      services.qualityEvaluations.listJobs({ limit: 50 }),
+      services.qualityEvaluations.listReports({ limit: 50 }),
+    ]);
+    sendJson(options.response, 200, { jobs, reports });
+    return;
+  }
+  if (segments.length === 1 && segments[0] === 'jobs') {
+    if (method === 'GET') {
+      const statusValue = options.requestUrl.searchParams.get('status') ?? undefined;
+      const status =
+        statusValue === undefined ? undefined : qualityEvaluationJobStatusSchema.parse(statusValue);
+      const jobs = await services.qualityEvaluations.listJobs({
+        limit: parseLimit(options.requestUrl.searchParams.get('limit')),
+        ...(status === undefined ? {} : { status }),
+      });
+      sendJson(options.response, 200, { jobs });
+      return;
+    }
+    requirePermission(principal, 'quality:run');
+    requireMethod(method, 'POST');
+    const payload = requestQualityEvaluationSchema.parse(
+      await readJsonBody(options.request, options.maxBodyBytes),
+    );
+    const job = await services.qualityEvaluations.request({
+      mode: payload.mode,
+      requestedBy: adminActor(principal),
+      ...(payload.withJudge === undefined ? {} : { withJudge: payload.withJudge }),
+    });
+    sendJson(options.response, 202, { job });
+    return;
+  }
+  if (segments.length === 1 && segments[0] === 'reports') {
+    requireMethod(method, 'GET');
+    const modeValue = options.requestUrl.searchParams.get('mode') ?? undefined;
+    const mode = modeValue === undefined ? undefined : qualityEvaluationModeSchema.parse(modeValue);
+    const reports = await services.qualityEvaluations.listReports({
+      limit: parseLimit(options.requestUrl.searchParams.get('limit')),
+      ...(mode === undefined ? {} : { mode }),
+    });
+    sendJson(options.response, 200, { reports });
+    return;
+  }
+  if (segments.length === 2 && segments[0] === 'reports') {
+    requireMethod(method, 'GET');
+    const report = await services.qualityEvaluations.getReport(
+      requiredPathSegment(segments[1], 'quality evaluation report id'),
+    );
+    if (report === undefined) {
+      sendNotFound(options.response, 'Quality evaluation report was not found.');
+      return;
+    }
+    sendJson(options.response, 200, { report });
+    return;
+  }
+  if (segments.length === 3 && segments[0] === 'reports' && segments[2] === 'baseline') {
+    requirePermission(principal, 'quality:baseline');
+    requireMethod(method, 'POST');
+    const report = await services.qualityEvaluations.approveBaseline({
+      actor: adminActor(principal),
+      reportId: requiredPathSegment(segments[1], 'quality evaluation report id'),
+    });
+    sendJson(options.response, 200, { report });
+    return;
+  }
+  sendNotFound(options.response);
+}
+
 async function routeTrustedAuthorRequest(
   options: HandleKnowledgeAdminApiOptions,
   services: KnowledgeAdminServices,
@@ -782,6 +884,9 @@ function knowledgeAdminPermissions(principal: KnowledgeAdminPrincipal): Knowledg
     'candidate:review',
     'import:telegram',
     'publication:request',
+    'quality:baseline',
+    'quality:read',
+    'quality:run',
     'support:manage',
     'support:read',
     'telegram_group:read',

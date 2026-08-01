@@ -3,6 +3,9 @@ export type AdminPermission =
   | 'candidate:review'
   | 'import:telegram'
   | 'publication:request'
+  | 'quality:baseline'
+  | 'quality:read'
+  | 'quality:run'
   | 'support:manage'
   | 'support:read'
   | 'telegram_group:read'
@@ -11,6 +14,71 @@ export type AdminPermission =
 
 export type CandidateStatus = 'approved' | 'pending' | 'published' | 'rejected';
 export type PublicationStatus = 'failed' | 'queued' | 'running' | 'succeeded';
+export type QualityEvaluationMode = 'deterministic' | 'provider_retrieval' | 'provider';
+export type QualityEvaluationJobStatus = 'failed' | 'queued' | 'running' | 'succeeded';
+
+export interface QualityEvaluationJob {
+  attemptCount: number;
+  createdAt: string;
+  id: string;
+  mode: QualityEvaluationMode;
+  requestedBy: string;
+  status: QualityEvaluationJobStatus;
+  updatedAt: string;
+  withJudge: boolean;
+  completedAt?: string;
+  errorCode?: string;
+  reportId?: string;
+  startedAt?: string;
+}
+
+export interface QualityEvaluationFailure {
+  actualIntent?: string;
+  citationCount?: number;
+  expectedIntent?: string;
+  failures: string[];
+  name: string;
+  retrieval?: {
+    forbiddenHitCount?: number;
+    ndcgAtK?: number;
+    precisionAtK?: number;
+    recallAtK?: number;
+    reciprocalRank?: number;
+  };
+}
+
+export interface QualityEvaluationReport {
+  createdAt: string;
+  failures: QualityEvaluationFailure[];
+  generatedAt: string;
+  gatesPassed: boolean;
+  gateReasons: string[];
+  id: string;
+  isBaseline: boolean;
+  jobId: string;
+  metrics: {
+    averageCompleteness?: number;
+    averageCorrectness?: number;
+    averageGroundedness?: number;
+    averageRelevance?: number;
+    averageSafeRefusal?: number;
+    casePassRate: number;
+    forbiddenHitCount?: number;
+    meanReciprocalRank?: number;
+    ndcgAtK?: number;
+    p50LatencyMs?: number;
+    p95LatencyMs?: number;
+    precisionAtK?: number;
+    recallAtK?: number;
+    totalTokens?: number;
+  };
+  mode: QualityEvaluationMode;
+  passedCases: number;
+  totalCases: number;
+  withJudge: boolean;
+  approvedAsBaselineAt?: string;
+  approvedAsBaselineBy?: string;
+}
 
 export type KnowledgeGraphEntityType = 'chain' | 'feature' | 'launchpad' | 'plan' | 'product';
 export type KnowledgeGraphRelationStatus = 'approved' | 'rejected';

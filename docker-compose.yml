@@ -138,5 +138,13 @@ services:
     volumes:
       - './.rag/knowledge-refresh:/app/.rag/knowledge-refresh:ro'
 
+  quality-worker:
+    <<: *app-base
+    command: ['pnpm', 'rag:quality:evaluation:worker']
+    restart: unless-stopped
+    depends_on:
+      knowledge-init:
+        condition: service_completed_successfully
+
 volumes:
   xxyy_pgdata:

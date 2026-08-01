@@ -55,6 +55,7 @@
     "rag:knowledge:list": "pnpm --filter @xxyy/cli rag:knowledge:list",
     "rag:knowledge:publish": "pnpm --filter @xxyy/cli rag:knowledge:publish",
     "rag:knowledge:publication:work": "pnpm --filter @xxyy/cli rag:knowledge:publication:work",
+    "rag:quality:evaluation:worker": "pnpm --filter @xxyy/cli rag:quality:evaluation:worker",
     "rag:knowledge:reject": "pnpm --filter @xxyy/cli rag:knowledge:reject",
     "rag:knowledge:revise": "pnpm --filter @xxyy/cli rag:knowledge:revise",
     "rag:migrate": "pnpm --filter @xxyy/cli rag:migrate",
