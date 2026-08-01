@@ -27,16 +27,26 @@ describe('auditXxyyDocs', () => {
     await writeFile(path.join(productDir, 'pages', '01-en.md'), page);
     await writeFile(
       path.join(productDir, 'manifest.jsonl'),
-      `${JSON.stringify({
-        content_state: 'not_found',
-        file: '01-en.md',
-        ingest: false,
-        pathname: '/en',
-        site_page: true,
-        source_url: 'https://docs.xxyy.io/en',
-        title: 'Page Not Found',
-      })}\n`,
+      `${[
+        {
+          file: '00-overview.md',
+          source_url: 'https://docs.xxyy.io/en',
+          title: 'Local overview',
+        },
+        {
+          content_state: 'not_found',
+          file: '01-en.md',
+          ingest: false,
+          pathname: '/en',
+          site_page: true,
+          source_url: 'https://docs.xxyy.io/en',
+          title: 'Page Not Found',
+        },
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join('\n')}\n`,
     );
+    await writeFile(path.join(productDir, 'pages', '00-overview.md'), '# Local overview\n');
     await writeFile(
       path.join(productDir, 'assets', 'xxyy-docs-assets.json'),
       `${JSON.stringify({ assets: [] })}\n`,

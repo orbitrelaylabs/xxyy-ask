@@ -2,7 +2,7 @@
 title: "K 线时间区间选择：截图文字"
 section: "K线区域 / 图片 OCR"
 source_url: "https://docs.xxyy.io/getting-started/k-xian-qu-yu/k-xian-shi-jian-qu-jian-xuan-ze"
-retrieved_at: "2026-07-19T16:07:12.754Z"
+retrieved_at: "2026-08-01T03:59:58.546Z"
 status: current
 ---
 

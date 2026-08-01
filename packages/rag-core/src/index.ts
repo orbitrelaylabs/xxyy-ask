@@ -96,6 +96,27 @@ export type {
   PgKnowledgeAdminUserStore,
 } from './knowledge-admin-users.js';
 export {
+  aliasesForCanonicalName,
+  createKnowledgeAliasQueryTokens,
+  expandKnowledgeAliasText,
+  matchKnowledgeAliases,
+} from './knowledge-aliases.js';
+export {
+  createPgKnowledgeGraphStore,
+  extractKnowledgeGraphRelations,
+  migrateKnowledgeGraph,
+  replaceChunkKnowledgeGraph,
+} from './knowledge-graph.js';
+export type {
+  ExtractedKnowledgeRelation,
+  KnowledgeGraphEntity,
+  KnowledgeGraphEntityType,
+  KnowledgeGraphConflict,
+  KnowledgeGraphRelation,
+  KnowledgeGraphRelationStatus,
+  PgKnowledgeGraphStore,
+} from './knowledge-graph.js';
+export {
   createPgKnowledgeCandidateStore,
   InvalidKnowledgeCandidateStateError,
   sanitizeKnowledgeCandidateText,

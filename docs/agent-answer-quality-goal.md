@@ -578,7 +578,7 @@ Agent、API 和 Telegram Bot 不直接发布正式知识。对话样本先进入
 ### 2026-07-30 本地灰度与扩量实测
 
 - Docker Compose 已把回答质量模式、比例和观测开关显式传给 API/Telegram；本地镜像使用
-  Node `24.18.0` 重建，API health 通过。
+  Node `24.16.0` 重建，API health 通过。
 - Web 在 `shadow / 10%` 下执行 5 条受控请求：1 条 optimized 主桶、4 条 legacy 主桶，
   覆盖功能总览、Pro 权益、how-to、Agent 能力和钱包余额边界。
 - 首轮发现“如何设置止损”把 X 营销文案标为完整教程。修复后，X-only how-to 只提取可证实

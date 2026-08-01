@@ -180,13 +180,15 @@ function productPolicyScore(
   selected: readonly RetrievedChunk[],
   policy: ProductRetrievalPolicy,
 ): number {
-  const anchorBoost = policy.anchorDocumentIds.includes(chunk.documentId) ? 100 : 0;
+  const isAnchor = policy.anchorDocumentIds.includes(chunk.documentId);
+  const anchorBoost = isAnchor ? 100 : 0;
+  const anchorOverviewBoost = isAnchor && /:chunk:0001$/u.test(chunk.id) ? 10 : 0;
   const sourceIndex = policy.preferredSourceTypes.indexOf(chunk.metadata.sourceType);
   const sourceBoost =
     sourceIndex < 0 ? 0 : (policy.preferredSourceTypes.length - sourceIndex) * 0.35;
   const temporalBoost = temporalPolicyBoost(chunk, policy.temporalScope);
   if (policy.diversity === 'none') {
-    return -relevanceRank * 0.5 + anchorBoost + sourceBoost + temporalBoost;
+    return -relevanceRank * 0.5 + anchorBoost + anchorOverviewBoost + sourceBoost + temporalBoost;
   }
 
   const repeatedDocumentCount = selected.filter(
@@ -201,6 +203,7 @@ function productPolicyScore(
   return (
     -relevanceRank * 0.5 +
     anchorBoost +
+    anchorOverviewBoost +
     sourceBoost +
     temporalBoost -
     repeatedDocumentCount * 1.25 -

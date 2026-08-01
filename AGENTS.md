@@ -264,7 +264,7 @@ git status --short --branch
 
 ## 仓库工程基线
 
-- 本地开发和 Docker 镜像使用根目录 `.nvmrc` 固定的 Node `24.18.0`。
+- 本地开发和 Docker 镜像使用根目录 `.nvmrc` 固定的 Node `24.16.0`。
 - 包管理器由根目录 `package.json` 的 `packageManager` 字段固定为 pnpm `11.17.0`。
 - 依赖安装使用 pnpm frozen lockfile；不要混用 npm、Yarn 或 Bun lockfile。
 - 仓库不配置 GitHub Actions、ESLint 或 Git hooks；安装依赖不得自动修改 Git 配置。

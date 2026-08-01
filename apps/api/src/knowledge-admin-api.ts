@@ -4,6 +4,7 @@ import {
   classifyQuestion,
   createProductQueryPlan,
   createProductRetrievalPolicy,
+  extractKnowledgeGraphRelations,
   InvalidKnowledgeCandidateStateError,
   InvalidKnowledgePublicationJobStateError,
   KnowledgePublicationJobNotFoundError,
@@ -25,6 +26,7 @@ import type {
   PgFeedbackStore,
   PgKnowledgePublicationJobStore,
   PgKnowledgeAdminUserStore,
+  PgKnowledgeGraphStore,
   PgSupportOperationsStore,
   PgTelegramGroupMessageStore,
   PgTelegramGroupRegistryStore,
@@ -44,6 +46,7 @@ export interface KnowledgeAdminServices {
   adminUsers: PgKnowledgeAdminUserStore;
   feedback: PgFeedbackStore;
   governance: KnowledgeGovernanceService;
+  knowledgeGraph: PgKnowledgeGraphStore;
   publicationJobs: PgKnowledgePublicationJobStore;
   supportOperations: PgSupportOperationsStore;
   telegramGroups: PgTelegramGroupRegistryStore;
@@ -114,6 +117,8 @@ const updateAdminUserSchema = z
 const publicationStatusSchema = z.enum(['failed', 'queued', 'running', 'succeeded']);
 const telegramGroupStatusSchema = z.enum(['active', 'kicked', 'left', 'unknown']);
 const telegramMessageProcessingStatusSchema = z.enum(['all', 'processed', 'unprocessed']);
+const graphEntityTypeSchema = z.enum(['chain', 'feature', 'launchpad', 'plan', 'product']);
+const graphRelationStatusSchema = z.enum(['approved', 'rejected']);
 const supportTicketStatusSchema = z.enum([
   'open',
   'in_progress',
@@ -392,6 +397,11 @@ async function routeKnowledgeAdminRequest(
     return;
   }
 
+  if (segments[0] === 'knowledge-graph') {
+    await routeKnowledgeGraphRequest(options, services, principal, method, segments.slice(1));
+    return;
+  }
+
   if (segments[0] === 'support') {
     await routeSupportRequest(options, services, principal, method, segments.slice(1));
     return;
@@ -551,7 +561,13 @@ async function routeCandidateRequest(
       return;
     }
     const publications = await services.publicationJobs.list({ candidateId, limit: 20 });
-    sendJson(options.response, 200, { ...detail, publications });
+    const graphPreview = extractKnowledgeGraphRelations({
+      text: [detail.candidate.canonicalAnswer, detail.candidate.evidence ?? ''].join('\n'),
+      ...(detail.candidate.proposedTitle === undefined
+        ? {}
+        : { title: detail.candidate.proposedTitle }),
+    });
+    sendJson(options.response, 200, { ...detail, graphPreview, publications });
     return;
   }
 
@@ -624,6 +640,64 @@ async function routeCandidateRequest(
     return;
   }
 
+  sendNotFound(options.response);
+}
+
+async function routeKnowledgeGraphRequest(
+  options: HandleKnowledgeAdminApiOptions,
+  services: KnowledgeAdminServices,
+  principal: KnowledgeAdminPrincipal,
+  method: string,
+  segments: string[],
+): Promise<void> {
+  requirePermission(principal, 'candidate:read');
+  if (segments.length === 1 && segments[0] === 'entities') {
+    requireMethod(method, 'GET');
+    const typeValue = options.requestUrl.searchParams.get('type') ?? undefined;
+    const type = typeValue === undefined ? undefined : graphEntityTypeSchema.parse(typeValue);
+    const query = options.requestUrl.searchParams.get('query')?.trim();
+    const entities = await services.knowledgeGraph.listEntities({
+      limit: parseLimit(options.requestUrl.searchParams.get('limit')),
+      ...(type === undefined ? {} : { type }),
+      ...(query === undefined || query.length === 0 ? {} : { query }),
+    });
+    sendJson(options.response, 200, { entities });
+    return;
+  }
+  if (segments.length === 1 && segments[0] === 'relations') {
+    requireMethod(method, 'GET');
+    const statusValue = options.requestUrl.searchParams.get('status') ?? undefined;
+    const status =
+      statusValue === undefined ? undefined : graphRelationStatusSchema.parse(statusValue);
+    const relations = await services.knowledgeGraph.listRelations({
+      limit: parseLimit(options.requestUrl.searchParams.get('limit')),
+      ...(status === undefined ? {} : { status }),
+    });
+    sendJson(options.response, 200, { relations });
+    return;
+  }
+  if (segments.length === 1 && segments[0] === 'conflicts') {
+    requireMethod(method, 'GET');
+    const conflicts = await services.knowledgeGraph.listConflicts({
+      limit: parseLimit(options.requestUrl.searchParams.get('limit')),
+    });
+    sendJson(options.response, 200, { conflicts });
+    return;
+  }
+  if (segments.length === 2 && segments[0] === 'relations') {
+    requirePermission(principal, 'candidate:review');
+    requireMethod(method, 'PATCH');
+    const payload = z
+      .object({ status: graphRelationStatusSchema })
+      .strict()
+      .parse(await readJsonBody(options.request, options.maxBodyBytes));
+    const relation = await services.knowledgeGraph.setRelationStatus({
+      id: requiredPathSegment(segments[1], 'knowledge graph relation id'),
+      status: payload.status,
+    });
+    sendJson(options.response, 200, { relation });
+    return;
+  }
   sendNotFound(options.response);
 }
 

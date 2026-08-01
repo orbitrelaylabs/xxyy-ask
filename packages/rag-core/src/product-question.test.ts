@@ -84,6 +84,26 @@ describe('product question understanding', () => {
     expect(createProductRetrievalPolicy(howTo).preferredSourceTypes[0]).toBe('official_docs');
   });
 
+  it('anchors copy-trading questions to the current official guide', () => {
+    const question = 'XXYY 跟单支持哪些链？';
+    const understanding = understandProductQuestion(question, classifyQuestion(question));
+
+    expect(understanding.modules).toContain('跟单');
+    expect(createProductRetrievalPolicy(understanding).anchorDocumentIds).toEqual([
+      'official_docs:pages/138-getting-started__gen-dan',
+    ]);
+  });
+
+  it.each([
+    ['支持哪些发射平台？', '发射平台', 'x_updates:pages/140-current-launchpad-support'],
+    ['支持哪些链？', '链支持', 'x_updates:pages/139-current-supported-chains'],
+  ])('anchors shorthand "%s" to current support evidence', (question, module, documentId) => {
+    const understanding = understandProductQuestion(question, classifyQuestion(question));
+
+    expect(understanding.modules).toContain(module);
+    expect(createProductRetrievalPolicy(understanding).anchorDocumentIds).toEqual([documentId]);
+  });
+
   it('rewrites a bounded contextual follow-up into a standalone product question', () => {
     expect(
       createStandaloneProductQuestion('那免费版呢？', [

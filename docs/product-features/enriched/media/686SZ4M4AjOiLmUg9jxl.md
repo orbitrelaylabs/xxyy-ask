@@ -2,7 +2,7 @@
 title: "Telegram 官方答疑群：截图文字"
 section: "Telegram 官方答疑群 / 图片 OCR"
 source_url: "https://docs.xxyy.io/telegram-guan-fang-da-yi-qun"
-retrieved_at: "2026-07-19T16:07:12.754Z"
+retrieved_at: "2026-08-01T03:59:58.546Z"
 status: current
 ---
 

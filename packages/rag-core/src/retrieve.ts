@@ -3,6 +3,7 @@ import type { IndexEntry, RagIndex, SourceType } from '@xxyy/shared';
 
 import { extractSupportEntityTokens, supportEntityEvidenceBoost } from './support-entity.js';
 import type { ProductRetrievalPolicy } from './product-question.js';
+import { createKnowledgeAliasQueryTokens, expandKnowledgeAliasText } from './knowledge-aliases.js';
 
 export interface RetrieveOptions {
   policy?: ProductRetrievalPolicy;
@@ -44,7 +45,9 @@ export function retrieve(
   index: RagIndex,
   options: RetrieveOptions = {},
 ): RetrievedChunk[] {
-  const queryTokens = createRetrieveQueryTokens(question);
+  const queryTokens = Array.from(
+    new Set([...createRetrieveQueryTokens(question), ...createKnowledgeAliasQueryTokens(question)]),
+  );
   const supportEntities = extractSupportEntityTokens(question);
   const topK = normalizeTopK(options.topK);
 
@@ -116,7 +119,7 @@ export function retrieve(
   }));
 }
 
-export function pinRetrievalPolicyAnchors<T extends { documentId: string }>(
+export function pinRetrievalPolicyAnchors<T extends { documentId: string; id?: string }>(
   chunks: readonly T[],
   anchorDocumentIds: readonly string[],
   topK: number,
@@ -127,9 +130,9 @@ export function pinRetrievalPolicyAnchors<T extends { documentId: string }>(
   const selected: T[] = [];
   const selectedChunks = new Set<T>();
   for (const documentId of anchorDocumentIds) {
-    const anchor = chunks.find(
-      (chunk) => chunk.documentId === documentId && !selectedChunks.has(chunk),
-    );
+    const anchor = chunks
+      .filter((chunk) => chunk.documentId === documentId && !selectedChunks.has(chunk))
+      .sort((left, right) => (left.id ?? '').localeCompare(right.id ?? ''))[0];
     if (anchor !== undefined && selected.length < topK) {
       selected.push(anchor);
       selectedChunks.add(anchor);
@@ -318,8 +321,11 @@ export function createLexicalRetrieveQueryTokens(question: string): string[] {
 }
 
 export function createSemanticRetrieveQuery(question: string): string {
-  const expansions = createQueryExpansionPhrases(question);
-  return expansions.length === 0 ? question : [question, ...expansions].join('\n');
+  const aliasExpandedQuestion = expandKnowledgeAliasText(question);
+  const expansions = createQueryExpansionPhrases(aliasExpandedQuestion);
+  return expansions.length === 0
+    ? aliasExpandedQuestion
+    : [aliasExpandedQuestion, ...expansions].join('\n');
 }
 
 function createQueryExpansionPhrases(question: string): string[] {
@@ -356,6 +362,25 @@ function createQueryExpansionPhrases(question: string): string[] {
 
   if (/扫链.{0,16}(?:过滤|筛选|条件)|(?:过滤|筛选).{0,16}扫链/u.test(normalizedQuestion)) {
     expansions.push('扫链筛选 筛选条件');
+  }
+
+  if (/发射台|发射平台|launch\s*(?:pad|platform)/u.test(normalizedQuestion)) {
+    expansions.push('XXYY 扫链 发射平台 发射台 launchpad 按链筛选');
+  }
+
+  const asksSupportedChains =
+    /支持(?:哪些|什么|哪几)(?:条)?(?:公)?链|(?:哪些|什么|哪几)(?:条)?(?:公)?链支持/u.test(
+      normalizedQuestion,
+    ) ||
+    /(?:支持|support(?:s|ed)?).{0,12}(?:which|what|哪些|什么)?\s*(?:blockchains?|chains?)|(?:which|what)\s*(?:blockchains?|chains?).{0,12}(?:支持|support(?:s|ed)?)/u.test(
+      normalizedQuestion,
+    );
+
+  if (asksSupportedChains) {
+    expansions.push('XXYY 当前产品支持的区块链 公链 多链交易');
+    if (/跟单|copy\s*trad(?:e|ing)/u.test(normalizedQuestion)) {
+      expansions.push('XXYY 跟单支持链 跟单交易支持公链');
+    }
   }
 
   if (/手机|手机版|手机上|主屏幕|手机桌面/u.test(normalizedQuestion)) {

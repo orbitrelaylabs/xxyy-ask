@@ -1,7 +1,7 @@
 {
   "version": 1,
   "provider": "local-ocr",
-  "generated_at": "2026-07-19T16:07:12.754Z",
+  "generated_at": "2026-08-01T03:59:58.546Z",
   "source_manifest": "docs/product-features/assets/xxyy-docs-assets.json",
   "assets": [
     {
@@ -29,6 +29,18 @@
       "output_sha256": "d69bf26c978fa56f5a0a4155efdca2d7e09b204e313a511e2b51194246042449"
     },
     {
+      "id": "2nrnSqSocTQDhDMV2cB2",
+      "file": "xxyy-docs-2nrnSqSocTQDhDMV2cB2.png",
+      "sha256": "2a3575b854c7b7b4f4ef1ae0d9e96ba80e20e6d19cde1839c703a2fb0b59d87f",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/fa-xian"
+      ],
+      "status": "extracted",
+      "line_count": 88,
+      "output": "2nrnSqSocTQDhDMV2cB2.md",
+      "output_sha256": "782542a7ba006cc1641592dbcc26ccff390356e62e637314a93881fb43a5cede"
+    },
+    {
       "id": "2s50BCXTbL5AGASarryU",
       "file": "xxyy-docs-2s50BCXTbL5AGASarryU.png",
       "sha256": "7c0d1091208b208dca30e4eac1e6512067570457e1e519dd3770ce7b49f361e7",
@@ -38,7 +50,7 @@
       "status": "extracted",
       "line_count": 4,
       "output": "2s50BCXTbL5AGASarryU.md",
-      "output_sha256": "179f5e3d355802acb547c1cf79c6e919b3af91a3fadec4e388e63807f577dfe6"
+      "output_sha256": "590fe6c57f0eb6e161c33248b94e11da3b0959afd3c6ac88065c44981f67e080"
     },
     {
       "id": "2zZVozu8eR6YJqrOA1iS",
@@ -50,7 +62,7 @@
       "status": "extracted",
       "line_count": 29,
       "output": "2zZVozu8eR6YJqrOA1iS.md",
-      "output_sha256": "4c25047fd44abe14dd7864502532f811c3f2ae230618e3ef126189bacba59975"
+      "output_sha256": "3e9d5032e04d47fb77a57c61fafed9d29a61ec21a79cd4a244c3ba81dfa734a5"
     },
     {
       "id": "3DfYbVUNF3IfIpbOQRlG",
@@ -62,7 +74,7 @@
       "status": "extracted",
       "line_count": 14,
       "output": "3DfYbVUNF3IfIpbOQRlG.md",
-      "output_sha256": "323086e6353d4de9af3f8bbd29b08c6f89d686f3f9ba3626920980361bc22ae8"
+      "output_sha256": "7756d1eb5d47e67a63b2802522877b8a48d18efd5d3f44eb38b0bfcc614c00aa"
     },
     {
       "id": "4gHciUBFQyZokyp0w1cP",
@@ -84,7 +96,7 @@
       "status": "extracted",
       "line_count": 45,
       "output": "5yGvtahfPqbBNd1sW4cu.md",
-      "output_sha256": "0c2f0080c54bb0e5e9c261bddd46181120ccefc0d72771b7108329e9045b811e"
+      "output_sha256": "43bb398fa0759e95cfa48db6aafe8fcddbf669277cdfff87fd1e172a07f97b0f"
     },
     {
       "id": "686SZ4M4AjOiLmUg9jxl",
@@ -96,19 +108,7 @@
       "status": "extracted",
       "line_count": 3,
       "output": "686SZ4M4AjOiLmUg9jxl.md",
-      "output_sha256": "ac94fa7a4e3e703143c4bd3bf40726e2f58df6cad5874cb7e02d33684b124d50"
-    },
-    {
-      "id": "6Lsf5Km990aod15t0wpT",
-      "file": "xxyy-docs-6Lsf5Km990aod15t0wpT.png",
-      "sha256": "38b12f50a569d16df9ce6a8b95103b27a0c4ae33870c7311898d7f482f225f1a",
-      "source_pages": [
-        "https://docs.xxyy.io/getting-started/fa-xian/qu-shi"
-      ],
-      "status": "extracted",
-      "line_count": 53,
-      "output": "6Lsf5Km990aod15t0wpT.md",
-      "output_sha256": "f79c2350f1ba3383b4d5f8d54c1093997580604cb132b6957dd2146790d5398b"
+      "output_sha256": "b5cd89fd083956b30cc68ee935c888499ba49e51b1def4cb0cd7ca4bc460fa5f"
     },
     {
       "id": "6NKGX1efKpAS0N5oB3wf",
@@ -120,7 +120,7 @@
       "status": "extracted",
       "line_count": 14,
       "output": "6NKGX1efKpAS0N5oB3wf.md",
-      "output_sha256": "75386cea469421aad5a5733af79f408f650ee73ba49ffa7927a528f5433e6264"
+      "output_sha256": "23d95e7d11a25ab3c40666efebc0b434d164d5187bfbf9830f555c43cb6aa52c"
     },
     {
       "id": "78HPvfnMCXc9HwK9rPKa",
@@ -133,6 +133,18 @@
       "line_count": 0
     },
     {
+      "id": "7s2hUjiBPJu9bem5p4P3",
+      "file": "xxyy-docs-7s2hUjiBPJu9bem5p4P3.png",
+      "sha256": "34f591246bd55755d5ae591bc66c1ea1437efe6fcbf05ca6b52f30b78da0d61a",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/qian-bao-jian-kong"
+      ],
+      "status": "extracted",
+      "line_count": 7,
+      "output": "7s2hUjiBPJu9bem5p4P3.md",
+      "output_sha256": "e1d2321cba778ea7fa2863d328747f1c5388adf19d86b779ebd14a5c9f9e1a31"
+    },
+    {
       "id": "8nkvbFcMNEEQfWA0Tw2i",
       "file": "xxyy-docs-8nkvbFcMNEEQfWA0Tw2i.png",
       "sha256": "54fe8ba2bbcaa647a210f5066b9b4f88ea13dcd83bb390f35e11ad4b00b0ec00",
@@ -142,7 +154,7 @@
       "status": "extracted",
       "line_count": 36,
       "output": "8nkvbFcMNEEQfWA0Tw2i.md",
-      "output_sha256": "370a8a8605f0d4c2b42d039141ab4c3e9e8697b9cef13743b167014955d798f9"
+      "output_sha256": "ea43e048cc30f1deea9252329b18f9e17cda177d2102742feec971ff804860ef"
     },
     {
       "id": "9s2Tl8yJTIBjsYwfzBf3",
@@ -154,7 +166,7 @@
       "status": "extracted",
       "line_count": 39,
       "output": "9s2Tl8yJTIBjsYwfzBf3.md",
-      "output_sha256": "c461a55e70742284d7cfb2868a8f882bfbac3138c47447f319c4c3ce22b3fdab"
+      "output_sha256": "c5c03b40209409390207e0d3c4898bf5b415bc785eeb9622104ffa1850ba094d"
     },
     {
       "id": "9v8qcOUn4N03ypguKhlV",
@@ -166,7 +178,19 @@
       "status": "extracted",
       "line_count": 38,
       "output": "9v8qcOUn4N03ypguKhlV.md",
-      "output_sha256": "ab41d21bd5f188f6b355a70da1eca64ac4820a7dcbd7193d7f6e5e1678db76e8"
+      "output_sha256": "59863428e3836d9ec585a16043b549594bd4e286093b4c1d966707ec014b1ad4"
+    },
+    {
+      "id": "AIQPPvvVp0lNSuHYjxyu",
+      "file": "xxyy-docs-AIQPPvvVp0lNSuHYjxyu.png",
+      "sha256": "0da40ef72ac9485f5651de3181fd9c746ace8cac1191a8446b81f9a0f7c920ac",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ],
+      "status": "extracted",
+      "line_count": 73,
+      "output": "AIQPPvvVp0lNSuHYjxyu.md",
+      "output_sha256": "c7887fe94fdec950a24e461a09b650dea9d8a0392f090a0715db1d7fc1db91f7"
     },
     {
       "id": "ASksaL8WCiyxMtRMVehE",
@@ -190,7 +214,7 @@
       "status": "extracted",
       "line_count": 43,
       "output": "AtIrzWQMWiI3EOfRGY62.md",
-      "output_sha256": "56f2b6b443039b666a969205a42d5505c2e2cd4f3dde52ea7ff24804266506e5"
+      "output_sha256": "5edc12cb2956a837309839a7b8663910a120e619dd034badd1ed974868cd5d48"
     },
     {
       "id": "b2g0SnXIXKGQy8Zbmunh",
@@ -202,7 +226,7 @@
       "status": "extracted",
       "line_count": 29,
       "output": "b2g0SnXIXKGQy8Zbmunh.md",
-      "output_sha256": "753406d3ad8b3ee8041b18e6b89c0ccc18bfc61339c7b9333be8f1c8b41eb9aa"
+      "output_sha256": "152258561defac39ca2ea776b7768ef95e42906d3d9de350ead9af7f3d6ac3cb"
     },
     {
       "id": "BJY6y55V0JvaIYolgP1o",
@@ -238,7 +262,31 @@
       "status": "extracted",
       "line_count": 7,
       "output": "bLGqA0inBnBEiY46oZve.md",
-      "output_sha256": "4685c7d7d9e8ce03afeb4b24c9e331f756999876af95bdac50d004af1c5284f6"
+      "output_sha256": "262e55b7e6219dd2bd3b8479dc8d8cf5fd33cb4e3c17199d392ccc07c7a9ade5"
+    },
+    {
+      "id": "BMCrI3lNPAcXdVdniEGw",
+      "file": "xxyy-docs-BMCrI3lNPAcXdVdniEGw.png",
+      "sha256": "aba99a4082c89f9c92060f53938998d42bd1896b9fc7000f9c4e5c5126922c3e",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/qian-bao-jian-kong"
+      ],
+      "status": "extracted",
+      "line_count": 34,
+      "output": "BMCrI3lNPAcXdVdniEGw.md",
+      "output_sha256": "4b68102087542cfaff6697e796da93c0033953c06ad7709d51145d1e57415753"
+    },
+    {
+      "id": "BNBvrS8iqQalS6gYGhPG",
+      "file": "xxyy-docs-BNBvrS8iqQalS6gYGhPG.png",
+      "sha256": "8378f9bc2a190387e6cdef0f1fd66197279aa694ea8918ffa1ba1c53ec265758",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/jian-kong-ce-le-guan-li"
+      ],
+      "status": "extracted",
+      "line_count": 22,
+      "output": "BNBvrS8iqQalS6gYGhPG.md",
+      "output_sha256": "ae4c00449cb8673ada07859abee514f40de6260260cdc405586864cc531f1ebe"
     },
     {
       "id": "chJTaKJFCWVkBYbIAMTh",
@@ -250,7 +298,7 @@
       "status": "extracted",
       "line_count": 9,
       "output": "chJTaKJFCWVkBYbIAMTh.md",
-      "output_sha256": "21d688c6c6e92051bcf303405019b1b1bf66991ba1b25a30be8cef62a71add38"
+      "output_sha256": "f3b9087a91f06b321ab749d264fdf43ea514a74a8413637488d1a7b92fab388a"
     },
     {
       "id": "cR0sclqLpHqDU735L290",
@@ -274,7 +322,7 @@
       "status": "extracted",
       "line_count": 17,
       "output": "dmtkQvx7uPQaXKcwcHQY.md",
-      "output_sha256": "c8e2dc565fb221d5df4639723d7efb46b105cb2a317d5419152a2059792130b7"
+      "output_sha256": "b257a7a67fb0302b9b2b041b899787878e4079fb977bcb2023973585660fd6a0"
     },
     {
       "id": "DOsUX3pzWo2cjWWRzgFw",
@@ -286,7 +334,31 @@
       "status": "extracted",
       "line_count": 39,
       "output": "DOsUX3pzWo2cjWWRzgFw.md",
-      "output_sha256": "487d0bcf09da765cd52e02b1caf4f30a06677bc5199a0445da5ada0b3bbdb937"
+      "output_sha256": "2c0e1de24f331da07d2e3fd63c5dc27a7d07ec92474723ff912475ba480a9037"
+    },
+    {
+      "id": "e67oLPCOc07Wvndi77sz",
+      "file": "xxyy-docs-e67oLPCOc07Wvndi77sz.png",
+      "sha256": "b5ab75d939e6d7d1c0c2b7c89437743d5eceaacaf3c00de2fc9a9294b6e6eaab",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/fa-xian"
+      ],
+      "status": "extracted",
+      "line_count": 34,
+      "output": "e67oLPCOc07Wvndi77sz.md",
+      "output_sha256": "4832c8e8efac3c2afb35d4fd0744b1028c1ff879b1cce268281d70e366c10175"
+    },
+    {
+      "id": "EAITEoB9KFYg72vEkyjC",
+      "file": "xxyy-docs-EAITEoB9KFYg72vEkyjC.png",
+      "sha256": "df045936c9fe592d47dcd9081911d200dc8dd295cf6811ccc3c6747fbf3319fc",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/jiao-yi-dai-bi/kuai-jie-jiao-yi"
+      ],
+      "status": "extracted",
+      "line_count": 22,
+      "output": "EAITEoB9KFYg72vEkyjC.md",
+      "output_sha256": "c100f2cd8c61b670f1d32db9edf33f4c93287ede209a689abd230eeb196e1d07"
     },
     {
       "id": "eNoypbIGTwGZ7rpW1pCh",
@@ -298,7 +370,7 @@
       "status": "extracted",
       "line_count": 47,
       "output": "eNoypbIGTwGZ7rpW1pCh.md",
-      "output_sha256": "63e1c4db68aab7f2d5821de7ea3285a69c4436a7dbcab76eca6a513ffc8d46aa"
+      "output_sha256": "5c611306e49840456aefd97b59561662f10760cc5758b52ec8f2ad82819cf3cf"
     },
     {
       "id": "eqI2XyrjRTZoDN1FXmVa",
@@ -322,7 +394,7 @@
       "status": "extracted",
       "line_count": 18,
       "output": "ERAux5pNANaT70RL8H0h.md",
-      "output_sha256": "d42d82af720017788bc26dc7236302fde86789035abce1a11832a94d3f59c469"
+      "output_sha256": "9f34d2a04aa3fd6cf28b1b8818506eaf4940436f546009bf8a372d61286dcb63"
     },
     {
       "id": "ExG0krJR2NviFCsjBqlC",
@@ -334,7 +406,7 @@
       "status": "extracted",
       "line_count": 11,
       "output": "ExG0krJR2NviFCsjBqlC.md",
-      "output_sha256": "06631c5ad7114a641840b2feb232f65954b842f950b7f13b0477c3356a597bc9"
+      "output_sha256": "890c48b5d3d2b9e5e258d2094cd8a8516520f6c2782e2582c921271991b6f7de"
     },
     {
       "id": "F6DraN3T6h7VBukNGUQT",
@@ -346,7 +418,7 @@
       "status": "extracted",
       "line_count": 54,
       "output": "F6DraN3T6h7VBukNGUQT.md",
-      "output_sha256": "6229120292846f194236b602ad12d3bd9fad7ce32370f332dfa59e554a77f378"
+      "output_sha256": "f2465a01aa50ef1c165aed84198bc10d876b9d6cac5fdfea0e3c7bc771e8b156"
     },
     {
       "id": "GKEf7S8baIF2tqXL2OEq",
@@ -358,7 +430,31 @@
       "status": "extracted",
       "line_count": 58,
       "output": "GKEf7S8baIF2tqXL2OEq.md",
-      "output_sha256": "78788da1d081d32dfd7bbd9b0993f70a566575ba46ee7802276b22e615228b69"
+      "output_sha256": "c237526440db91cf67b2fd8b6c85b3275438474c3981ebaddd9ba7a32f2a1b47"
+    },
+    {
+      "id": "GtWZ8IVTBzwDsItjXGBO",
+      "file": "xxyy-docs-GtWZ8IVTBzwDsItjXGBO.png",
+      "sha256": "a29af4d265791c11cec7313dd127370ac4a927a8488ce89af2f4b8258fbbe475",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/fa-xian/shou-cang"
+      ],
+      "status": "extracted",
+      "line_count": 51,
+      "output": "GtWZ8IVTBzwDsItjXGBO.md",
+      "output_sha256": "880b9e6f59b47c0911d6cedc79ea5cb374520b1ab3077e59ce08ed98f97c9e11"
+    },
+    {
+      "id": "h52zNtPtUsH2wqBzHfFy",
+      "file": "xxyy-docs-h52zNtPtUsH2wqBzHfFy.png",
+      "sha256": "edce57e7e86331cfcf5488fb0c26ca1f8770ea406f337d8e4250451088795e05",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ],
+      "status": "extracted",
+      "line_count": 87,
+      "output": "h52zNtPtUsH2wqBzHfFy.md",
+      "output_sha256": "6c21546e978728a91c78c45bdde684bcd3490a98eb1ab6b00da404d475b2c4b7"
     },
     {
       "id": "I36S6DsTX26wD9nfxUZG",
@@ -370,7 +466,7 @@
       "status": "extracted",
       "line_count": 54,
       "output": "I36S6DsTX26wD9nfxUZG.md",
-      "output_sha256": "9bb64fcb58e95ca69cb204729d23612c4064c6d13023fb13db10b3653cc0de20"
+      "output_sha256": "39e484f5adba1a4d858cb490ae638d2e3646ca64ce66554c93873ef8598945e2"
     },
     {
       "id": "J9UHLGursNDwyARUTDFb",
@@ -382,7 +478,7 @@
       "status": "extracted",
       "line_count": 3,
       "output": "J9UHLGursNDwyARUTDFb.md",
-      "output_sha256": "93b1135f03b38ef8a98ee65891246c9c0c3831f45701f6a486be2701f4b90a42"
+      "output_sha256": "21b78a9a7f6145e8855c2f50323317f506d77e600685d7ddadac855e44bd40d8"
     },
     {
       "id": "jHIF93dsXeWSM8iX7ViU",
@@ -394,7 +490,7 @@
       "status": "extracted",
       "line_count": 6,
       "output": "jHIF93dsXeWSM8iX7ViU.md",
-      "output_sha256": "653fc570b3dbb1728cce6809bcd61c46d7dabe55c218b9e8a55bbba2aa18ddd3"
+      "output_sha256": "1a64a9f66bc014419aeacab452834735c77d02e7dea4dee7683fa1f3f30e9453"
     },
     {
       "id": "JVEal1HJSbGOayua51lG",
@@ -406,7 +502,7 @@
       "status": "extracted",
       "line_count": 2,
       "output": "JVEal1HJSbGOayua51lG.md",
-      "output_sha256": "d4f85bcffd9be900e568d33a1a5b05cbe9b59f767cedf1f8c71eb9df9919d10c"
+      "output_sha256": "0b17e8e703e7d9aec43b71e243b7a3104dec2c94da3da29fdcf48df107a184e0"
     },
     {
       "id": "k53BiwRqdueABWvPfFaP",
@@ -417,6 +513,30 @@
       ],
       "status": "no_text",
       "line_count": 0
+    },
+    {
+      "id": "K78LBPs5q8YGKgKRHZwX",
+      "file": "xxyy-docs-K78LBPs5q8YGKgKRHZwX.png",
+      "sha256": "7a3bdc1d0882da88d464f6e58c6639061e873d02ff7da79c4affbea08bb14088",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/fa-xian/qu-shi"
+      ],
+      "status": "extracted",
+      "line_count": 41,
+      "output": "K78LBPs5q8YGKgKRHZwX.md",
+      "output_sha256": "323d79c95fb5ef099a19e70746c0d75f4c16108b8593f111b560e08e8447b2fd"
+    },
+    {
+      "id": "KBpL2vsntDkfNy9u902K",
+      "file": "xxyy-docs-KBpL2vsntDkfNy9u902K.png",
+      "sha256": "e126bd7a12dded093f9115f9d84c8c9bc78a78cfb7a59065ff4774fe9157454d",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/jian-kong-ce-le-guan-li"
+      ],
+      "status": "extracted",
+      "line_count": 18,
+      "output": "KBpL2vsntDkfNy9u902K.md",
+      "output_sha256": "f6d2641163ae309d3b65002300ccc50e2882e046de8de000bab4cb6854fb8155"
     },
     {
       "id": "kho98IPJcOUVXIFjrxhA",
@@ -453,6 +573,18 @@
       "output_sha256": "4a5edfd64e3547ea3a678bd6e65c9ada1ca98f2598588e757b0af187881bf292"
     },
     {
+      "id": "Lw1OP8kyK3YM6a65Se02",
+      "file": "xxyy-docs-Lw1OP8kyK3YM6a65Se02.png",
+      "sha256": "d62c5ccc88214c53a0dd50d86a256814847bc6a4e6ab3a38c82b766fe74dd9bf",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ],
+      "status": "extracted",
+      "line_count": 91,
+      "output": "Lw1OP8kyK3YM6a65Se02.md",
+      "output_sha256": "3c8dec86634a8359af35cc453ce4eb96a8b52873a83213285b7294274b44e84a"
+    },
+    {
       "id": "M2KSZxlxcOG2NPpU9zSN",
       "file": "xxyy-docs-M2KSZxlxcOG2NPpU9zSN.png",
       "sha256": "8b9d078e642526b474f9fe27a5e6b01b1544656500936fab302e9b3806bac9e3",
@@ -462,7 +594,7 @@
       "status": "extracted",
       "line_count": 11,
       "output": "M2KSZxlxcOG2NPpU9zSN.md",
-      "output_sha256": "884ddd5a928d905844e3d3762d889d01d2ccca69b4f4eeaf345f8bfc15d1b5b1"
+      "output_sha256": "adadf0e2f2d54d6ad601f97521cfa6e3a177064031d9cfe83c6d97ddbf8f0148"
     },
     {
       "id": "nLRKWojixnpOMvyNzXTQ",
@@ -477,6 +609,18 @@
       "output_sha256": "d2e2ad5e131094588f39fe6ad71a1012d3f443934317b721755c42abb38c1c84"
     },
     {
+      "id": "NOkKrM8fJ8mQ4uLrsesq",
+      "file": "xxyy-docs-NOkKrM8fJ8mQ4uLrsesq.png",
+      "sha256": "aa9a56f56f67c959ea2bf73820d2da476df6aae94beaf41521b272116c0c6ffd",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/qian-bao-jian-kong"
+      ],
+      "status": "extracted",
+      "line_count": 11,
+      "output": "NOkKrM8fJ8mQ4uLrsesq.md",
+      "output_sha256": "d6f99dccca179ac4b6a516d9d54aba9ce037749db284d00ce3e2cbff6134bb2d"
+    },
+    {
       "id": "o2anaqzyVTDzAYOMNOOJ",
       "file": "xxyy-docs-o2anaqzyVTDzAYOMNOOJ.png",
       "sha256": "5974075827a678613853e8eeddc0a406ced22f28ca0b7dccbc42425097bfe510",
@@ -486,7 +630,7 @@
       "status": "extracted",
       "line_count": 29,
       "output": "o2anaqzyVTDzAYOMNOOJ.md",
-      "output_sha256": "6f6958f43dd5930772b2148729a00b30d81350389ff5b4cfd0d03dcbfeb7a7ec"
+      "output_sha256": "79c468dc1aad23723a6eef6a4d27a413f5e994fb7a94a560aab3d029f6810cbd"
     },
     {
       "id": "oEQQ1xPzqbaeYwKajypc",
@@ -498,7 +642,7 @@
       "status": "extracted",
       "line_count": 123,
       "output": "oEQQ1xPzqbaeYwKajypc.md",
-      "output_sha256": "e4259313210d0e405d9db77e44d89a31fe391434d9a0460e67729d97eca510b4"
+      "output_sha256": "28d92b1858024f6156e69e51114a0f58c12b5e26a4b34571e61d0d166084592a"
     },
     {
       "id": "oq6BgG0mCkrfKeaJQzCz",
@@ -522,19 +666,7 @@
       "status": "extracted",
       "line_count": 43,
       "output": "OTQpiBbeq7DOm88XuBb1.md",
-      "output_sha256": "8017b1be25285aabe4da9c5c917846cbe131bb4a4c8b7dc630e235761a8ca21a"
-    },
-    {
-      "id": "OUtqxTlWa4x5sGurBMKY",
-      "file": "xxyy-docs-OUtqxTlWa4x5sGurBMKY.png",
-      "sha256": "950875290a692856aa512571b10672c50fb332bf80839b5998725331bef50d21",
-      "source_pages": [
-        "https://docs.xxyy.io/getting-started/fa-xian/shou-cang"
-      ],
-      "status": "extracted",
-      "line_count": 67,
-      "output": "OUtqxTlWa4x5sGurBMKY.md",
-      "output_sha256": "772f7058ea43ac63743432336f601b63b525a66eb06756479a2302d423d8bc56"
+      "output_sha256": "698621f77c23369c3055f3358289baf8c3be1aa9324588b537457dfd67bf5cfa"
     },
     {
       "id": "PihNl8dueMsgByFnDrqF",
@@ -546,7 +678,7 @@
       "status": "extracted",
       "line_count": 30,
       "output": "PihNl8dueMsgByFnDrqF.md",
-      "output_sha256": "d777f3ac55ed46847c8a06056e66a6eab3d5a924db373ca7ec4e4f732ed4238d"
+      "output_sha256": "57c6e2b0ba9faf62bf3a871f7058c7e92c5699c435558a38a16e5685bb3509bf"
     },
     {
       "id": "pKDlM8UnsF9hm4jH5mfQ",
@@ -570,7 +702,7 @@
       "status": "extracted",
       "line_count": 38,
       "output": "PsmHIuLvl8x87Vuyo7CG.md",
-      "output_sha256": "52769404815ca30dbe4374645737245dda2fe8be88848d735370294f9a77e776"
+      "output_sha256": "5d71569898999ced02f9ee7156320e1ead836e2e37ebda4a6ec13f2e144ae503"
     },
     {
       "id": "pzlN4PTY7VR9P4CCWsQj",
@@ -582,7 +714,7 @@
       "status": "extracted",
       "line_count": 4,
       "output": "pzlN4PTY7VR9P4CCWsQj.md",
-      "output_sha256": "352733aa6fbe0658245d40555facf9f757e166076160127a919e7e5a867eeafd"
+      "output_sha256": "eb5b88426c26c534104d5b97eb116ce57fb542ea54a74ba2ad294deeaac89e71"
     },
     {
       "id": "Qvg8oNjGG4Dx3IkgzCmx",
@@ -594,7 +726,19 @@
       "status": "extracted",
       "line_count": 16,
       "output": "Qvg8oNjGG4Dx3IkgzCmx.md",
-      "output_sha256": "519e8155bea6c90c86ef14232c2e3e42256b8a5898e1b7741a0bccf430081a77"
+      "output_sha256": "4eef00f4cd7206c967acf24e6afd099e4100bf8ebfa6e6864f7218b6c87aeb48"
+    },
+    {
+      "id": "QYpT9kvBNjkSoQ3L0rqk",
+      "file": "xxyy-docs-QYpT9kvBNjkSoQ3L0rqk.png",
+      "sha256": "3c794828bc37f9104cb863f000c041e3453da5a932c71b0bceabb1e657aeec03",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/fa-xian/kol-mai-ru-tagholder-mai-ru"
+      ],
+      "status": "extracted",
+      "line_count": 41,
+      "output": "QYpT9kvBNjkSoQ3L0rqk.md",
+      "output_sha256": "a150d0b85dec070cc6648fb04bcb38924ca0b899f1aca97d46a5701ea38f4f04"
     },
     {
       "id": "R0XknhDckz2koDKHhPym",
@@ -606,7 +750,7 @@
       "status": "extracted",
       "line_count": 57,
       "output": "R0XknhDckz2koDKHhPym.md",
-      "output_sha256": "e2bfa10e7c7bd19dd49408252e49a1e1e61a3d65c0ae8c66389487d897936466"
+      "output_sha256": "49729a264192d9bc024bc0ab7af0181d30f2f209e5661ef6267aaa617d74af57"
     },
     {
       "id": "RAXCEZ5MZ7huomfDc7nk",
@@ -618,7 +762,7 @@
       "status": "extracted",
       "line_count": 33,
       "output": "RAXCEZ5MZ7huomfDc7nk.md",
-      "output_sha256": "858c71a7a5857280415a68db5f31463a6453f673c54fae7da1a0e603dd4919b5"
+      "output_sha256": "f0d2b98860f18bbb5ccfb459439445fc99b4458daae50410d803e334bdb4098b"
     },
     {
       "id": "reGhTxjhXRct4gsxivFL",
@@ -630,7 +774,19 @@
       "status": "extracted",
       "line_count": 48,
       "output": "reGhTxjhXRct4gsxivFL.md",
-      "output_sha256": "89637f5196eca37a375a087c5576298541dcfcf9cc15148f57cdffa69e131c35"
+      "output_sha256": "93f209104bed6c269dcf4193db7e08f287e8fccb9d9d7cafa5e120a6376cce86"
+    },
+    {
+      "id": "RHYJXj6Z2yNPAHbF8zVS",
+      "file": "xxyy-docs-RHYJXj6Z2yNPAHbF8zVS.png",
+      "sha256": "41e637f48bc0919242612b7ece52b85ac8b93244ab01d1d668fa918ba5baa54a",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ],
+      "status": "extracted",
+      "line_count": 16,
+      "output": "RHYJXj6Z2yNPAHbF8zVS.md",
+      "output_sha256": "0811e3a5d5dd318f634cddf8f51569089113b212a2f31a9d8113bdb793ec87cd"
     },
     {
       "id": "rLFlxJvymmD0CnN5zQ3o",
@@ -642,7 +798,7 @@
       "status": "extracted",
       "line_count": 57,
       "output": "rLFlxJvymmD0CnN5zQ3o.md",
-      "output_sha256": "cf6c4cce9140cc5ee780ed387236cda6fab096bf78bab9db00c06d6ea7d6527d"
+      "output_sha256": "7dc20a17a195d24eebd490c1df762ccfe550ae3db6c7d93149e2f07344937f67"
     },
     {
       "id": "s1GC6881bft4g0hiy57M",
@@ -657,16 +813,16 @@
       "output_sha256": "ef8409cbbe408b45ca26d566b95f6bf667d4fb02184aea995022389516abe2fb"
     },
     {
-      "id": "s8gm4mj88qp1XP5fdBqH",
-      "file": "xxyy-docs-s8gm4mj88qp1XP5fdBqH.png",
-      "sha256": "069140f08d87dc8b4a2cc939d8ee6058f113288902869d4d792bee5d134c076f",
+      "id": "sa0ofU6Q0bMWhoeke7pW",
+      "file": "xxyy-docs-sa0ofU6Q0bMWhoeke7pW.png",
+      "sha256": "125bd3355bb81070a5ed42fcc83a2fa1abadd3eaa5f540ef4e56dcb9f636e76a",
       "source_pages": [
-        "https://docs.xxyy.io/getting-started/fa-xian/qian-bao-jian-kong"
+        "https://docs.xxyy.io/getting-started/gen-dan"
       ],
       "status": "extracted",
-      "line_count": 22,
-      "output": "s8gm4mj88qp1XP5fdBqH.md",
-      "output_sha256": "803c2b28a28d13121b1d2f68012371f45c2afd1b5387536b4265ab9c6308be32"
+      "line_count": 50,
+      "output": "sa0ofU6Q0bMWhoeke7pW.md",
+      "output_sha256": "d86dcf786a0551e5658668bf0bfb68621f1778d96aed27903dc65ba44bfd3d86"
     },
     {
       "id": "SB3zBWjpXk6iOGXd8ZIH",
@@ -691,6 +847,18 @@
       "output_sha256": "7e08e517a87c5e7f3c1826c15bdd23017de67df98e966d1dc4ba4e5656fb9504"
     },
     {
+      "id": "SiFYNC1wUMXIDATqutNT",
+      "file": "xxyy-docs-SiFYNC1wUMXIDATqutNT.png",
+      "sha256": "325b804040ad6359b92cb9693b237ce93a1df421cd4f246547cd35e31b2b5936",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ],
+      "status": "extracted",
+      "line_count": 18,
+      "output": "SiFYNC1wUMXIDATqutNT.md",
+      "output_sha256": "3e7e5aa88b4c7af26eb023dba9b26170f4177c8ba72642bc71735cce1820ff3d"
+    },
+    {
       "id": "t17MmSt3XfKtoudpmd6H",
       "file": "xxyy-docs-t17MmSt3XfKtoudpmd6H.png",
       "sha256": "51c594d95518acddc6eebe0aba274baa4bedadcbc361ee490f9e4764f4b52868",
@@ -700,7 +868,31 @@
       "status": "extracted",
       "line_count": 15,
       "output": "t17MmSt3XfKtoudpmd6H.md",
-      "output_sha256": "ae983255fad705718df0303701154fe6e015fa3fa01948f6874558ec47e1617e"
+      "output_sha256": "e60aed612dcb3b9a69ed1348a94aef8ccc1bc184fdbb151b64d874c6413c9dd9"
+    },
+    {
+      "id": "TtqfefdBBCFA6uZ7r8MI",
+      "file": "xxyy-docs-TtqfefdBBCFA6uZ7r8MI.png",
+      "sha256": "419e7715f0cef4739149e2c0bfc50a8ca17e98516bcae9b8e369e1de9f806428",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ],
+      "status": "extracted",
+      "line_count": 13,
+      "output": "TtqfefdBBCFA6uZ7r8MI.md",
+      "output_sha256": "76c658b086e47a6524dbed8d159dee1161499a1cc2314b57be4d7db815b8f5cd"
+    },
+    {
+      "id": "U1gKvw448ob3NrJZv2WV",
+      "file": "xxyy-docs-U1gKvw448ob3NrJZv2WV.png",
+      "sha256": "a6cfac6634745d3ea59339fb4e0913373427437b1d935ac6147d47993dec1f6c",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/jiao-yi-dai-bi/kuai-jie-jiao-yi"
+      ],
+      "status": "extracted",
+      "line_count": 25,
+      "output": "U1gKvw448ob3NrJZv2WV.md",
+      "output_sha256": "bd0b0054d42685df63b297e580b696dbc35971a02312e29f8d722a8bca6e94a7"
     },
     {
       "id": "UFVVyA4eX5gXiDnVMIFn",
@@ -712,7 +904,7 @@
       "status": "extracted",
       "line_count": 32,
       "output": "UFVVyA4eX5gXiDnVMIFn.md",
-      "output_sha256": "0a0533eec2c9b1e64f2e9b481845e4f367f8e54dc71c2f261b5c80af4e7cdb11"
+      "output_sha256": "c50cb1c7712b1dcdc6d5723d8bb7a93bd95ff9791a56b5a931572a0317d21466"
     },
     {
       "id": "VifNwwGl9JqeDkFQoomu",
@@ -727,6 +919,18 @@
       "output_sha256": "2850c4f137e0663bb1819a3dfddcefd0fe2f8a64c197110c6966f370139ed5de"
     },
     {
+      "id": "w128rYToLCcQu5034G78",
+      "file": "xxyy-docs-w128rYToLCcQu5034G78.png",
+      "sha256": "1dae2f0da3317150057ce1c8fc1cf723f4ec8908315e6f38885016807c9eae05",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ],
+      "status": "extracted",
+      "line_count": 5,
+      "output": "w128rYToLCcQu5034G78.md",
+      "output_sha256": "045a6b5922f0ee5c45e2af0d9280deba0acffe72ca12dcbb4d99731aef8441e2"
+    },
+    {
       "id": "W9ehM5yAH8jJVUN6CI2B",
       "file": "xxyy-docs-W9ehM5yAH8jJVUN6CI2B.png",
       "sha256": "8876c7598cca1ea8d977b2f5107d362912659c1512b948a616cef26038b97873",
@@ -736,7 +940,7 @@
       "status": "extracted",
       "line_count": 11,
       "output": "W9ehM5yAH8jJVUN6CI2B.md",
-      "output_sha256": "ca78cb6f1b6389518e429d75e8e652322173303cb1fca5f7b3831c01450f7671"
+      "output_sha256": "29d907d1f3713a205dbd78d59359b7950e3766540cb860a7364f826248d58591"
     },
     {
       "id": "WK0lNaxaDTjKOW6HFVtP",
@@ -749,6 +953,30 @@
       "line_count": 45,
       "output": "WK0lNaxaDTjKOW6HFVtP.md",
       "output_sha256": "4dbb4c7d53db70609a49351f028160dda7cf87d0004f635f94ba3df44b410c59"
+    },
+    {
+      "id": "WRDmUZH9UK19ab4tbwhA",
+      "file": "xxyy-docs-WRDmUZH9UK19ab4tbwhA.png",
+      "sha256": "90c0904d79fdb82eb54e1adee883cc1b2b26b8d134048788862df9010ec6e249",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/qian-bao-jian-kong"
+      ],
+      "status": "extracted",
+      "line_count": 99,
+      "output": "WRDmUZH9UK19ab4tbwhA.md",
+      "output_sha256": "3cccc37ffaab09362326df83cd1cbb71ac842e3a379653fac21ebe2218378217"
+    },
+    {
+      "id": "XPTyJVOPhYSaKcppRX1K",
+      "file": "xxyy-docs-XPTyJVOPhYSaKcppRX1K.png",
+      "sha256": "529007a426ac7d1eccaaafef79b116df2281a02e2a10a62ab8f0d147e559b58b",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/jian-kong-ce-le-guan-li"
+      ],
+      "status": "extracted",
+      "line_count": 30,
+      "output": "XPTyJVOPhYSaKcppRX1K.md",
+      "output_sha256": "0d20b8e0fec5ab78f3897c9ecd845bec1df4f81aeb0df92ff11c2faff0286ad0"
     },
     {
       "id": "Xv6OxYIiwvIag33stBvP",
@@ -772,7 +1000,7 @@
       "status": "extracted",
       "line_count": 27,
       "output": "y8QTDoaG5t6Nbc0AoIMJ.md",
-      "output_sha256": "bb78a358dfedf269f85d5cb5b8f46bc540390978f791900614f83c0ac29c4396"
+      "output_sha256": "6809c456fee332628c4edc2f3614291c9d45aa32dc0e164f5830be68e2e0a32d"
     },
     {
       "id": "yaEfEws8XjABhDditdMX",
@@ -784,7 +1012,7 @@
       "status": "extracted",
       "line_count": 45,
       "output": "yaEfEws8XjABhDditdMX.md",
-      "output_sha256": "23cbc669be99b2a9b1409cd78f42016cc3e29ee8fc3a38f52cef48d365832e28"
+      "output_sha256": "fe5e1c4a12b50e8b42939a0fddc979fc4e227c6934033933f781e6619866683a"
     },
     {
       "id": "ybyRH7IHeFd9ni8VTybg",
@@ -796,7 +1024,43 @@
       "status": "extracted",
       "line_count": 31,
       "output": "ybyRH7IHeFd9ni8VTybg.md",
-      "output_sha256": "2f8596da9a95af6a57d3761041bc25da722b17f2560e153f4d4a2d727f31a7a9"
+      "output_sha256": "df1e3cb8ab314745e5ece567afc8b40216e7294ad1086606462be04e2ae7121b"
+    },
+    {
+      "id": "YIwea6nKLRJ5OGcuzN2L",
+      "file": "xxyy-docs-YIwea6nKLRJ5OGcuzN2L.jpg",
+      "sha256": "5dd2f034cf73de4cc8d28b5c083669bf7f262b91cab6ec8873893a94a9c3dc56",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/jian-kong-ce-le-guan-li"
+      ],
+      "status": "extracted",
+      "line_count": 31,
+      "output": "YIwea6nKLRJ5OGcuzN2L.md",
+      "output_sha256": "5b8e7c55000c72bebd79444e64f52ddfb198ebd32d2ae290d0c30bd74d8b6a1c"
+    },
+    {
+      "id": "yKMjnHsoSyzFE6c5Hnqy",
+      "file": "xxyy-docs-yKMjnHsoSyzFE6c5Hnqy.png",
+      "sha256": "38a757220b348a60452218b018b21919cdd00ec179241737df3a53cd8562c322",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ],
+      "status": "extracted",
+      "line_count": 9,
+      "output": "yKMjnHsoSyzFE6c5Hnqy.md",
+      "output_sha256": "b966b93da929be7cd80d00c17d0c00c159a6f4d86e4ab5db762a037a582cbbea"
+    },
+    {
+      "id": "YPlOpf2oZihYmIKnKddR",
+      "file": "xxyy-docs-YPlOpf2oZihYmIKnKddR.png",
+      "sha256": "21d541449192ca44ade2a1d0f25cce058b4ca0c965d6b6f9bb3c694e8c571e7a",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ],
+      "status": "extracted",
+      "line_count": 17,
+      "output": "YPlOpf2oZihYmIKnKddR.md",
+      "output_sha256": "11bc12c2103516656bd2a33a19483b368ed6d1fd71c779a84f2998493058a6f7"
     }
   ]
 }

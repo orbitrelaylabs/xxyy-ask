@@ -2,7 +2,7 @@
 title: "邀请朋友：截图文字"
 section: "新手入门 / 图片 OCR"
 source_url: "https://docs.xxyy.io/readme/yao-qing-peng-you"
-retrieved_at: "2026-07-19T16:07:12.754Z"
+retrieved_at: "2026-08-01T03:59:58.546Z"
 status: current
 ---
 

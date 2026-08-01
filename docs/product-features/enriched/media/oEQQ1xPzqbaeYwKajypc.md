@@ -2,7 +2,7 @@
 title: "打满 Alert：截图文字"
 section: "扫链页面 / 图片 OCR"
 source_url: "https://docs.xxyy.io/getting-started/sao-lian-ye-mian/da-man-alert"
-retrieved_at: "2026-07-19T16:07:12.754Z"
+retrieved_at: "2026-08-01T03:59:58.546Z"
 status: current
 ---
 

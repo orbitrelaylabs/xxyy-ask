@@ -2,7 +2,7 @@
 title: "价格市值切换：截图文字"
 section: "K线区域 / 图片 OCR"
 source_url: "https://docs.xxyy.io/getting-started/k-xian-qu-yu/jia-ge-shi-zhi-qie-huan"
-retrieved_at: "2026-07-19T16:07:12.754Z"
+retrieved_at: "2026-08-01T03:59:58.546Z"
 status: current
 ---
 

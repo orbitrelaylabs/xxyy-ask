@@ -116,7 +116,9 @@ export async function syncXxyyDocs(options = {}) {
     const file = existingEntry?.file ?? createPageFilename(order, remotePage.sourceUrl);
     const existingContent = await readOptionalFile(path.join(pagesDir, file));
     const curatedAppendix = extractCuratedAppendix(existingContent ?? '');
-    const officialBody = rewriteAssetReferences(remotePage.markdown, assetsById);
+    const officialBody = cleanMarkdownArtifacts(
+      rewriteAssetReferences(remotePage.markdown, assetsById),
+    );
     const body = appendCuratedContent(officialBody, curatedAppendix);
     const derivedMetadata = derivePageMetadata(remotePage.sourceUrl, remotePage.language);
     const category = existingEntry?.category ?? derivedMetadata.category;
@@ -310,6 +312,10 @@ export function rewriteAssetReferences(markdown, assetsById) {
     }
     return `/assets/${asset.file}`;
   });
+}
+
+export function cleanMarkdownArtifacts(markdown) {
+  return markdown.replace(/\[\s*\]\([^\r\n)]*\)/gu, ' ');
 }
 
 function appendCuratedContent(officialBody, curatedAppendix) {

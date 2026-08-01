@@ -401,6 +401,35 @@ describe('applyProductRetrievalPolicy', () => {
     expect(results.map((chunk) => chunk.id)).toEqual(['overview', 'generic-1']);
   });
 
+  it('prefers the overview chunk within an anchored document', () => {
+    const results = applyProductRetrievalPolicy(
+      [
+        createChunk({
+          documentId: 'official_docs:copy-trading',
+          id: 'official_docs:copy-trading:chunk:0005',
+          score: 3,
+          title: '管理跟单任务',
+        }),
+        createChunk({
+          documentId: 'official_docs:copy-trading',
+          id: 'official_docs:copy-trading:chunk:0001',
+          score: 1,
+          title: '跟单说明',
+        }),
+      ],
+      {
+        anchorDocumentIds: ['official_docs:copy-trading'],
+        diversity: 'none',
+        preferredSourceTypes: ['official_docs'],
+        temporalScope: 'current',
+        version: '1',
+      },
+      1,
+    );
+
+    expect(results[0]?.id).toBe('official_docs:copy-trading:chunk:0001');
+  });
+
   it('selects another document before repeated chunks from the same document', () => {
     const results = applyProductRetrievalPolicy(
       [

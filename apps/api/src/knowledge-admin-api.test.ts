@@ -10,6 +10,7 @@ import type {
   KnowledgeAdminPrincipal,
   PgFeedbackStore,
   PgKnowledgeAdminUserStore,
+  PgKnowledgeGraphStore,
   PgKnowledgePublicationJobStore,
   PgSupportOperationsStore,
   PgTelegramGroupMessageStore,
@@ -268,6 +269,82 @@ describe('handleKnowledgeAdminApi', () => {
     expect(readResponse.json).toMatchObject({ candidates: [{ id: 'knowledge_candidate_1' }] });
     expect(listCandidates).toHaveBeenCalledWith({ limit: 20, status: 'pending' });
     expect(writeResponse.statusCode).toBe(403);
+  });
+
+  it('exposes governed knowledge graph relations and lets reviewers reject a relation', async () => {
+    const relation = {
+      confidence: 0.95,
+      evidence: 'XXYY 支持 Solana',
+      id: 'kg_relation_1',
+      object: { canonicalName: 'Solana', type: 'chain' as const },
+      predicate: 'supports_chain' as const,
+      sourceChunkId: 'chunk-1',
+      sourceDocumentId: 'document-1',
+      sourceType: 'official_docs' as const,
+      status: 'approved' as const,
+      subject: { canonicalName: 'XXYY', type: 'product' as const },
+      updatedAt: '2026-08-01T00:00:00.000Z',
+    };
+    const listRelations = vi.fn(() => Promise.resolve([relation]));
+    const setRelationStatus = vi.fn(() =>
+      Promise.resolve({ ...relation, status: 'rejected' as const }),
+    );
+    const services = knowledgeAdminServices({
+      knowledgeGraph: knowledgeGraphStore({ listRelations, setRelationStatus }),
+    });
+    const listed = await callAdmin({
+      authenticator: authenticator('viewer'),
+      getServices: () => Promise.resolve(services),
+      method: 'GET',
+      token: TOKEN,
+      url: '/admin/api/knowledge-graph/relations?status=approved&limit=20',
+    });
+    const rejected = await callAdmin({
+      authenticator: authenticator('reviewer'),
+      body: { status: 'rejected' },
+      getServices: () => Promise.resolve(services),
+      method: 'PATCH',
+      token: TOKEN,
+      url: '/admin/api/knowledge-graph/relations/kg_relation_1',
+    });
+
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json).toMatchObject({ relations: [{ id: 'kg_relation_1' }] });
+    expect(rejected.statusCode).toBe(200);
+    expect(setRelationStatus).toHaveBeenCalledWith({ id: 'kg_relation_1', status: 'rejected' });
+  });
+
+  it('previews graph relations for a Telegram candidate without publishing them', async () => {
+    const getCandidateDetail = vi.fn<KnowledgeGovernanceService['getCandidateDetail']>(() =>
+      Promise.resolve({
+        candidate: candidate({
+          canonicalAnswer: 'XXYY 整体产品目前支持哪些链：Solana、BSC。',
+          proposedTitle: 'XXYY 当前支持的公链',
+          sourceChannel: 'telegram',
+        }),
+        conflicts: [],
+        duplicates: [],
+        history: { auditEvents: [], reviews: [], revisions: [] },
+      }),
+    );
+    const response = await callAdmin({
+      authenticator: authenticator('viewer'),
+      getServices: () =>
+        Promise.resolve(knowledgeAdminServices({ governance: governance({ getCandidateDetail }) })),
+      method: 'GET',
+      token: TOKEN,
+      url: '/admin/api/candidates/knowledge_candidate_1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json).toMatchObject({
+      graphPreview: expect.arrayContaining([
+        expect.objectContaining({
+          object: { canonicalName: 'Solana', type: 'chain' },
+          subject: { canonicalName: 'XXYY', type: 'product' },
+        }),
+      ]),
+    });
   });
 
   it('lists observed Telegram groups with local inbox counts', async () => {
@@ -953,12 +1030,25 @@ function knowledgeAdminServices(
     adminUsers: adminUserStore(),
     feedback: feedbackStore(),
     governance: governance(),
+    knowledgeGraph: knowledgeGraphStore(),
     importTelegram: () => Promise.reject(new Error('not used')),
     publicationJobs: publicationStore(),
     processTelegramInbox: () => Promise.reject(new Error('not used')),
     supportOperations: supportOperationsStore(),
     telegramGroups: telegramGroupStore(),
     telegramMessages: telegramMessageStore(),
+    ...overrides,
+  };
+}
+
+function knowledgeGraphStore(
+  overrides: Partial<PgKnowledgeGraphStore> = {},
+): PgKnowledgeGraphStore {
+  return {
+    listConflicts: () => Promise.resolve([]),
+    listEntities: () => Promise.resolve([]),
+    listRelations: () => Promise.resolve([]),
+    setRelationStatus: () => Promise.reject(new Error('not used')),
     ...overrides,
   };
 }

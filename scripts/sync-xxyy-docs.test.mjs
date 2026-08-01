@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   classifyPageContent,
+  cleanMarkdownArtifacts,
   createPageFilename,
   extractAssetIds,
   extractCuratedAppendix,
@@ -87,6 +88,11 @@ describe('docs.xxyy.io sync helpers', () => {
         '# Page\n\n<!-- xxyy-ask:curated-start -->\n客服补充\n<!-- xxyy-ask:curated-end -->\n',
       ),
     ).toContain('客服补充');
+    expect(
+      cleanMarkdownArtifacts(
+        '支持5大公链，SOL BSC Base ETH[ ](https://x.com/hashtag/XLayer)Robinhood',
+      ),
+    ).toBe('支持5大公链，SOL BSC Base ETH Robinhood');
   });
 });
 

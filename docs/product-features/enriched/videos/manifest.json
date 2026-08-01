@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-07-20T00:14:29.484Z",
+  "generated_at": "2026-08-01T04:12:46.179Z",
   "videos": [
     {
       "id": "xxyy-add-to-home",
@@ -19,7 +19,7 @@
       "id": "mzTSPHqP8UA",
       "kind": "youtube",
       "source_url": "https://www.youtube.com/watch?v=mzTSPHqP8UA",
-      "fingerprint": "d0b83793a9390025477f88761764ada71f1b9a524d0445ded9fc751fecef461f",
+      "fingerprint": "208b0ebb2692d611ab5aed91782e6cb9d298fdaa9bcc333e7b287a7cd0fbccd1",
       "status": "covered_by_text",
       "extraction_status": "unavailable",
       "extraction_error": "the video has no public captions; configure TRANSCRIPTION_MODEL for audio fallback and, if YouTube blocks download, set MEDIA_YTDLP_COOKIES_FROM_BROWSER explicitly",
@@ -28,7 +28,7 @@
       "context_sources": [
         {
           "file": "pages/51-getting-started__dashboard__jian-kong-guan-li__telegram-wallet-monitoring-configuration-guide.md",
-          "sha256": "9f1125b6ce40c0abd9b4c66f98c9247e72eabc6c171864bd139bb8d9129a6742"
+          "sha256": "2235e1a7ce79cd1fa5822751508853fdc671eebb3af86e5110ae8445163664b9"
         }
       ]
     },
@@ -36,39 +36,15 @@
       "id": "ssww8GJnedE",
       "kind": "youtube",
       "source_url": "https://www.youtube.com/watch?v=ssww8GJnedE",
-      "fingerprint": "cf722056a5e5ab04223ee8beec2ab34c97065cf80c4ce3e472f72f023064e340",
-      "status": "covered_by_text",
-      "extraction_status": "unavailable",
-      "extraction_error": "the video has no public captions; configure TRANSCRIPTION_MODEL for audio fallback and, if YouTube blocks download, set MEDIA_YTDLP_COOKIES_FROM_BROWSER explicitly",
-      "knowledge_coverage": "core",
-      "coverage_note": "官方文字与专题文档覆盖扫链、钱包监控、发现区、代币安全信息和 Holder 分析等核心知识；未转写部分仅可能包含演示顺序或旁白细节。",
-      "context_sources": [
-        {
-          "file": "pages/54-getting-started__sao-lian-ye-mian.md",
-          "sha256": "46c01265d3ea191911e2e5ffbe48d83c868750ce20b05a610a667e4b58d310e6"
-        },
-        {
-          "file": "pages/47-getting-started__dashboard__jian-kong-guan-li.md",
-          "sha256": "1db5cd370fb7fe5307bb8a4cfe44b75611ba9460cba9bb783b971918772a7e0c"
-        },
-        {
-          "file": "pages/21-getting-started__fa-xian.md",
-          "sha256": "6cb2da44f1122226e244598caf92eaf8ad8c9c3d679484e1ae1d429fdf122b5c"
-        },
-        {
-          "file": "pages/37-getting-started__dai-bi-xin-xi-qu.md",
-          "sha256": "95dd0dc28ab9ef4a9b6df0e0f1ace1c3d3cb7c9311097403a68e767cee9ce2b1"
-        },
-        {
-          "file": "pages/42-getting-started__dashboard__holders.md",
-          "sha256": "3c9879fa7376e677a016e966b994a9995338c1c28e081da60bc4494a78f9378d"
-        }
-      ]
+      "fingerprint": "05211b10a7a543dfe2bc1d58edd9738ff5ad102abdd2b50b3a4bfd8f58151c7e",
+      "status": "unavailable",
+      "error": "the video has no public captions; configure TRANSCRIPTION_MODEL for audio fallback and, if YouTube blocks download, set MEDIA_YTDLP_COOKIES_FROM_BROWSER explicitly; text coverage could not be verified: ssww8GJnedE: pages/21-getting-started__fa-xian.md is missing coverage marker \"收藏、Pump、趋势、钱包、监控四个区域\""
     }
   ],
   "notices": [
-    "mzTSPHqP8UA: video extraction is unavailable, but full text coverage was verified",
-    "ssww8GJnedE: video extraction is unavailable, but core text coverage was verified"
+    "mzTSPHqP8UA: video extraction is unavailable, but full text coverage was verified"
   ],
-  "warnings": []
+  "warnings": [
+    "ssww8GJnedE: the video has no public captions; configure TRANSCRIPTION_MODEL for audio fallback and, if YouTube blocks download, set MEDIA_YTDLP_COOKIES_FROM_BROWSER explicitly; text coverage could not be verified: ssww8GJnedE: pages/21-getting-started__fa-xian.md is missing coverage marker \"收藏、Pump、趋势、钱包、监控四个区域\""
+  ]
 }

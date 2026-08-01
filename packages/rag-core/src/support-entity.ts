@@ -3,17 +3,22 @@ import { tokenize } from '@xxyy/knowledge';
 import type { RetrievedChunk } from './retrieve.js';
 
 const SUPPORT_QUESTION_PATTERN =
-  /是否支持|当前支持|现在支持|支持.*(?:吗|么|不)|(?:does|do|can|is|are).*\bsupport\b|\bsupport(?:s|ed)?\b/u;
+  /是否支持|当前支持|现在支持|支持(?:哪些|什么|哪几)\s*(?:发射(?:台|平台)|(?:公)?链|chains?)|支持.*(?:吗|么|不)|(?:does|do|can|is|are).*\bsupport\b|\bsupport(?:s|ed)?\b/u;
 
 const SUPPORT_ENTITY_STOP_TOKENS = new Set([
   'are',
   'can',
+  'chain',
+  'chains',
+  'copy',
   'current',
   'currently',
   'do',
   'does',
   'i',
   'is',
+  'launchpad',
+  'launchpads',
   'me',
   'my',
   'now',
@@ -22,6 +27,8 @@ const SUPPORT_ENTITY_STOP_TOKENS = new Set([
   'support',
   'supported',
   'supports',
+  'trade',
+  'trading',
   'the',
   'this',
   'xxyy',

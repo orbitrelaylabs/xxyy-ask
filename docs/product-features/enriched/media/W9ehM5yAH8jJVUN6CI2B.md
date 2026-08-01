@@ -2,7 +2,7 @@
 title: "移动端桌面入口：截图文字"
 section: "移动端 / 图片 OCR"
 source_url: "https://docs.xxyy.io/readme/yi-dong-duan-deng-lu"
-retrieved_at: "2026-07-19T16:07:12.754Z"
+retrieved_at: "2026-08-01T03:59:58.546Z"
 status: current
 ---
 

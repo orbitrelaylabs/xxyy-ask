@@ -38,6 +38,8 @@ import { extractSupportEntityTokens, supportEntityEvidenceBoost } from './suppor
 import { migrateKnowledgePublicationJobs } from './knowledge-publication-jobs.js';
 import { reciprocalRankFusionScore } from './hybrid-rank.js';
 import { migrateSupportOperations } from './support-operations.js';
+import { createKnowledgeAliasQueryTokens, matchKnowledgeAliases } from './knowledge-aliases.js';
+import { migrateKnowledgeGraph, replaceChunkKnowledgeGraph } from './knowledge-graph.js';
 
 export interface PgClientLike {
   connect?(): Promise<PgTransactionClientLike>;
@@ -322,11 +324,12 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
         insert into knowledge_chunks (
           id, document_id, title, module, source_type, source_url, file,
           heading_path, order_index, retrieved_at, effective_at, status, supersedes,
-          attachments, content, tokens, embedding, content_hash, updated_at
+          attachments, content, tokens, search_vector, embedding, content_hash, updated_at
         )
         values (
           $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12,
-          $13::jsonb, $14::jsonb, $15, $16, $17::vector, $18, now()
+          $13::jsonb, $14::jsonb, $15, $16,
+          to_tsvector('simple', array_to_string($16::text[], ' ')), $17::vector, $18, now()
         )
         on conflict (id) do update set
           document_id = excluded.document_id,
@@ -344,6 +347,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
           attachments = excluded.attachments,
           content = excluded.content,
           tokens = excluded.tokens,
+          search_vector = excluded.search_vector,
           embedding = excluded.embedding,
           content_hash = excluded.content_hash,
           updated_at = now()
@@ -369,6 +373,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
           chunk.contentHash,
         ],
       );
+      await replaceChunkKnowledgeGraph({ client, chunk });
     }
   };
   const upsertChunks = (chunks: EmbeddedKnowledgeChunk[]): Promise<void> =>
@@ -418,6 +423,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
 
     async migrate(migrationOptions: PgVectorMigrationOptions = {}): Promise<void> {
       await queryDatabase(options.client, 'create extension if not exists vector');
+      await queryDatabase(options.client, 'create extension if not exists pg_trgm');
       await queryDatabase(
         options.client,
         `
@@ -441,6 +447,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
           attachments jsonb not null default '[]'::jsonb,
           content text not null,
           tokens text[] not null,
+          search_vector tsvector,
           embedding vector(${embeddingDimension}) not null,
           content_hash text not null,
           created_at timestamptz not null default now(),
@@ -497,6 +504,26 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
         alter table knowledge_chunks
           add column if not exists attachments jsonb not null default '[]'::jsonb
         `,
+      );
+      await queryDatabase(
+        options.client,
+        `alter table knowledge_chunks add column if not exists search_vector tsvector`,
+      );
+      await queryDatabase(
+        options.client,
+        `update knowledge_chunks
+         set search_vector=to_tsvector('simple', array_to_string(tokens, ' '))
+         where search_vector is null`,
+      );
+      await queryDatabase(
+        options.client,
+        `create index if not exists knowledge_chunks_search_vector_idx
+         on knowledge_chunks using gin (search_vector)`,
+      );
+      await queryDatabase(
+        options.client,
+        `create index if not exists knowledge_chunks_title_trgm_idx
+         on knowledge_chunks using gin (lower(title) gin_trgm_ops)`,
       );
       await queryDatabase(
         options.client,
@@ -667,6 +694,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
       );
       await migrateKnowledgePublicationJobs(options.client);
       await migrateSupportOperations(options.client);
+      await migrateKnowledgeGraph(options.client);
     },
 
     async recordFeedback(input: RecordFeedbackInput): Promise<void> {
@@ -718,7 +746,14 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
       validateEmbedding(queryEmbedding, embeddingDimension);
 
       const topK = normalizeTopK(retrieveOptions.topK);
-      const lexicalQueryTokens = createLexicalRetrieveQueryTokens(question);
+      const lexicalQueryTokens = Array.from(
+        new Set([
+          ...createLexicalRetrieveQueryTokens(question),
+          ...createKnowledgeAliasQueryTokens(question),
+        ]),
+      );
+      const fullTextQuery = createKnowledgeAliasQueryTokens(question).join(' ');
+      const graphEntityNames = matchKnowledgeAliases(question).map((match) => match.canonical);
       const supportEntities = extractSupportEntityTokens(question);
       const includeApiReferenceDocs = shouldIncludeApiReferenceDocumentation(question);
       const isChangelogQuestion = isChangelogDocumentationQuestion(question);
@@ -853,8 +888,18 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
             )::integer as lexical_rank
             ,null::integer as entity_rank
           from eligible_knowledge_chunks
-          where tokens && $3::text[]
-          order by token_overlap desc, embedding_distance asc
+          where
+            tokens && $3::text[]
+            or (
+              length($13::text) > 0
+              and search_vector @@ plainto_tsquery('simple', $13::text)
+            )
+            or similarity(lower(title), lower($13::text)) >= 0.25
+          order by
+            token_overlap desc,
+            ts_rank_cd(search_vector, plainto_tsquery('simple', $13::text)) desc,
+            similarity(lower(title), lower($13::text)) desc,
+            embedding_distance asc
           limit $2
         ),
         entity_candidates as (
@@ -907,6 +952,29 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
           order by document_id, order_index nulls last, id
           limit $2
         ),
+        graph_candidates as (
+          select distinct
+            k.id, k.document_id, k.title, k.module, k.source_type, k.source_url, k.file,
+            k.heading_path, k.order_index, k.retrieved_at::text as retrieved_at,
+            k.effective_at::text as effective_at, k.status, k.supersedes, k.attachments,
+            k.content, k.tokens,
+            k.embedding <=> $1::vector as embedding_distance,
+            0::integer as token_overlap,
+            null::integer as vector_rank,
+            null::integer as lexical_rank,
+            row_number() over (
+              order by r.confidence desc, k.embedding <=> $1::vector
+            )::integer as entity_rank
+          from eligible_knowledge_chunks k
+          join knowledge_graph_relations r
+            on r.source_chunk_id=k.id and r.status='approved'
+          join knowledge_graph_entities s on s.id=r.subject_entity_id
+          join knowledge_graph_entities o on o.id=r.object_entity_id
+          where
+            cardinality($14::text[]) > 0
+            and (s.canonical_name=any($14::text[]) or o.canonical_name=any($14::text[]))
+          limit $2
+        ),
         combined_candidates as (
           select * from vector_candidates
           union all
@@ -915,6 +983,8 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
           select * from entity_candidates
           union all
           select * from anchor_candidates
+          union all
+          select * from graph_candidates
         )
         select distinct on (id)
           id, document_id, title, module, source_type, source_url, file,
@@ -940,6 +1010,8 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
               includeEnglishDocs,
               includeExternalDeveloperDocs,
               anchorDocumentIds,
+              fullTextQuery,
+              graphEntityNames,
             ],
           );
 
@@ -1244,6 +1316,10 @@ async function pruneStaleChunks(client: PgClientLike, retainedChunkIds: string[]
   await queryDatabase(
     client,
     `
+    with deleted_graph_relations as (
+      delete from knowledge_graph_relations
+      where not (source_chunk_id = any($1::text[]))
+    )
     delete from knowledge_chunks
     where not (id = any($1::text[]))
     `,

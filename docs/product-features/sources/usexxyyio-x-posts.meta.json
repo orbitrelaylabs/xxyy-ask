@@ -15,11 +15,11 @@
     "pageSize": 40,
     "traversalCompleted": true,
     "traversalStoppedAtPageCap": false,
-    "cutoffCreatedAtIso": "2026-07-30T11:31:54.000Z",
-    "cutoffPostId": "2082791290165776745",
-    "totalPosts": 298
+    "cutoffCreatedAtIso": "2026-07-31T03:55:27.000Z",
+    "cutoffPostId": "2083038807528726922",
+    "totalPosts": 299
   },
-  "fetchedAt": "2026-08-01T00:00:04.482Z",
+  "fetchedAt": "2026-08-01T04:03:56.081Z",
   "configAssetUrl": "https://abs.twimg.com/x-web/x-web/assets/guest-token-B4RPSSzv.js",
   "operations": {
     "userByScreenName": {

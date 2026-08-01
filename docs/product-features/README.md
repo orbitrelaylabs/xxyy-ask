@@ -1,13 +1,13 @@
 # XXYY 完整知识库
 
-本目录以 https://docs.xxyy.io/ 为 XXYY 官方文档唯一来源，以 https://x.com/useXXYYio 为官方 X 更新唯一来源；客服群知识只接收通过管理员身份验证、严格自动决策和发布门禁的聊天知识。
+本目录以 https://docs.xxyy.io/ 为 XXYY 官方文档唯一来源，以 https://x.com/useXXYYio 为官方 X 更新唯一来源；客服群知识目录当前留空，只接收后续人工审核发布的聊天知识。
 
 ## 覆盖范围
 
-- 中文站：68 个页面。
+- 中文站：72 个页面。
 - 英文站：63 个页面。
-- 官网合计：131 个页面，包含产品功能、API、Telegram 支持、功能更新、用户条款、隐私协议及英文文档。
-- 官网媒体：67 个图片资产已下载到 `assets/`，页面中的 GitBook 文件引用已改写为本地 `/assets/` 路径；OCR 覆盖状态见 `enriched/media/manifest.json`。
+- 官网合计：135 个页面，包含产品功能、API、Telegram 支持、功能更新、用户条款、隐私协议及英文文档。
+- 官网媒体：89 个图片资产已下载到 `assets/`，页面中的 GitBook 文件引用已改写为本地 `/assets/` 路径；OCR 覆盖状态见 `enriched/media/manifest.json`。
 - 视频本身的字幕、音频转写、关键帧 OCR 状态，以及正文对视频知识的覆盖等级和证据 SHA，见 `enriched/videos/manifest.json`；`docs:audit` 会区分“视频未转写”和“知识确实缺失”。
 - 知识来源在入库时固定分类为 `official_docs`、`x_updates` 或 `admin_verified`；外部 GitHub 参考资料不进入正式知识库。
 
@@ -20,7 +20,7 @@
 - `enriched/media/`：图片 OCR sidecar 与逐资产状态清单。
 - `enriched/videos/`：视频字幕、音频转写或关键帧 OCR sidecar，以及视频提取/正文知识覆盖双维度状态清单。
 - `enriched/reviewed/`：从官网内容派生并经人工校正的官方文档兜底。
-- `admin-verified/`：XXYY 客服群治理知识；只由自动发布 Worker 写入通过严格策略和发布门禁的聊天知识。
+- `admin-verified/`：XXYY 客服群审核知识；当前为空，未来只写入通过人工审核和发布门禁的聊天知识。
 - 媒体 sidecar 会把原始图片或视频地址写入 chunk 元数据；检索命中解析文字时可同步返回对应媒体。
 - `xxyy-product-functions.md`：历史中文产品功能聚合归档；仅在 `pages/` 没有可入库页面时作为兼容兜底，不与逐页官网文档重复入库。
 - `xxyy-x-updates.md`：官方 X 历史更新聚合。
@@ -63,7 +63,6 @@ pnpm rag:ingest
 - [收藏](pages/22-getting-started__fa-xian__shou-cang.md) - https://docs.xxyy.io/getting-started/fa-xian/shou-cang
 - [Pump](pages/23-getting-started__fa-xian__pump.md) - https://docs.xxyy.io/getting-started/fa-xian/pump
 - [趋势](pages/24-getting-started__fa-xian__qu-shi.md) - https://docs.xxyy.io/getting-started/fa-xian/qu-shi
-- [钱包监控](pages/25-getting-started__fa-xian__qian-bao-jian-kong.md) - https://docs.xxyy.io/getting-started/fa-xian/qian-bao-jian-kong
 - [Pump 早鸟信号](pages/26-getting-started__fa-xian__pump-zao-niao-xin-hao.md) - https://docs.xxyy.io/getting-started/fa-xian/pump-zao-niao-xin-hao
 - [Pump 即将打满](pages/27-getting-started__fa-xian__pump-ji-jiang-da-man.md) - https://docs.xxyy.io/getting-started/fa-xian/pump-ji-jiang-da-man
 - [Pump 正在迁移](pages/28-getting-started__fa-xian__pump-zheng-zai-qian-yi.md) - https://docs.xxyy.io/getting-started/fa-xian/pump-zheng-zai-qian-yi
@@ -107,6 +106,11 @@ pnpm rag:ingest
 - [功能更新](pages/68-changelog.md) - https://docs.xxyy.io/changelog
 - [XXYY 用户条款](pages/69-wang-zhan-xie-yi__xxyy-yong-hu-tiao-kuan.md) - https://docs.xxyy.io/wang-zhan-xie-yi/xxyy-yong-hu-tiao-kuan
 - [XXYY 隐私协议](pages/70-wang-zhan-xie-yi__xxyy-yin-si-xie-yi.md) - https://docs.xxyy.io/wang-zhan-xie-yi/xxyy-yin-si-xie-yi
+- [快捷交易](pages/134-getting-started__jiao-yi-dai-bi__kuai-jie-jiao-yi.md) - https://docs.xxyy.io/getting-started/jiao-yi-dai-bi/kuai-jie-jiao-yi
+- [KOL买入& Tagholder买入](pages/135-getting-started__fa-xian__kol-mai-ru-tagholder-mai-ru.md) - https://docs.xxyy.io/getting-started/fa-xian/kol-mai-ru-tagholder-mai-ru
+- [钱包监控](pages/136-getting-started__qian-bao-jian-kong.md) - https://docs.xxyy.io/getting-started/qian-bao-jian-kong
+- [监控策略管理](pages/137-getting-started__jian-kong-ce-le-guan-li.md) - https://docs.xxyy.io/getting-started/jian-kong-ce-le-guan-li
+- [跟单](pages/138-getting-started__gen-dan.md) - https://docs.xxyy.io/getting-started/gen-dan
 
 ## English pages
 
@@ -176,5 +180,6 @@ pnpm rag:ingest
 
 ## 额外知识页面
 
+- [XXYY 当前支持的产品功能总览](pages/00-current-capability-overview.md) - https://docs.xxyy.io
 - [移动端桌面入口](pages/64-getting-started__mobile-app.md) - https://docs.xxyy.io/readme/yi-dong-duan-deng-lu
 - [Robinhood Chain 支持范围](pages/65-current-support__robinhood-chain.md) - https://x.com/useXXYYio/status/2075547879876554811

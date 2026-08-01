@@ -6,7 +6,7 @@ language: "zh"
 category: "使用XXYY交易"
 section: "交易代币"
 lastmod: ""
-retrieved_at: "2026-05-24T06:41:04.265Z"
+retrieved_at: "2026-08-01T03:57:23.002Z"
 content_state: "content"
 ingest: true
 ---
@@ -24,3 +24,4 @@ ingest: true
 - [极速模式](https://docs.xxyy.io/getting-started/jiao-yi-dai-bi/jiao-yi-mo-shi/ji-su-mo-shi.md)
 - [防夹模式](https://docs.xxyy.io/getting-started/jiao-yi-dai-bi/jiao-yi-mo-shi/fang-jia-mo-shi.md)
 - [交易设置](https://docs.xxyy.io/getting-started/jiao-yi-dai-bi/jiao-yi-she-zhi.md)
+- [快捷交易](https://docs.xxyy.io/getting-started/jiao-yi-dai-bi/kuai-jie-jiao-yi.md)

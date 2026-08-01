@@ -1,5 +1,7 @@
 import type { Classification, Intent } from '@xxyy/shared';
 
+import { expandKnowledgeAliasText } from './knowledge-aliases.js';
+
 type IntentRule = {
   intent: Intent;
   confidence: number;
@@ -68,10 +70,10 @@ const agentCapabilityPatterns = [
 ];
 
 const productSupportDomainPattern =
-  /跟单|扫链|挂单|监控|交易|钱包|移动端|手机版|手机上|app|telegram|swap|base|b20|p1\/p2\/p3|k\s*线|pump|tag\s*holder|holder|订单|批量导入|止盈|止损|会员版|小币种|小额代币|持仓|盈亏|收益倍数|wallet\s+(?:monitoring|management)|limit\s+orders?|automated\s+trading|quick\s+trading|trading\s+(?:settings?|modes?)|chart\s+area|avg\.?\s+price\s+line|average\s+(?:purchase|buy|cost)\s+line|cost\s+basis|token\s+information|watchlist|new\s+pairs|meme\s+scanner/u;
+  /跟单|扫链|发射台|发射平台|公链|支持哪些链|挂单|监控|交易|钱包|移动端|手机版|手机上|app|telegram|swap|base|b20|p1\/p2\/p3|k\s*线|pump|tag\s*holder|holder|订单|批量导入|止盈|止损|会员版|小币种|小额代币|持仓|盈亏|收益倍数|launch\s*(?:pad|platform)|supported\s+chains?|wallet\s+(?:monitoring|management)|limit\s+orders?|automated\s+trading|quick\s+trading|trading\s+(?:settings?|modes?)|chart\s+area|avg\.?\s+price\s+line|average\s+(?:purchase|buy|cost)\s+line|cost\s+basis|token\s+information|watchlist|new\s+pairs|meme\s+scanner/u;
 
 const supportQuestionPattern =
-  /是否支持|当前支持|现在支持|支持.*(?:吗|么|不)|(?:does|do|can|is|are).*\bsupport\b|\bsupport(?:s|ed)?\b/u;
+  /是否支持|当前支持|现在支持|支持(?:哪些|什么|哪几)|支持.*(?:吗|么|不)|(?:does|do|can|is|are).*\bsupport\b|\bsupport(?:s|ed)?\b/u;
 
 const nonProductSupportLatinTokens = new Set([
   'are',
@@ -135,6 +137,7 @@ const rules: IntentRule[] = [
       /产品|功能|更新|权益|版本|提醒|监控|telegram/u,
       /钱包备注|监控上限|监控数量|历史更新|更新记录|推特|推文|tweet|x\.com/u,
       /扫链|打满|趋势|收藏|持仓管理|收益统计|快捷交易|自动交易|钱包管理|关注钱包|移动端|手机版|手机上/u,
+      /发射台|发射平台|公链|支持哪些链|launch\s*(?:pad|platform)|supported\s+chains?/u,
       /swap|degen|交易设置|交易模式|极速模式|防夹模式|k\s*线|平均买入成本线|代币信息区/u,
       /pump\s*早鸟|最新成交|tag\s*holder|holder|订单管理|批量导入|持仓盈亏|自动止盈止损|会员版|小币种|小额代币|收益倍数|赚.{0,8}(?:多少|几).{0,4}倍/u,
       /交易\s*api|agent\s*skill|p1\/p2\/p3/u,
@@ -144,7 +147,7 @@ const rules: IntentRule[] = [
 ];
 
 export function classifyQuestion(question: string): Classification {
-  const normalized = question.normalize('NFKC').trim().toLowerCase();
+  const normalized = expandKnowledgeAliasText(question).normalize('NFKC').trim().toLowerCase();
   if (normalized.length < 2) {
     return createClassification('unknown', 0.2, 'question is too short or unclear');
   }
@@ -283,7 +286,7 @@ function isReadOnlySandwichAnalysisQuestion(normalizedQuestion: string): boolean
 }
 
 export function hasProductDomainSignal(question: string): boolean {
-  const normalized = question.normalize('NFKC').trim().toLowerCase();
+  const normalized = expandKnowledgeAliasText(question).normalize('NFKC').trim().toLowerCase();
   const productRule = rules.find((rule) => rule.intent === 'product_qa');
 
   return (

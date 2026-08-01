@@ -837,6 +837,47 @@ describe('createGroundedAnswer', () => {
     expect(response.citations).toHaveLength(2);
   });
 
+  it('prefers the overview chunk for a feature-scoped supported-chain question', () => {
+    const documentId = 'official_docs:pages/copy-trading';
+    const response = createGroundedAnswer('XXYY 跟单支持哪些链？', productClassification, [
+      createRetrievedChunk({
+        documentId,
+        id: `${documentId}:chunk:0005`,
+        rank: 1,
+        text: '跟单订单支持查看交易状态，并支持在区块链浏览器查看交易。',
+        title: '跟单',
+      }),
+      createRetrievedChunk({
+        documentId,
+        id: `${documentId}:chunk:0001`,
+        rank: 2,
+        text: '跟单功能支持 5 大公链：SOL、BSC、Base、ETH、Robinhood。',
+        title: '跟单',
+      }),
+    ]);
+
+    expect(response.answer).toContain('SOL');
+    expect(response.answer).toContain('Robinhood');
+    expect(response.answer).not.toContain('交易状态');
+    expect(response.citations[0]?.excerpt).toContain('5 大公链');
+  });
+
+  it('keeps a complete standard support answer in its citation excerpt', () => {
+    const standardAnswer =
+      'XXYY 支持按链筛选发射平台：Solana 包括 Pump、LetsBonk、Believe、Raydium Launchlab、Moonit、Meteora DBC、Boop、Time、Bags、Jup Studio；BSC 包括 Four.meme；Ethereum 包括 Klik、Livo、Stroid、Trench；Robinhood Chain 包括 Noxa、Virtuals、Bankr、Varo。名单会随官方更新变化。';
+    const response = createGroundedAnswer('支持哪些发射平台？', productClassification, [
+      createRetrievedChunk({
+        id: 'x_updates:launchpads:chunk:0001',
+        sourceType: 'x_updates',
+        text: `标准客服回答：${standardAnswer} 按链整理如下：Solana、BSC、Ethereum、Robinhood Chain。证据范围：官方文档和官方 X 更新。`,
+        title: 'XXYY 当前支持的发射平台',
+      }),
+    ]);
+
+    expect(response.answer).toBe(standardAnswer);
+    expect(response.citations[0]?.excerpt).toContain('Varo');
+  });
+
   it('returns a concise insufficient-evidence answer for unsupported external support entities', () => {
     const retrieved = [
       createRetrievedChunk({

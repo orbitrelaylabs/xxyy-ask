@@ -1,6 +1,6 @@
 {
   "source": "https://docs.xxyy.io",
-  "retrieved_at": "2026-07-20T07:09:32.458Z",
+  "retrieved_at": "2026-08-01T04:12:35.773Z",
   "assets": [
     {
       "id": "0AOQ51jWPyaNUtCyZtJJ",
@@ -20,6 +20,16 @@
       "sha256": "1a0073e378ca51b8e2545b492ee77c626a65ed90aa3440013726f1f437dd7b2a",
       "source_pages": [
         "https://docs.xxyy.io/getting-started/dashboard/jian-kong-guan-li/telegram-wallet-monitoring-configuration-guide"
+      ]
+    },
+    {
+      "id": "2nrnSqSocTQDhDMV2cB2",
+      "file": "xxyy-docs-2nrnSqSocTQDhDMV2cB2.png",
+      "content_type": "image/png",
+      "bytes": 115578,
+      "sha256": "2a3575b854c7b7b4f4ef1ae0d9e96ba80e20e6d19cde1839c703a2fb0b59d87f",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/fa-xian"
       ]
     },
     {
@@ -83,16 +93,6 @@
       ]
     },
     {
-      "id": "6Lsf5Km990aod15t0wpT",
-      "file": "xxyy-docs-6Lsf5Km990aod15t0wpT.png",
-      "content_type": "image/png",
-      "bytes": 183231,
-      "sha256": "38b12f50a569d16df9ce6a8b95103b27a0c4ae33870c7311898d7f482f225f1a",
-      "source_pages": [
-        "https://docs.xxyy.io/getting-started/fa-xian/qu-shi"
-      ]
-    },
-    {
       "id": "6NKGX1efKpAS0N5oB3wf",
       "file": "xxyy-docs-6NKGX1efKpAS0N5oB3wf.jpg",
       "content_type": "image/jpeg",
@@ -110,6 +110,16 @@
       "sha256": "ffe882adfe6038c0726c9b6da8edeb9f4e512b4373ca9425a6fc603a4c8ebc11",
       "source_pages": [
         "https://docs.xxyy.io/en/dashboard/holders/wallet-tag-descriptions"
+      ]
+    },
+    {
+      "id": "7s2hUjiBPJu9bem5p4P3",
+      "file": "xxyy-docs-7s2hUjiBPJu9bem5p4P3.png",
+      "content_type": "image/png",
+      "bytes": 9835,
+      "sha256": "34f591246bd55755d5ae591bc66c1ea1437efe6fcbf05ca6b52f30b78da0d61a",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/qian-bao-jian-kong"
       ]
     },
     {
@@ -140,6 +150,16 @@
       "sha256": "37883800f37e8d288cf533df98d02ff6c685ad7cbb1dccb315503cd7b4fe3c96",
       "source_pages": [
         "https://docs.xxyy.io/getting-started/dashboard/jian-kong-guan-li/dao-chu-qian-bao"
+      ]
+    },
+    {
+      "id": "AIQPPvvVp0lNSuHYjxyu",
+      "file": "xxyy-docs-AIQPPvvVp0lNSuHYjxyu.png",
+      "content_type": "image/png",
+      "bytes": 87751,
+      "sha256": "0da40ef72ac9485f5651de3181fd9c746ace8cac1191a8446b81f9a0f7c920ac",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
       ]
     },
     {
@@ -203,6 +223,26 @@
       ]
     },
     {
+      "id": "BMCrI3lNPAcXdVdniEGw",
+      "file": "xxyy-docs-BMCrI3lNPAcXdVdniEGw.png",
+      "content_type": "image/png",
+      "bytes": 86530,
+      "sha256": "aba99a4082c89f9c92060f53938998d42bd1896b9fc7000f9c4e5c5126922c3e",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/qian-bao-jian-kong"
+      ]
+    },
+    {
+      "id": "BNBvrS8iqQalS6gYGhPG",
+      "file": "xxyy-docs-BNBvrS8iqQalS6gYGhPG.png",
+      "content_type": "image/png",
+      "bytes": 63535,
+      "sha256": "8378f9bc2a190387e6cdef0f1fd66197279aa694ea8918ffa1ba1c53ec265758",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/jian-kong-ce-le-guan-li"
+      ]
+    },
+    {
       "id": "chJTaKJFCWVkBYbIAMTh",
       "file": "xxyy-docs-chJTaKJFCWVkBYbIAMTh.png",
       "content_type": "image/png",
@@ -240,6 +280,26 @@
       "sha256": "d418f399c71355394e1939ac9504723dd85b785ebdf60b196a9fff1f46c7fbbc",
       "source_pages": [
         "https://docs.xxyy.io/getting-started/jiao-yi-dai-bi/gua-dan-jiao-yi"
+      ]
+    },
+    {
+      "id": "e67oLPCOc07Wvndi77sz",
+      "file": "xxyy-docs-e67oLPCOc07Wvndi77sz.png",
+      "content_type": "image/png",
+      "bytes": 91921,
+      "sha256": "b5ab75d939e6d7d1c0c2b7c89437743d5eceaacaf3c00de2fc9a9294b6e6eaab",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/fa-xian"
+      ]
+    },
+    {
+      "id": "EAITEoB9KFYg72vEkyjC",
+      "file": "xxyy-docs-EAITEoB9KFYg72vEkyjC.png",
+      "content_type": "image/png",
+      "bytes": 32692,
+      "sha256": "df045936c9fe592d47dcd9081911d200dc8dd295cf6811ccc3c6747fbf3319fc",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/jiao-yi-dai-bi/kuai-jie-jiao-yi"
       ]
     },
     {
@@ -303,6 +363,26 @@
       ]
     },
     {
+      "id": "GtWZ8IVTBzwDsItjXGBO",
+      "file": "xxyy-docs-GtWZ8IVTBzwDsItjXGBO.png",
+      "content_type": "image/png",
+      "bytes": 71060,
+      "sha256": "a29af4d265791c11cec7313dd127370ac4a927a8488ce89af2f4b8258fbbe475",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/fa-xian/shou-cang"
+      ]
+    },
+    {
+      "id": "h52zNtPtUsH2wqBzHfFy",
+      "file": "xxyy-docs-h52zNtPtUsH2wqBzHfFy.png",
+      "content_type": "image/png",
+      "bytes": 74266,
+      "sha256": "edce57e7e86331cfcf5488fb0c26ca1f8770ea406f337d8e4250451088795e05",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ]
+    },
+    {
       "id": "I36S6DsTX26wD9nfxUZG",
       "file": "xxyy-docs-I36S6DsTX26wD9nfxUZG.png",
       "content_type": "image/png",
@@ -353,6 +433,26 @@
       ]
     },
     {
+      "id": "K78LBPs5q8YGKgKRHZwX",
+      "file": "xxyy-docs-K78LBPs5q8YGKgKRHZwX.png",
+      "content_type": "image/png",
+      "bytes": 56803,
+      "sha256": "7a3bdc1d0882da88d464f6e58c6639061e873d02ff7da79c4affbea08bb14088",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/fa-xian/qu-shi"
+      ]
+    },
+    {
+      "id": "KBpL2vsntDkfNy9u902K",
+      "file": "xxyy-docs-KBpL2vsntDkfNy9u902K.png",
+      "content_type": "image/png",
+      "bytes": 27703,
+      "sha256": "e126bd7a12dded093f9115f9d84c8c9bc78a78cfb7a59065ff4774fe9157454d",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/jian-kong-ce-le-guan-li"
+      ]
+    },
+    {
       "id": "kho98IPJcOUVXIFjrxhA",
       "file": "xxyy-docs-kho98IPJcOUVXIFjrxhA.png",
       "content_type": "image/png",
@@ -383,6 +483,16 @@
       ]
     },
     {
+      "id": "Lw1OP8kyK3YM6a65Se02",
+      "file": "xxyy-docs-Lw1OP8kyK3YM6a65Se02.png",
+      "content_type": "image/png",
+      "bytes": 115985,
+      "sha256": "d62c5ccc88214c53a0dd50d86a256814847bc6a4e6ab3a38c82b766fe74dd9bf",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ]
+    },
+    {
       "id": "M2KSZxlxcOG2NPpU9zSN",
       "file": "xxyy-docs-M2KSZxlxcOG2NPpU9zSN.png",
       "content_type": "image/png",
@@ -400,6 +510,16 @@
       "sha256": "6cfbe18dd85af4cb1f1846c086294ef723524d201645674cb26d7f06ea891748",
       "source_pages": [
         "https://docs.xxyy.io/getting-started/dai-bi-xin-xi-qu"
+      ]
+    },
+    {
+      "id": "NOkKrM8fJ8mQ4uLrsesq",
+      "file": "xxyy-docs-NOkKrM8fJ8mQ4uLrsesq.png",
+      "content_type": "image/png",
+      "bytes": 27217,
+      "sha256": "aa9a56f56f67c959ea2bf73820d2da476df6aae94beaf41521b272116c0c6ffd",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/qian-bao-jian-kong"
       ]
     },
     {
@@ -440,16 +560,6 @@
       "sha256": "ee7bc6984bedf6dd3e5ea4c9fa8adf0ecc1904cd44779eaceb10911282eeb4f8",
       "source_pages": [
         "https://docs.xxyy.io/getting-started/dashboard/jian-kong-guan-li/lie-biao-cao-zuo"
-      ]
-    },
-    {
-      "id": "OUtqxTlWa4x5sGurBMKY",
-      "file": "xxyy-docs-OUtqxTlWa4x5sGurBMKY.png",
-      "content_type": "image/png",
-      "bytes": 269410,
-      "sha256": "950875290a692856aa512571b10672c50fb332bf80839b5998725331bef50d21",
-      "source_pages": [
-        "https://docs.xxyy.io/getting-started/fa-xian/shou-cang"
       ]
     },
     {
@@ -503,6 +613,16 @@
       ]
     },
     {
+      "id": "QYpT9kvBNjkSoQ3L0rqk",
+      "file": "xxyy-docs-QYpT9kvBNjkSoQ3L0rqk.png",
+      "content_type": "image/png",
+      "bytes": 38567,
+      "sha256": "3c794828bc37f9104cb863f000c041e3453da5a932c71b0bceabb1e657aeec03",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/fa-xian/kol-mai-ru-tagholder-mai-ru"
+      ]
+    },
+    {
       "id": "R0XknhDckz2koDKHhPym",
       "file": "xxyy-docs-R0XknhDckz2koDKHhPym.png",
       "content_type": "image/png",
@@ -533,6 +653,16 @@
       ]
     },
     {
+      "id": "RHYJXj6Z2yNPAHbF8zVS",
+      "file": "xxyy-docs-RHYJXj6Z2yNPAHbF8zVS.png",
+      "content_type": "image/png",
+      "bytes": 42594,
+      "sha256": "41e637f48bc0919242612b7ece52b85ac8b93244ab01d1d668fa918ba5baa54a",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ]
+    },
+    {
       "id": "rLFlxJvymmD0CnN5zQ3o",
       "file": "xxyy-docs-rLFlxJvymmD0CnN5zQ3o.png",
       "content_type": "image/png",
@@ -553,13 +683,13 @@
       ]
     },
     {
-      "id": "s8gm4mj88qp1XP5fdBqH",
-      "file": "xxyy-docs-s8gm4mj88qp1XP5fdBqH.png",
+      "id": "sa0ofU6Q0bMWhoeke7pW",
+      "file": "xxyy-docs-sa0ofU6Q0bMWhoeke7pW.png",
       "content_type": "image/png",
-      "bytes": 73636,
-      "sha256": "069140f08d87dc8b4a2cc939d8ee6058f113288902869d4d792bee5d134c076f",
+      "bytes": 74963,
+      "sha256": "125bd3355bb81070a5ed42fcc83a2fa1abadd3eaa5f540ef4e56dcb9f636e76a",
       "source_pages": [
-        "https://docs.xxyy.io/getting-started/fa-xian/qian-bao-jian-kong"
+        "https://docs.xxyy.io/getting-started/gen-dan"
       ]
     },
     {
@@ -583,6 +713,16 @@
       ]
     },
     {
+      "id": "SiFYNC1wUMXIDATqutNT",
+      "file": "xxyy-docs-SiFYNC1wUMXIDATqutNT.png",
+      "content_type": "image/png",
+      "bytes": 40024,
+      "sha256": "325b804040ad6359b92cb9693b237ce93a1df421cd4f246547cd35e31b2b5936",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ]
+    },
+    {
       "id": "t17MmSt3XfKtoudpmd6H",
       "file": "xxyy-docs-t17MmSt3XfKtoudpmd6H.png",
       "content_type": "image/png",
@@ -590,6 +730,26 @@
       "sha256": "51c594d95518acddc6eebe0aba274baa4bedadcbc361ee490f9e4764f4b52868",
       "source_pages": [
         "https://docs.xxyy.io/getting-started/fa-xian/pump-zao-niao-xin-hao"
+      ]
+    },
+    {
+      "id": "TtqfefdBBCFA6uZ7r8MI",
+      "file": "xxyy-docs-TtqfefdBBCFA6uZ7r8MI.png",
+      "content_type": "image/png",
+      "bytes": 41498,
+      "sha256": "419e7715f0cef4739149e2c0bfc50a8ca17e98516bcae9b8e369e1de9f806428",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ]
+    },
+    {
+      "id": "U1gKvw448ob3NrJZv2WV",
+      "file": "xxyy-docs-U1gKvw448ob3NrJZv2WV.png",
+      "content_type": "image/png",
+      "bytes": 38315,
+      "sha256": "a6cfac6634745d3ea59339fb4e0913373427437b1d935ac6147d47993dec1f6c",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/jiao-yi-dai-bi/kuai-jie-jiao-yi"
       ]
     },
     {
@@ -613,6 +773,16 @@
       ]
     },
     {
+      "id": "w128rYToLCcQu5034G78",
+      "file": "xxyy-docs-w128rYToLCcQu5034G78.png",
+      "content_type": "image/png",
+      "bytes": 10101,
+      "sha256": "1dae2f0da3317150057ce1c8fc1cf723f4ec8908315e6f38885016807c9eae05",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ]
+    },
+    {
       "id": "W9ehM5yAH8jJVUN6CI2B",
       "file": "xxyy-docs-W9ehM5yAH8jJVUN6CI2B.png",
       "content_type": "image/png",
@@ -630,6 +800,26 @@
       "sha256": "04dcf3ac37408bf617e2a747bf1837139db9e17bc050b84cc0a844294d97514b",
       "source_pages": [
         "https://docs.xxyy.io/getting-started/k-xian-qu-yu/k-xian-jiao-yi-biao-ji"
+      ]
+    },
+    {
+      "id": "WRDmUZH9UK19ab4tbwhA",
+      "file": "xxyy-docs-WRDmUZH9UK19ab4tbwhA.png",
+      "content_type": "image/png",
+      "bytes": 262987,
+      "sha256": "90c0904d79fdb82eb54e1adee883cc1b2b26b8d134048788862df9010ec6e249",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/qian-bao-jian-kong"
+      ]
+    },
+    {
+      "id": "XPTyJVOPhYSaKcppRX1K",
+      "file": "xxyy-docs-XPTyJVOPhYSaKcppRX1K.png",
+      "content_type": "image/png",
+      "bytes": 82119,
+      "sha256": "529007a426ac7d1eccaaafef79b116df2281a02e2a10a62ab8f0d147e559b58b",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/jian-kong-ce-le-guan-li"
       ]
     },
     {
@@ -670,6 +860,36 @@
       "sha256": "dea50ce1b0b1fe8b35fc745484764aa406bb86b7d379511ed777971546e97c03",
       "source_pages": [
         "https://docs.xxyy.io/getting-started/fa-xian/pump-zheng-zai-qian-yi"
+      ]
+    },
+    {
+      "id": "YIwea6nKLRJ5OGcuzN2L",
+      "file": "xxyy-docs-YIwea6nKLRJ5OGcuzN2L.jpg",
+      "content_type": "image/jpeg",
+      "bytes": 68926,
+      "sha256": "5dd2f034cf73de4cc8d28b5c083669bf7f262b91cab6ec8873893a94a9c3dc56",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/jian-kong-ce-le-guan-li"
+      ]
+    },
+    {
+      "id": "yKMjnHsoSyzFE6c5Hnqy",
+      "file": "xxyy-docs-yKMjnHsoSyzFE6c5Hnqy.png",
+      "content_type": "image/png",
+      "bytes": 10396,
+      "sha256": "38a757220b348a60452218b018b21919cdd00ec179241737df3a53cd8562c322",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
+      ]
+    },
+    {
+      "id": "YPlOpf2oZihYmIKnKddR",
+      "file": "xxyy-docs-YPlOpf2oZihYmIKnKddR.png",
+      "content_type": "image/png",
+      "bytes": 20022,
+      "sha256": "21d541449192ca44ade2a1d0f25cce058b4ca0c965d6b6f9bb3c694e8c571e7a",
+      "source_pages": [
+        "https://docs.xxyy.io/getting-started/gen-dan"
       ]
     }
   ]

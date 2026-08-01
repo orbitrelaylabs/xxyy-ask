@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { createLocalHashEmbedding, tokenize } from '@xxyy/knowledge';
 import type { IndexEntry, RagIndex } from '@xxyy/shared';
 
-import { createLexicalRetrieveQueryTokens, retrieve } from './retrieve.js';
+import {
+  createLexicalRetrieveQueryTokens,
+  createSemanticRetrieveQuery,
+  retrieve,
+} from './retrieve.js';
 import { createFixtureIndex } from './test-fixtures.js';
 
 describe('retrieve', () => {
@@ -14,6 +18,23 @@ describe('retrieve', () => {
     expect(createLexicalRetrieveQueryTokens('XXYY 扫链筛选支持哪些条件？')).not.toEqual(
       expect.arrayContaining(['xxyy', '扫', '支持', '哪些']),
     );
+  });
+
+  it('expands launchpad and supported-chain shorthand into XXYY product terminology', () => {
+    expect(createLexicalRetrieveQueryTokens('支持哪些发射台？')).toEqual(
+      expect.arrayContaining(['发射台', '发射平台', '扫链', 'launchpad']),
+    );
+    expect(createLexicalRetrieveQueryTokens('支持哪些链？')).toEqual(
+      expect.arrayContaining(['当前产品支持的区块链', '公链', '多链交易']),
+    );
+  });
+
+  it('normalizes mixed-language feature and chain aliases before retrieval', () => {
+    const query = createSemanticRetrieveQuery('copy trading 支持哪些 chain？');
+
+    expect(query).toContain('跟单');
+    expect(query).toContain('当前产品支持的区块链');
+    expect(query).toContain('跟单支持链');
   });
 
   it('combines lexical and local vector scores into ranked chunks', () => {
@@ -104,6 +125,36 @@ describe('retrieve', () => {
     ]);
   });
 
+  it('pins the first overview chunk when an anchor document has multiple matches', () => {
+    const index = createFixtureIndex([
+      {
+        id: 'official_docs:copy-trading:chunk:0005',
+        title: '跟单',
+        sourceType: 'official_docs',
+        text: '跟单任务可以暂停、修改或关闭。',
+      },
+      {
+        id: 'official_docs:copy-trading:chunk:0001',
+        title: '跟单',
+        sourceType: 'official_docs',
+        text: '跟单支持 SOL、BSC、Base、ETH 和 Robinhood。',
+      },
+    ]);
+
+    const results = retrieve('XXYY 跟单支持哪些链？', index, {
+      policy: {
+        anchorDocumentIds: ['official_docs:copy-trading'],
+        diversity: 'none',
+        preferredSourceTypes: ['official_docs'],
+        temporalScope: 'current',
+        version: '1',
+      },
+      topK: 1,
+    });
+
+    expect(results[0]?.id).toBe('official_docs:copy-trading:chunk:0001');
+  });
+
   it('returns an empty list for blank questions or empty indexes', () => {
     expect(retrieve('   ', createFixtureIndex([]))).toEqual([]);
     expect(retrieve('Pro', createFixtureIndex([]))).toEqual([]);
@@ -146,7 +197,7 @@ describe('retrieve', () => {
     expect(results).toEqual([]);
   });
 
-  it('keeps strong vector matches even when lexical score is zero', () => {
+  it('combines alias-expanded lexical and vector evidence for product shorthand', () => {
     const question = 'XXYY copy trading supported chains';
     const index: RagIndex = {
       builtAt: '2026-06-01T00:00:00.000Z',
@@ -174,10 +225,10 @@ describe('retrieve', () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       id: 'x_updates:copy-trading:chunk:0001',
-      lexicalScore: 0,
       rank: 1,
-      vectorScore: 1,
     });
+    expect(results[0]?.lexicalScore).toBeGreaterThan(0);
+    expect(results[0]?.vectorScore).toBeGreaterThan(0.25);
   });
 
   it('expands product synonyms for paraphrased membership limit questions', () => {

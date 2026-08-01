@@ -20,12 +20,14 @@ import {
 } from './support-entity.js';
 import { isCapabilityOverviewQuestion } from './product-question.js';
 import type { GroundedFactConflict } from './grounded-facts.js';
+import { matchKnowledgeAliases } from './knowledge-aliases.js';
 
 const GROUNDED_INTENTS = new Set<Intent>(['product_qa', 'how_to']);
 const MAX_CITATIONS = 3;
 const MAX_ATTACHMENTS = 4;
 const MAX_STRUCTURED_GROUNDING_CHUNKS = 4;
 const MAX_EXCERPT_LENGTH = 220;
+const MAX_STANDARD_ANSWER_EXCERPT_LENGTH = 320;
 const MAX_ANSWER_EVIDENCE_LENGTH = 260;
 const MAX_FALLBACK_ANSWER_LENGTH = 380;
 const MAX_FALLBACK_EVIDENCE_CHUNKS = 4;
@@ -96,17 +98,24 @@ export function createGroundedAnswer(
       ),
     )
     .filter((evidence) => evidence.length > 0);
-  const standardSupportAnswer = isSupportQuestionText(question)
-    ? groundingChunks
-        .map((chunk) => extractStandardCustomerAnswer(chunk.text))
-        .find(
-          (answer) =>
-            answer !== undefined && evidenceMatchesAllRequiredSupportEntities(question, answer),
-        )
+  const standardSupportAnswerChunk = isSupportQuestionText(question)
+    ? groundingChunks.find((chunk) => {
+        const answer = extractStandardCustomerAnswer(chunk.text);
+        return answer !== undefined && evidenceMatchesAllRequiredSupportEntities(question, answer);
+      })
     : undefined;
+  const standardSupportAnswer =
+    standardSupportAnswerChunk === undefined
+      ? undefined
+      : extractStandardCustomerAnswer(standardSupportAnswerChunk.text);
   const supportConclusion =
     standardSupportAnswer ?? createSupportConclusion(question, groundingChunks);
-  const answerChunks = supportConclusion === undefined ? fallbackEvidenceChunks : groundingChunks;
+  const answerChunks =
+    standardSupportAnswerChunk !== undefined
+      ? [standardSupportAnswerChunk]
+      : supportConclusion === undefined
+        ? fallbackEvidenceChunks
+        : groundingChunks;
   const citations = createCitationsForQuestion(question, answerChunks);
   const partialHowTo = hasOnlyXHowToEvidence(classification, answerChunks);
   const evidenceAnswer = truncateAnswerText(
@@ -234,6 +243,8 @@ export function selectGroundingChunks(
         (left, right) =>
           Number(right.hasCurrentEvidence) - Number(left.hasCurrentEvidence) ||
           right.entityMatches - left.entityMatches ||
+          Number(/:chunk:0001$/u.test(right.chunk.id)) -
+            Number(/:chunk:0001$/u.test(left.chunk.id)) ||
           left.chunk.rank - right.chunk.rank,
       )
       .map((candidate) => candidate.chunk);
@@ -251,7 +262,13 @@ export function selectGroundingChunks(
         hasCurrentEvidence: splitEvidenceSentences(chunk.text).some(isCurrentSupportSentence),
       }))
       .filter((candidate) => candidate.coverage > 0 && candidate.hasCurrentEvidence)
-      .sort((left, right) => right.coverage - left.coverage || left.chunk.rank - right.chunk.rank)
+      .sort(
+        (left, right) =>
+          right.coverage - left.coverage ||
+          Number(/:chunk:0001$/u.test(right.chunk.id)) -
+            Number(/:chunk:0001$/u.test(left.chunk.id)) ||
+          left.chunk.rank - right.chunk.rank,
+      )
       .map((candidate) => candidate.chunk);
     if (candidates.length > 0) {
       return candidates.slice(0, MAX_CITATIONS);
@@ -327,6 +344,15 @@ function filterStandardAnswerGroundingChunks(
 }
 
 function standardAnswerMatchesQuestion(chunk: RetrievedChunk, question: string): boolean {
+  if (
+    /跟单|copy\s*trad(?:e|ing)|钱包监控|wallet\s*monitor|扫链|发射(?:台|平台)|launch\s*(?:pad|platform)|\bapi\b/iu.test(
+      question,
+    ) &&
+    /(?:当前支持的公链|整体产品目前支持哪些链)/u.test(`${chunk.metadata.title}\n${chunk.text}`)
+  ) {
+    return false;
+  }
+
   if (
     isCapabilityOverviewQuestion(question) &&
     /(?:当前支持的产品功能总览|当前功能总览|产品功能目录)/u.test(chunk.metadata.title)
@@ -964,9 +990,20 @@ function selectSupportEvidenceSentence(
 }
 
 function supportEvidenceKeywords(question: string): string[] {
-  const subjectTokens = extractSupportSubjectTokens(question);
-  if (subjectTokens.length > 0) {
-    return subjectTokens;
+  const canonicalFeatureTokens = matchKnowledgeAliases(question)
+    .filter((match) => match.type === 'feature' && match.canonical !== '发射平台')
+    .map((match) => match.canonical);
+  const subjectTokens =
+    canonicalFeatureTokens.length > 0
+      ? canonicalFeatureTokens
+      : extractSupportSubjectTokens(question);
+  const facetTokens = /支持(?:哪些|什么|哪几)\s*(?:(?:公)?链|chains?)/iu.test(
+    question.normalize('NFKC'),
+  )
+    ? ['公链']
+    : [];
+  if (subjectTokens.length > 0 || facetTokens.length > 0) {
+    return Array.from(new Set([...subjectTokens, ...facetTokens]));
   }
 
   return Array.from(new Set(extractSupportEntityTokens(question)));
@@ -1150,35 +1187,48 @@ export function createCitationsForAnswer(
     .map(sanitizeRetrievedKnowledgeChunk)
     .filter((chunk) => hasUsableKnowledgeText(chunk.text))
     .slice(0, MAX_STRUCTURED_GROUNDING_CHUNKS)
-    .map((chunk) => ({
-      ...createCitation(chunk),
-      excerpt: withCitationPublicationDate(
-        chunk,
-        createDocumentOverviewExcerpt(question, chunk, MAX_EXCERPT_LENGTH) ??
-          createRelevantExcerpt(relevanceQuery, chunk.text),
-      ),
-    }));
+    .map((chunk) => {
+      const maximumLength = citationExcerptLimit(chunk);
+      return {
+        ...createCitation(chunk),
+        excerpt: withCitationPublicationDate(
+          chunk,
+          createDocumentOverviewExcerpt(question, chunk, maximumLength) ??
+            createRelevantExcerpt(relevanceQuery, chunk.text, maximumLength),
+          maximumLength,
+        ),
+      };
+    });
 }
 
 function createCitationsForQuestion(
   question: string,
   retrievedChunks: RetrievedChunk[],
 ): Citation[] {
-  return retrievedChunks.slice(0, MAX_STRUCTURED_GROUNDING_CHUNKS).map((chunk) => ({
-    ...createCitation(chunk),
-    excerpt: withCitationPublicationDate(
-      chunk,
-      createDocumentOverviewExcerpt(question, chunk, MAX_EXCERPT_LENGTH) ??
-        createRelevantExcerpt(question, chunk.text),
-    ),
-  }));
+  return retrievedChunks.slice(0, MAX_STRUCTURED_GROUNDING_CHUNKS).map((chunk) => {
+    const maximumLength = citationExcerptLimit(chunk);
+    return {
+      ...createCitation(chunk),
+      excerpt: withCitationPublicationDate(
+        chunk,
+        createDocumentOverviewExcerpt(question, chunk, maximumLength) ??
+          createRelevantExcerpt(question, chunk.text, maximumLength),
+        maximumLength,
+      ),
+    };
+  });
 }
 
 function createCitation(chunk: RetrievedChunk): Citation {
+  const maximumExcerptLength = citationExcerptLimit(chunk);
   const citation: Citation = {
     title: chunk.metadata.title,
     file: normalizeCitationFile(chunk.metadata.file),
-    excerpt: withCitationPublicationDate(chunk, createExcerpt(chunk.text)),
+    excerpt: withCitationPublicationDate(
+      chunk,
+      createExcerpt(chunk.text, maximumExcerptLength),
+      maximumExcerptLength,
+    ),
     sourceType: chunk.metadata.sourceType,
   };
 
@@ -1192,12 +1242,22 @@ function createCitation(chunk: RetrievedChunk): Citation {
   return citation;
 }
 
-function withCitationPublicationDate(chunk: RetrievedChunk, excerpt: string): string {
+function citationExcerptLimit(chunk: RetrievedChunk): number {
+  return extractStandardCustomerAnswer(chunk.text) === undefined
+    ? MAX_EXCERPT_LENGTH
+    : MAX_STANDARD_ANSWER_EXCERPT_LENGTH;
+}
+
+function withCitationPublicationDate(
+  chunk: RetrievedChunk,
+  excerpt: string,
+  maximumLength = MAX_EXCERPT_LENGTH,
+): string {
   const publicationDate = chunk.metadata.effectiveAt?.slice(0, 10);
   if (publicationDate === undefined || excerpt.includes(publicationDate)) {
     return excerpt;
   }
-  return truncateExcerpt(`发布日期：${publicationDate}。 ${excerpt}`, MAX_EXCERPT_LENGTH);
+  return truncateExcerpt(`发布日期：${publicationDate}。 ${excerpt}`, maximumLength);
 }
 
 function normalizeCitationFile(file: string): string {
@@ -1210,13 +1270,13 @@ function normalizeCitationFile(file: string): string {
   return normalized.replace(/^\/+/u, '');
 }
 
-function createExcerpt(text: string): string {
+function createExcerpt(text: string, maximumLength = MAX_EXCERPT_LENGTH): string {
   const compact = (extractStandardCustomerAnswer(text) ?? text).replace(/\s+/gu, ' ').trim();
-  if (compact.length <= MAX_EXCERPT_LENGTH) {
+  if (compact.length <= maximumLength) {
     return compact;
   }
 
-  return `${compact.slice(0, MAX_EXCERPT_LENGTH - 1)}…`;
+  return `${compact.slice(0, maximumLength - 1)}…`;
 }
 
 function selectFallbackEvidenceChunks(
@@ -1737,7 +1797,10 @@ function reciprocalGroundingRank(rank: number): number {
 }
 
 function extractStandardCustomerAnswer(text: string): string | undefined {
-  const match = /标准客服回答：(?<answer>.*?)(?:用户问|演示视频：|\n{2,}|$)/su.exec(text);
+  const match =
+    /标准客服回答：(?<answer>.*?)(?:用户问|演示视频：|按链整理如下：|证据范围：|\n{2,}|$)/su.exec(
+      text,
+    );
   const answer = match?.groups?.answer?.trim();
   return answer === undefined || answer.length === 0 ? undefined : answer;
 }

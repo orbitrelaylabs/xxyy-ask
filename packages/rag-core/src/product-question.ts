@@ -67,6 +67,9 @@ export interface ProductRetrievalPolicy {
 
 const CURRENT_CAPABILITY_OVERVIEW_DOCUMENT_ID =
   'official_docs:pages/00-current-capability-overview';
+const COPY_TRADING_DOCUMENT_ID = 'official_docs:pages/138-getting-started__gen-dan';
+const CURRENT_SUPPORTED_CHAINS_DOCUMENT_ID = 'x_updates:pages/139-current-supported-chains';
+const CURRENT_LAUNCHPAD_SUPPORT_DOCUMENT_ID = 'x_updates:pages/140-current-launchpad-support';
 
 const capabilityOverviewPatterns = [
   /^(?:请|麻烦)?(?:介绍|说明|说)?(?:一下)?\s*(?:xxyy(?:\s*产品)?\s*)?(?:(?:目前|当前|现在)\s*)?(?:都|主要)?(?:支持|包含|提供|有)?\s*(?:哪些|什么|哪几)(?:主要)?(?:产品)?功能(?:[？?。.]|$)/u,
@@ -402,7 +405,15 @@ export function createProductRetrievalPolicy(
         : ['admin_verified', 'official_docs', 'x_updates'];
   return {
     anchorDocumentIds:
-      understanding.kind === 'capability_overview' ? [CURRENT_CAPABILITY_OVERVIEW_DOCUMENT_ID] : [],
+      understanding.kind === 'capability_overview'
+        ? [CURRENT_CAPABILITY_OVERVIEW_DOCUMENT_ID]
+        : understanding.modules.includes('发射平台')
+          ? [CURRENT_LAUNCHPAD_SUPPORT_DOCUMENT_ID]
+          : understanding.modules.includes('跟单')
+            ? [COPY_TRADING_DOCUMENT_ID]
+            : understanding.modules.includes('链支持')
+              ? [CURRENT_SUPPORTED_CHAINS_DOCUMENT_ID]
+              : [],
     diversity:
       understanding.kind === 'capability_overview' || understanding.kind === 'comparison'
         ? 'balanced'
@@ -481,6 +492,12 @@ function understandingContext(
       ...new Set(
         [
           ['交易', /交易|swap|挂单|止盈|止损/iu],
+          ['跟单', /跟单|copy\s*trad(?:e|ing)/iu],
+          ['发射平台', /发射台|发射平台|launch\s*(?:pad|platform)/iu],
+          [
+            '链支持',
+            /支持(?:哪些|什么|哪几)(?:条)?(?:公)?链|(?:哪些|什么|哪几)(?:条)?(?:公)?链支持|supported\s+chains?/iu,
+          ],
           ['钱包', /钱包|wallet/iu],
           ['监控', /监控|提醒|通知|monitor/iu],
           ['数据分析', /行情|k\s*线|数据|分析|holder/iu],

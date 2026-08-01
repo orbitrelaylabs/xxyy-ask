@@ -2,7 +2,7 @@
 title: "持仓管理：截图文字"
 section: "Dashboard / 图片 OCR"
 source_url: "https://docs.xxyy.io/getting-started/dashboard/chi-cang-guan-li"
-retrieved_at: "2026-07-19T16:07:12.754Z"
+retrieved_at: "2026-08-01T03:59:58.546Z"
 status: current
 ---
 

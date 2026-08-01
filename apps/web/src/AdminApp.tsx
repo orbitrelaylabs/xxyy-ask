@@ -17,6 +17,10 @@ import type {
   KnowledgeCandidate,
   KnowledgeCurationMode,
   KnowledgeGapRecord,
+  KnowledgeGraphEntity,
+  KnowledgeGraphConflict,
+  KnowledgeGraphRelation,
+  KnowledgeGraphRelationStatus,
   PublicationJob,
   PublicationStatus,
   QualityTrend,
@@ -38,6 +42,7 @@ type AdminTab =
   | 'authors'
   | 'candidates'
   | 'groups'
+  | 'graph'
   | 'imports'
   | 'publications'
   | 'support'
@@ -178,6 +183,9 @@ export function AdminApp(): ReactElement {
           ) : undefined}
           {activeTab === 'groups' ? (
             <TelegramGroupsPanel permissions={permissions} token={token} />
+          ) : undefined}
+          {activeTab === 'graph' ? (
+            <KnowledgeGraphPanel permissions={permissions} token={token} />
           ) : undefined}
           {activeTab === 'users' ? (
             <AdminUsersPanel
@@ -872,6 +880,7 @@ function AdminSidebar({
       ? ([{ id: 'users', label: '管理员用户', meta: '账号、角色与启停状态' }] as const)
       : []),
     { id: 'candidates', label: '知识候选', meta: '群聊审核与冲突检查' },
+    { id: 'graph', label: '知识图谱', meta: '实体关系、证据与启停治理' },
     { id: 'publications', label: '发布任务', meta: '自动队列与故障观察' },
     { id: 'authors', label: '可信作者', meta: 'Telegram 角色有效期' },
     { id: 'imports', label: 'Telegram 导入', meta: '自动清洗、决策与入队' },
@@ -1589,6 +1598,203 @@ function TelegramGroupsPanel({
   );
 }
 
+function KnowledgeGraphPanel({
+  permissions,
+  token,
+}: {
+  permissions: ReadonlySet<AdminPermission>;
+  token: string;
+}): ReactElement {
+  const [entities, setEntities] = useState<KnowledgeGraphEntity[]>([]);
+  const [conflicts, setConflicts] = useState<KnowledgeGraphConflict[]>([]);
+  const [relations, setRelations] = useState<KnowledgeGraphRelation[]>([]);
+  const [status, setStatus] = useState<KnowledgeGraphRelationStatus>('approved');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const loadGraph = useCallback(async (): Promise<void> => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const [entityResult, relationResult, conflictResult] = await Promise.all([
+        knowledgeAdminRequest<{ entities: KnowledgeGraphEntity[] }>(
+          token,
+          '/knowledge-graph/entities?limit=200',
+        ),
+        knowledgeAdminRequest<{ relations: KnowledgeGraphRelation[] }>(
+          token,
+          `/knowledge-graph/relations?status=${status}&limit=300`,
+        ),
+        knowledgeAdminRequest<{ conflicts: KnowledgeGraphConflict[] }>(
+          token,
+          '/knowledge-graph/conflicts?limit=100',
+        ),
+      ]);
+      setEntities(entityResult.entities);
+      setRelations(relationResult.relations);
+      setConflicts(conflictResult.conflicts);
+    } catch (loadError) {
+      setError(errorMessage(loadError));
+    } finally {
+      setBusy(false);
+    }
+  }, [status, token]);
+
+  useEffect(() => {
+    void loadGraph();
+  }, [loadGraph]);
+
+  const changeStatus = async (
+    relation: KnowledgeGraphRelation,
+    nextStatus: KnowledgeGraphRelationStatus,
+  ): Promise<void> => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await knowledgeAdminRequest(token, `/knowledge-graph/relations/${relation.id}`, {
+        body: { status: nextStatus },
+        method: 'PATCH',
+      });
+      await loadGraph();
+    } catch (updateError) {
+      setError(errorMessage(updateError));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="admin-stack">
+      <section className="admin-panel">
+        <div className="section-heading">
+          <div>
+            <h2>实体与别名</h2>
+            <p>实体来自已发布知识；别名用于 Query 归一化，不作为独立事实。</p>
+          </div>
+          <button disabled={busy} onClick={() => void loadGraph()} type="button">
+            刷新
+          </button>
+        </div>
+        <div className="metric-grid">
+          <Metric label="实体" value={entities.length} />
+          <Metric label="关系" value={relations.length} />
+          <Metric label="冲突" value={conflicts.length} />
+          <Metric
+            label="链实体"
+            value={entities.filter((entity) => entity.type === 'chain').length}
+          />
+        </div>
+        <div className="publication-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>类型</th>
+                <th>规范名称</th>
+                <th>别名</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entities.map((entity) => (
+                <tr key={entity.id}>
+                  <td>{entity.type}</td>
+                  <td>{entity.canonicalName}</td>
+                  <td>{entity.aliases.join('、') || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <SectionHeading
+          description="同一功能与链同时存在“支持”和“不支持”的当前证据时会列在这里；审核人应检查来源后停用错误关系。"
+          title="关系冲突"
+        />
+        {conflicts.length === 0 ? (
+          <div className="admin-empty compact">当前没有生效中的正反关系冲突。</div>
+        ) : (
+          <div className="comparison-grid">
+            {conflicts.map((conflict) => (
+              <article
+                className="comparison-card conflict"
+                key={`${conflict.subject.id}:${conflict.object.id}`}
+              >
+                <strong>
+                  {conflict.subject.canonicalName} ↔ {conflict.object.canonicalName}
+                </strong>
+                <p>
+                  支持证据 {conflict.positiveRelationIds.length} 条；不支持证据{' '}
+                  {conflict.negativeRelationIds.length} 条。
+                </p>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-heading">
+          <div>
+            <h2>证据关系治理</h2>
+            <p>拒绝关系会立即退出图谱召回，但不会删除原始知识文档。</p>
+          </div>
+          <select
+            aria-label="关系状态"
+            onChange={(event) => setStatus(event.target.value as KnowledgeGraphRelationStatus)}
+            value={status}
+          >
+            <option value="approved">生效中</option>
+            <option value="rejected">已停用</option>
+          </select>
+        </div>
+        {error === undefined ? undefined : <div className="admin-alert error">{error}</div>}
+        <div className="publication-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>关系</th>
+                <th>来源</th>
+                <th>证据</th>
+                <th>治理</th>
+              </tr>
+            </thead>
+            <tbody>
+              {relations.map((relation) => (
+                <tr key={relation.id}>
+                  <td>
+                    {relation.subject.canonicalName} → {relation.predicate} →{' '}
+                    {relation.object.canonicalName}
+                  </td>
+                  <td>{relation.sourceType}</td>
+                  <td>{relation.evidence.slice(0, 180)}</td>
+                  <td>
+                    {permissions.has('candidate:review') ? (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void changeStatus(
+                            relation,
+                            relation.status === 'approved' ? 'rejected' : 'approved',
+                          )
+                        }
+                        type="button"
+                      >
+                        {relation.status === 'approved' ? '停用' : '恢复'}
+                      </button>
+                    ) : (
+                      relation.status
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function CandidatesPanel({
   permissions,
   token,
@@ -1909,6 +2115,32 @@ function CandidateDetailPanel({
             </button>
           </div>
         ) : undefined}
+      </section>
+
+      <section className="admin-panel">
+        <SectionHeading
+          description="这里只预览候选可能形成的实体关系；候选批准并由发布 Worker 写入正式知识后，关系才会参与客服检索。"
+          title="知识图谱关系预览"
+        />
+        {(detail.graphPreview ?? []).length === 0 ? (
+          <div className="admin-empty compact">当前候选未提取到受支持的实体关系。</div>
+        ) : (
+          <div className="comparison-grid">
+            {(detail.graphPreview ?? []).map((relation, index) => (
+              <article
+                className="comparison-card duplicate"
+                key={`${relation.subject.canonicalName}:${relation.predicate}:${relation.object.canonicalName}:${index}`}
+              >
+                <div className="comparison-label">待发布关系 · {relation.confidence}</div>
+                <strong>
+                  {relation.subject.canonicalName} → {relation.predicate} →{' '}
+                  {relation.object.canonicalName}
+                </strong>
+                <p>{relation.evidence.slice(0, 240)}</p>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="admin-panel">
@@ -2687,6 +2919,8 @@ function tabTitle(tab: AdminTab): string {
       return '知识候选审核与治理';
     case 'groups':
       return 'Telegram 群聊与读取状态';
+    case 'graph':
+      return '知识图谱与证据关系治理';
     case 'imports':
       return 'Telegram 知识导入';
     case 'publications':

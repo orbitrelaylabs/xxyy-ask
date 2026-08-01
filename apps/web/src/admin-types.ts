@@ -12,6 +12,38 @@ export type AdminPermission =
 export type CandidateStatus = 'approved' | 'pending' | 'published' | 'rejected';
 export type PublicationStatus = 'failed' | 'queued' | 'running' | 'succeeded';
 
+export type KnowledgeGraphEntityType = 'chain' | 'feature' | 'launchpad' | 'plan' | 'product';
+export type KnowledgeGraphRelationStatus = 'approved' | 'rejected';
+
+export interface KnowledgeGraphEntity {
+  aliases: string[];
+  canonicalName: string;
+  id: string;
+  type: KnowledgeGraphEntityType;
+}
+
+export interface KnowledgeGraphRelation {
+  confidence: number;
+  evidence: string;
+  id: string;
+  object: { canonicalName: string; type: KnowledgeGraphEntityType };
+  predicate: 'does_not_support_chain' | 'supported_launchpad_on_chain' | 'supports_chain';
+  sourceChunkId: string;
+  sourceDocumentId: string;
+  sourceType: 'admin_verified' | 'official_docs' | 'x_updates';
+  status: KnowledgeGraphRelationStatus;
+  subject: { canonicalName: string; type: KnowledgeGraphEntityType };
+  updatedAt: string;
+  sourceUrl?: string;
+}
+
+export interface KnowledgeGraphConflict {
+  negativeRelationIds: string[];
+  object: KnowledgeGraphEntity;
+  positiveRelationIds: string[];
+  subject: KnowledgeGraphEntity;
+}
+
 export interface TelegramGroupRegistryEntry {
   chatId: string;
   chatType: 'group' | 'supergroup';
@@ -326,6 +358,13 @@ export interface CandidateDetail {
     revisions: CandidateRevision[];
   };
   publications: PublicationJob[];
+  graphPreview?: Array<{
+    confidence: number;
+    evidence: string;
+    object: { canonicalName: string; type: KnowledgeGraphEntityType };
+    predicate: 'does_not_support_chain' | 'supported_launchpad_on_chain' | 'supports_chain';
+    subject: { canonicalName: string; type: KnowledgeGraphEntityType };
+  }>;
 }
 
 export interface TrustedAuthor {

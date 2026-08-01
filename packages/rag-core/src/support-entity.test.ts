@@ -15,6 +15,9 @@ import {
 describe('support entity helpers', () => {
   it('detects support questions and extracts latin entity tokens', () => {
     expect(isSupportQuestionText('当前支持robinhood么')).toBe(true);
+    expect(isSupportQuestionText('支持哪些发射平台？')).toBe(true);
+    expect(isSupportQuestionText('XXYY 跟单支持哪些链？')).toBe(true);
+    expect(isSupportQuestionText('copy trading 支持哪些 chain？')).toBe(true);
     expect(isSupportQuestionText('Does XXYY support Robinhood?')).toBe(true);
     expect(isSupportQuestionText('钱包监控怎么设置')).toBe(false);
 

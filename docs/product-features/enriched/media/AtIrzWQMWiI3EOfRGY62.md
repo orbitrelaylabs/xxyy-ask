@@ -2,7 +2,7 @@
 title: "收益统计：截图文字"
 section: "Dashboard / 图片 OCR"
 source_url: "https://docs.xxyy.io/getting-started/dashboard/shou-yi-tong-ji"
-retrieved_at: "2026-07-19T16:07:12.754Z"
+retrieved_at: "2026-08-01T03:59:58.546Z"
 status: current
 ---
 

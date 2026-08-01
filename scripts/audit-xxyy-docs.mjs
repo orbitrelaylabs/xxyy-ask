@@ -27,8 +27,8 @@ export async function auditXxyyDocs(options = {}) {
       errors.push(`Manifest entry has no Markdown file: ${JSON.stringify(entry)}`);
       continue;
     }
-    if (typeof entry.source_url === 'string') {
-      if (seenUrls.has(entry.source_url) && entry.site_page === true) {
+    if (typeof entry.source_url === 'string' && entry.site_page === true) {
+      if (seenUrls.has(entry.source_url)) {
         errors.push(`Duplicate site URL: ${entry.source_url}`);
       }
       seenUrls.add(entry.source_url);
