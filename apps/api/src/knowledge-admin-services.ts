@@ -1,6 +1,7 @@
 import {
   createKnowledgeAutomationController,
   createKnowledgeGovernanceService,
+  createOpenAiKnowledgeCandidateSuggestionProvider,
   createOpenAiKnowledgeCuratorModel,
   createPgKnowledgeAdminUserStore,
   createPgFeedbackStore,
@@ -17,6 +18,7 @@ import {
   createPgPool,
   createPgTrustedAuthorStore,
   fetchTelegramCurrentAdministratorIds,
+  InvalidKnowledgeCandidateStateError,
   readTelegramKnowledgeExport,
   VectorStoreConfigurationError,
 } from '@xxyy/rag-core';
@@ -62,6 +64,15 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
       options.config.openAiApiKey === undefined || options.config.openAiModel === undefined
         ? undefined
         : createOpenAiKnowledgeCuratorModel({
+            apiKey: options.config.openAiApiKey,
+            baseUrl: options.config.openAiBaseUrl,
+            model: options.config.openAiModel,
+            requestTimeoutMs: options.config.openAiRequestTimeoutMs,
+          });
+    const candidateSuggestionProvider =
+      options.config.openAiApiKey === undefined || options.config.openAiModel === undefined
+        ? undefined
+        : createOpenAiKnowledgeCandidateSuggestionProvider({
             apiKey: options.config.openAiApiKey,
             baseUrl: options.config.openAiBaseUrl,
             model: options.config.openAiModel,
@@ -127,6 +138,20 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
       publicationJobs,
       qualityEvaluations,
       supportOperations,
+      async suggestCandidate(input) {
+        const detail = await governance.getCandidateDetail(input.id);
+        if (detail === undefined) return undefined;
+        if (detail.candidate.status !== 'pending') {
+          throw new InvalidKnowledgeCandidateStateError(input.id, 'pending');
+        }
+        if (candidateSuggestionProvider === undefined) {
+          throw new Error('Candidate AI suggestions require OPENAI_API_KEY and OPENAI_MODEL.');
+        }
+        return candidateSuggestionProvider.suggest({
+          candidate: detail.candidate,
+          conflicts: detail.conflicts,
+        });
+      },
       telegramGroups,
       telegramMessages,
       importTelegram,

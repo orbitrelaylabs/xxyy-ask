@@ -435,6 +435,19 @@ export interface CandidateDetail {
   }>;
 }
 
+export interface KnowledgeCandidateImprovementSuggestion {
+  canonicalAnswer: string;
+  missingInformation: string[];
+  model: string;
+  proposedModule: string;
+  proposedTitle: string;
+  promptVersion: string;
+  question: string;
+  rationale: string;
+  riskFlags: string[];
+  status: 'needs_clarification' | 'no_change' | 'suggestion';
+}
+
 export interface TrustedAuthor {
   chatId: string;
   createdAt: string;

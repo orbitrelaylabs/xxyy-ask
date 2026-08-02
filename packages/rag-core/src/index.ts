@@ -134,6 +134,17 @@ export {
   InvalidKnowledgeCandidateStateError,
   sanitizeKnowledgeCandidateText,
 } from './knowledge-candidates.js';
+export {
+  createOpenAiKnowledgeCandidateSuggestionProvider,
+  KnowledgeCandidateSuggestionConfigurationError,
+  KnowledgeCandidateSuggestionResponseError,
+} from './knowledge-candidate-suggestions.js';
+export type {
+  KnowledgeCandidateImprovementSuggestion,
+  KnowledgeCandidateSuggestionProvider,
+  KnowledgeCandidateSuggestionStatus,
+  OpenAiKnowledgeCandidateSuggestionProviderOptions,
+} from './knowledge-candidate-suggestions.js';
 export type {
   CreateKnowledgeCandidateInput,
   KnowledgeAuthorVerification,

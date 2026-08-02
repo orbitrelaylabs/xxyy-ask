@@ -15,6 +15,7 @@ import type {
   CandidateDetail,
   CandidateStatus,
   KnowledgeCandidate,
+  KnowledgeCandidateImprovementSuggestion,
   KnowledgeCurationMode,
   KnowledgeGapRecord,
   KnowledgeGraphEntity,
@@ -2332,6 +2333,7 @@ function CandidateDetailPanel({
   const [effectiveAt, setEffectiveAt] = useState(toDateTimeLocal(candidate.effectiveAt));
   const [supersedes, setSupersedes] = useState((candidate.supersedes ?? []).join(', '));
   const [actionBusy, setActionBusy] = useState(false);
+  const [suggestion, setSuggestion] = useState<KnowledgeCandidateImprovementSuggestion>();
 
   const runAction = async (
     operation: () => Promise<void>,
@@ -2362,6 +2364,31 @@ function CandidateDetailPanel({
         method: 'PATCH',
       });
     }, '候选修订已保存，并生成新的不可变 revision。');
+
+  const generateSuggestion = async (): Promise<void> => {
+    setActionBusy(true);
+    try {
+      const result = await knowledgeAdminRequest<{
+        suggestion: KnowledgeCandidateImprovementSuggestion;
+      }>(token, `/candidates/${encodeURIComponent(candidate.id)}/suggestion`, {
+        method: 'POST',
+      });
+      setSuggestion(result.suggestion);
+    } catch (error) {
+      onError(errorMessage(error));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const applySuggestion = (): void => {
+    if (suggestion === undefined) return;
+    setQuestion(suggestion.question);
+    setAnswer(suggestion.canonicalAnswer);
+    setTitle(suggestion.proposedTitle);
+    setModule(suggestion.proposedModule);
+    setReason(`应用 AI 优化建议（${suggestion.promptVersion} / ${suggestion.model}）`);
+  };
 
   const review = (decision: 'approve' | 'reject'): Promise<void> =>
     runAction(
@@ -2488,6 +2515,72 @@ function CandidateDetailPanel({
           </div>
         ) : undefined}
       </section>
+
+      {canReview ? (
+        <section className="admin-panel">
+          <SectionHeading
+            description="AI 只根据候选原文、Telegram 证据和冲突资料生成建议，不会自动修改、批准或发布。应用后仍需人工检查并保存 Revision。"
+            title="AI 优化建议"
+          />
+          <div className="admin-actions">
+            <button
+              className="admin-secondary-button"
+              disabled={actionBusy}
+              onClick={() => void generateSuggestion()}
+              type="button"
+            >
+              {actionBusy
+                ? '正在生成…'
+                : suggestion === undefined
+                  ? '生成 AI 建议'
+                  : '重新生成建议'}
+            </button>
+            {suggestion === undefined ? undefined : (
+              <button
+                className="admin-primary-button"
+                disabled={actionBusy || suggestion.status === 'no_change'}
+                onClick={applySuggestion}
+                type="button"
+              >
+                应用到编辑框
+              </button>
+            )}
+          </div>
+          {suggestion === undefined ? (
+            <div className="admin-empty compact">尚未生成建议。模型调用只在管理员点击后发生。</div>
+          ) : (
+            <div className="detail-stack">
+              <div className="candidate-facts">
+                <Fact label="建议状态" value={suggestionStatusLabel(suggestion.status)} />
+                <Fact label="模型" value={suggestion.model} />
+                <Fact label="Prompt" value={suggestion.promptVersion} />
+              </div>
+              <div className="comparison-grid">
+                <article className="comparison-card duplicate">
+                  <div className="comparison-label">当前候选</div>
+                  <strong>{candidate.question}</strong>
+                  <p>{candidate.canonicalAnswer}</p>
+                </article>
+                <article className="comparison-card duplicate">
+                  <div className="comparison-label">AI 建议</div>
+                  <strong>{suggestion.question}</strong>
+                  <p>{suggestion.canonicalAnswer}</p>
+                  <small>
+                    {suggestion.proposedTitle} · {suggestion.proposedModule}
+                  </small>
+                </article>
+              </div>
+              <div className="admin-security-note">建议理由：{suggestion.rationale}</div>
+              <TagList emptyLabel="未识别到额外风险" items={suggestion.riskFlags} tone="risk" />
+              {suggestion.missingInformation.length === 0 ? undefined : (
+                <div className="admin-security-note">
+                  仍需管理员补充：{suggestion.missingInformation.join('；')}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      ) : undefined}
 
       <section className="admin-panel">
         <SectionHeading
@@ -3252,6 +3345,17 @@ function formatDate(value: string): string {
 
 function formatScore(value: number | undefined): string {
   return value === undefined ? '未评分' : `${Math.round(value * 100)}%`;
+}
+
+function suggestionStatusLabel(status: KnowledgeCandidateImprovementSuggestion['status']): string {
+  switch (status) {
+    case 'needs_clarification':
+      return '需要补充信息';
+    case 'no_change':
+      return '无需修改';
+    case 'suggestion':
+      return '可供应用';
+  }
 }
 
 function toDateTimeLocal(value: string | undefined): string {

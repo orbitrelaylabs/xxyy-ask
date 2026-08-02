@@ -18,6 +18,7 @@ import {
 import type {
   ImportTelegramKnowledgeResult,
   FeedbackRecord,
+  KnowledgeCandidateImprovementSuggestion,
   KnowledgeCurationMode,
   KnowledgeGovernanceService,
   KnowledgeAdminRole,
@@ -69,6 +70,9 @@ export interface KnowledgeAdminServices {
     skippedMissingReplyCount: number;
     unverifiedAuthorMessageCount: number;
   }>;
+  suggestCandidate(input: {
+    id: string;
+  }): Promise<KnowledgeCandidateImprovementSuggestion | undefined>;
 }
 
 export interface HandleKnowledgeAdminApiOptions {
@@ -567,6 +571,7 @@ async function routeAdminUserRequest(
     sendJson(options.response, 200, { user });
     return;
   }
+
   sendNotFound(options.response);
 }
 
@@ -626,6 +631,18 @@ async function routeCandidateRequest(
       ...(payload.reason === undefined ? {} : { reason: payload.reason }),
     });
     sendJson(options.response, 200, { candidate });
+    return;
+  }
+
+  if (segments.length === 2 && segments[1] === 'suggestion') {
+    requirePermission(principal, 'candidate:review');
+    requireMethod(method, 'POST');
+    const suggestion = await services.suggestCandidate({ id: candidateId });
+    if (suggestion === undefined) {
+      sendNotFound(options.response, 'Knowledge candidate was not found.');
+      return;
+    }
+    sendJson(options.response, 200, { suggestion });
     return;
   }
 

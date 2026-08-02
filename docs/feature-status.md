@@ -15,6 +15,7 @@
 - [x] Telegram Bot：`pnpm run telegram:dev` 通过 Telegram Bot API long polling 接收消息；私聊文本直接回答。群聊默认只读，不发送命令回复、客服答案、媒体或异常。群文本实时幂等写入本地 PostgreSQL 收件箱，不在 Update 内创建候选；原始消息默认保留 30 天。Web 不采集客服对话用于知识演进。
 - [x] Telegram 群注册表与收件箱：Bot 订阅 `my_chat_member` 并登记群元数据，同时保存 Telegram 已交付的群文本、Reply 关系、作者 ID、编辑和处理状态。`GET /admin` 的“Telegram 群聊”页面显示待整理数量、最近消息和一键整理入口。
 - [x] Knowledge Curator Auto Mode：后台整理本地 Telegram 收件箱时，会合并连续发言、识别 Reply 与紧邻管理员普通回答，并按角色有效期验证作者、脱敏、分类、标准化、去重、检查正式 chunk 冲突并生成质量/风险信息。
+- [x] 候选 AI 优化建议：Pending 候选可由 reviewer 按需请求证据受控的规范问题、答案、标题、模块、缺失信息和风险建议；服务端拒绝新增无证据数字或 URL，Admin 展示原文/建议对比。建议不自动写库、审批或发布，应用后仍需保存不可变 Revision。
 - [x] 分来源知识治理：官方同步和遗留自动来源继续由 `knowledge-automation-v1` 执行严格自动决策；本地 Telegram 收件箱候选固定带 `manual_review_required`，自动对账不会批准或拒绝，必须由后台管理员审核。批准后自动创建发布任务，模型不能决定发布。
 - [x] 知识治理管理面：`GET /admin` 使用 PostgreSQL 管理员账号、scrypt 密码哈希和可撤销 Session，并提供 `viewer/reviewer/publisher/admin` RBAC、账号启停/改密/角色管理、本人验证原密码改密、其他会话撤销和本人角色/状态误操作保护，以及候选上下文、自动原因、重复/冲突对比、revision/history、可信作者、Telegram 导入和发布状态；人工操作只保留为有审计的紧急恢复面，公开客服 API 仍不暴露知识写入能力。
 - [x] 可靠自动发布任务：自动治理幂等创建 `PublicationJob`；`pnpm rag:knowledge:automation:work` 对账遗留状态、补建任务、最多重试三次并用租约执行现有发布门禁，最终候选状态与 pgvector ingest 在同一数据库事务完成。

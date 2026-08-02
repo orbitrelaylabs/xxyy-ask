@@ -458,6 +458,44 @@ describe('handleKnowledgeAdminApi', () => {
     });
   });
 
+  it('lets reviewers request an AI candidate suggestion without applying it', async () => {
+    const suggestCandidate = vi.fn<KnowledgeAdminServices['suggestCandidate']>().mockResolvedValue({
+      canonicalAnswer: '根据管理员回复，当前需要使用 BNB。',
+      missingInformation: ['需要确认 BNB 的具体用途。'],
+      model: 'test-model',
+      proposedModule: '交易设置',
+      proposedTitle: 'BSC 交易资产',
+      promptVersion: 'knowledge-candidate-improvement-v1',
+      question: 'XXYY 在 BSC 场景下是否支持 USDT？',
+      rationale: '规范口语表达。',
+      riskFlags: ['ambiguous_scope'],
+      status: 'needs_clarification',
+    });
+    const services = knowledgeAdminServices({ suggestCandidate });
+    const reviewerResponse = await callAdmin({
+      authenticator: authenticator('reviewer'),
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/candidates/candidate-1/suggestion',
+    });
+    const viewerResponse = await callAdmin({
+      authenticator: authenticator('viewer'),
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/candidates/candidate-1/suggestion',
+    });
+
+    expect(reviewerResponse.statusCode).toBe(200);
+    expect(reviewerResponse.json).toMatchObject({
+      suggestion: { status: 'needs_clarification' },
+    });
+    expect(viewerResponse.statusCode).toBe(403);
+    expect(suggestCandidate).toHaveBeenCalledTimes(1);
+    expect(suggestCandidate).toHaveBeenCalledWith({ id: 'candidate-1' });
+  });
+
   it('exposes the support queue to viewers and restricts ticket updates to reviewers', async () => {
     const ticket = supportTicket();
     const listTickets = vi.fn(() => Promise.resolve([ticket]));
@@ -1146,6 +1184,7 @@ function knowledgeAdminServices(
     qualityEvaluations: qualityEvaluationStore(),
     processTelegramInbox: () => Promise.reject(new Error('not used')),
     supportOperations: supportOperationsStore(),
+    suggestCandidate: () => Promise.reject(new Error('not used')),
     telegramGroups: telegramGroupStore(),
     telegramMessages: telegramMessageStore(),
     ...overrides,
