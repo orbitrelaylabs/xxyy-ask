@@ -181,6 +181,9 @@ export function createKnowledgeGovernanceService(
             });
       const extraction = extractTelegramKnowledgeCandidates(input.rawExport, {
         trustedAuthors,
+        ...(input.sourceChannel === 'telegram' || input.sourceChannel === 'telegram_export'
+          ? { productContext: 'xxyy' as const }
+          : {}),
         ...(input.currentAdministratorUserIds === undefined
           ? {}
           : { currentAdministratorUserIds: input.currentAdministratorUserIds }),

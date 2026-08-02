@@ -1738,22 +1738,45 @@ function TelegramGroupsPanel({
     }
   }, [selectedId, token]);
 
-  const processInbox = async (): Promise<void> => {
+  const processInbox = async (reprocess = false): Promise<void> => {
     if (selectedId.length === 0) return;
     setBusy(true);
     setNotice(undefined);
     try {
       const result = await knowledgeAdminRequest<{
+        agentFailedThreadCount: number;
         candidateCount: number;
         createdCount: number;
         duplicateCount: number;
         processedMessageCount: number;
-      }>(token, `/telegram-groups/${encodeURIComponent(selectedId)}/process`, {
-        method: 'POST',
-      });
+        requeuedMessageCount: number;
+        retainedMessageCount: number;
+        skippedBoundaryCount: number;
+        skippedMissingReplyCount: number;
+        unverifiedAuthorMessageCount: number;
+      }>(
+        token,
+        `/telegram-groups/${encodeURIComponent(selectedId)}/${reprocess ? 'reprocess' : 'process'}`,
+        {
+          method: 'POST',
+        },
+      );
+      const diagnostics = [
+        result.skippedBoundaryCount > 0 ? `边界过滤 ${result.skippedBoundaryCount}` : '',
+        result.skippedMissingReplyCount > 0
+          ? `缺少问答配对 ${result.skippedMissingReplyCount}`
+          : '',
+        result.unverifiedAuthorMessageCount > 0
+          ? `未验证作者 ${result.unverifiedAuthorMessageCount}`
+          : '',
+        result.agentFailedThreadCount > 0 ? `模型整理失败 ${result.agentFailedThreadCount}` : '',
+      ].filter((value) => value.length > 0);
       setNotice({
-        kind: 'success',
-        text: `已整理 ${result.processedMessageCount} 条消息，生成 ${result.createdCount} 个待审批候选，识别 ${result.duplicateCount} 个重复。`,
+        kind: result.createdCount > 0 || result.duplicateCount > 0 ? 'success' : 'error',
+        text:
+          `已扫描消息，生成 ${result.createdCount} 个待审批候选，识别 ${result.duplicateCount} 个重复，` +
+          `标记已整理 ${result.processedMessageCount} 条，保留待重试 ${result.retainedMessageCount} 条。` +
+          (diagnostics.length === 0 ? '' : ` 原因：${diagnostics.join('、')}。`),
       });
       await Promise.all([load(), loadMessages()]);
     } catch (processError) {
@@ -1876,6 +1899,19 @@ function TelegramGroupsPanel({
               刷新消息
             </button>
             <button
+              className="admin-secondary-button"
+              disabled={
+                busy ||
+                selectedId.length === 0 ||
+                !permissions.has('import:telegram') ||
+                !messages.some((message) => message.processedAt !== undefined)
+              }
+              onClick={() => void processInbox(true)}
+              type="button"
+            >
+              重新整理已处理消息
+            </button>
+            <button
               className="admin-primary-button"
               disabled={
                 busy ||
@@ -1883,7 +1919,7 @@ function TelegramGroupsPanel({
                 !permissions.has('import:telegram') ||
                 (selected?.unprocessedMessageCount ?? 0) === 0
               }
-              onClick={() => void processInbox()}
+              onClick={() => void processInbox(false)}
               type="button"
             >
               {busy ? '正在整理…' : '整理待处理消息'}

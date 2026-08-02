@@ -37,6 +37,7 @@ export interface ExtractTelegramCandidateOptions {
   adjacentContextMessages?: number;
   curatorPromptVersion?: string;
   curatorRunId?: string;
+  productContext?: 'xxyy';
 }
 
 export interface ExtractTelegramCandidateResult {
@@ -75,6 +76,8 @@ const DEFAULT_ADJACENT_CONTEXT_MESSAGES = 1;
 const MAX_CURRENT_ADMIN_VERIFICATION_AGE_MS = 10 * 60 * 1_000;
 const KNOWLEDGE_ROLES = new Set(['administrator', 'knowledge_editor', 'owner']);
 const OFFICIAL_SOURCE_HOSTS = new Set(['docs.xxyy.io', 'x.com']);
+const IMPLICIT_XXYY_PRODUCT_SIGNAL =
+  /(?:\b(?:bsc|bnb|base|solana|sol|usdt|usdc|evm|swap|token|wallet|launchpad)\b|链|币|交易|钱包|发射台|止盈|止损|监控|提醒|挂单|订单|代币|池子)/iu;
 
 export function readTelegramKnowledgeExport(value: unknown): TelegramKnowledgeExport {
   const rawExport = readRawTelegramExport(value);
@@ -229,9 +232,12 @@ export function extractTelegramKnowledgeCandidates(
       continue;
     }
 
-    const question = sanitizeKnowledgeCandidateText(questionMessage.text, 'question');
+    const rawQuestion = sanitizeKnowledgeCandidateText(questionMessage.text, 'question');
     const canonicalAnswer = sanitizeKnowledgeCandidateText(answerMessage.text, 'canonicalAnswer');
-    const classification = classifyQuestion(question);
+    const { classification, question } = classifyTelegramKnowledgeQuestion(
+      rawQuestion,
+      options.productContext,
+    );
     if (classification.intent !== 'product_qa' && classification.intent !== 'how_to') {
       skippedBoundaryCount += 1;
       continue;
@@ -292,6 +298,27 @@ export function extractTelegramKnowledgeCandidates(
     unverifiedAuthorMessageCount,
     verifiedAuthorMessageCount,
   };
+}
+
+function classifyTelegramKnowledgeQuestion(
+  question: string,
+  productContext: ExtractTelegramCandidateOptions['productContext'],
+): { classification: ReturnType<typeof classifyQuestion>; question: string } {
+  const classification = classifyQuestion(question);
+  if (
+    productContext !== 'xxyy' ||
+    !IMPLICIT_XXYY_PRODUCT_SIGNAL.test(question) ||
+    classification.intent === 'product_qa' ||
+    classification.intent === 'how_to'
+  ) {
+    return { classification, question };
+  }
+  const contextualizedQuestion = `关于 XXYY，${question}`;
+  const contextualizedClassification = classifyQuestion(contextualizedQuestion);
+  return contextualizedClassification.intent === 'product_qa' ||
+    contextualizedClassification.intent === 'how_to'
+    ? { classification: contextualizedClassification, question: contextualizedQuestion }
+    : { classification, question };
 }
 
 function findAdjacentQuestionMessage(

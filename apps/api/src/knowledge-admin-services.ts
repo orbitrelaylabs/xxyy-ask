@@ -131,6 +131,18 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
       telegramMessages,
       importTelegram,
       async processTelegramInbox(input) {
+        let requeuedMessageCount = 0;
+        if (input.reprocess === true) {
+          const processedMessages = await telegramMessages.list({
+            chatId: input.chatId,
+            limit: 2_000,
+            processingStatus: 'processed',
+          });
+          requeuedMessageCount = await telegramMessages.markUnprocessed({
+            chatId: input.chatId,
+            messageIds: processedMessages.map((message) => message.messageId),
+          });
+        }
         const unprocessedMessages = await telegramMessages.list({
           chatId: input.chatId,
           limit: 2_000,
@@ -139,10 +151,16 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
         const unprocessedIds = unprocessedMessages.map((message) => message.messageId);
         if (unprocessedIds.length === 0) {
           return {
+            agentFailedThreadCount: 0,
             candidateCount: 0,
             createdCount: 0,
             duplicateCount: 0,
             processedMessageCount: 0,
+            requeuedMessageCount,
+            retainedMessageCount: 0,
+            skippedBoundaryCount: 0,
+            skippedMissingReplyCount: 0,
+            unverifiedAuthorMessageCount: 0,
           };
         }
         const messagesById = new Map(
@@ -178,10 +196,16 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
             processedAt: new Date().toISOString(),
           });
           return {
+            agentFailedThreadCount: 0,
             candidateCount: 0,
             createdCount: 0,
             duplicateCount: 0,
             processedMessageCount,
+            requeuedMessageCount,
+            retainedMessageCount: 0,
+            skippedBoundaryCount: 0,
+            skippedMissingReplyCount: 0,
+            unverifiedAuthorMessageCount: 0,
           };
         }
         const result = await importTelegram({
@@ -191,16 +215,25 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
           runAutomation: false,
           sourceChannel: 'telegram',
         });
-        const processedMessageCount = await telegramMessages.markProcessed({
-          chatId: input.chatId,
-          messageIds: unprocessedIds,
-          processedAt: new Date().toISOString(),
-        });
+        const shouldMarkProcessed = result.created.length > 0 || result.duplicateCount > 0;
+        const processedMessageCount = shouldMarkProcessed
+          ? await telegramMessages.markProcessed({
+              chatId: input.chatId,
+              messageIds: unprocessedIds,
+              processedAt: new Date().toISOString(),
+            })
+          : 0;
         return {
+          agentFailedThreadCount: result.agentRunStats.failedThreadCount,
           candidateCount: result.candidateCount,
           createdCount: result.created.length,
           duplicateCount: result.duplicateCount,
           processedMessageCount,
+          requeuedMessageCount,
+          retainedMessageCount: shouldMarkProcessed ? 0 : unprocessedIds.length,
+          skippedBoundaryCount: result.skippedBoundaryCount,
+          skippedMissingReplyCount: result.skippedMissingReplyCount,
+          unverifiedAuthorMessageCount: result.unverifiedAuthorMessageCount,
         };
       },
     };

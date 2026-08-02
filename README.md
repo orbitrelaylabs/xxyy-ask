@@ -364,7 +364,7 @@ pnpm run telegram:dev
 
 未来需要恢复群内客服回答时才显式设置 `TELEGRAM_GROUP_RESPONSES_ENABLED=true`；启用后，group/supergroup 中只有 Bot 命令、精确 `@BotUsername` 或直接回复当前 Bot 的消息才触发客服回答。Bot 通过 `getMe` 获取并缓存自身 ID/username；身份暂不可用时群聊回答失败关闭并在后续消息重试，不会退化为回复所有群消息。
 
-Bot 通过实时 Update 将 group/supergroup 文本写入本地 PostgreSQL 收件箱，但不会在 Telegram update 内生成或发布知识。后台“Telegram 群聊”页面可以查看待整理数量和最近消息；管理员点击“整理待处理消息”后，系统才会合并同一作者的连续发言，识别管理员显式 Reply 与紧邻普通回答，并执行作者验证、脱敏、产品边界、质量、去重和冲突检查。问答配对不设置时间间隔上限，但非 Reply 不跨越其他作者消息猜测。生成的 Telegram 候选带 `manual_review_required` 并保持 `pending`，必须在“知识候选”页面人工编辑、批准或拒绝；批准后自动创建发布任务，再由隔离 Worker 执行正式发布门禁。原始消息只保存在本地数据库，默认保留 30 天，可用 `TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS` 调整。Bot、匿名 `sender_chat` 内容不会进入候选。要采集普通群消息，需要关闭 BotFather Privacy Mode，或把 Bot 设为群管理员，并授予读取消息及查询管理员列表所需权限。
+Bot 通过实时 Update 将 group/supergroup 文本写入本地 PostgreSQL 收件箱，但不会在 Telegram update 内生成或发布知识。后台“Telegram 群聊”页面可以查看待整理数量和最近消息；管理员点击“整理待处理消息”后，系统才会合并同一作者的连续发言，识别管理员显式 Reply 与紧邻普通回答，并执行作者验证、脱敏、产品边界、质量、去重和冲突检查。官方答疑群中的链、代币、交易等省略式产品问题会继承 XXYY 上下文，但无关闲聊仍会过滤。问答配对不设置时间间隔上限，但非 Reply 不跨越其他作者消息猜测。生成的 Telegram 候选带 `manual_review_required` 并保持 `pending`，必须在“知识候选”页面人工编辑、批准或拒绝；批准后自动创建发布任务，再由隔离 Worker 执行正式发布门禁。如果一次整理既没有创建候选也没有识别到重复项，消息会保留为待整理并展示过滤统计；管理员也可以显式重新整理已经处理的消息。原始消息只保存在本地数据库，默认保留 30 天，可用 `TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS` 调整。Bot、匿名 `sender_chat` 内容不会进入候选。要采集普通群消息，需要关闭 BotFather Privacy Mode，或把 Bot 设为群管理员，并授予读取消息及查询管理员列表所需权限。
 
 Bot 同时订阅 `edited_message`：编辑后的正文会覆盖本地收件箱记录并重新标记为待整理。Telegram Bot API 不提供通用删除事件，因此删除消息目前不能自动同步；已生成的错误候选需要管理员在后台拒绝，已经发布的错误知识需要走受审计的修订或撤回流程。
 

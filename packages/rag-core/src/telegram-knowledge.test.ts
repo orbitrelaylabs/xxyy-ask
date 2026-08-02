@@ -112,6 +112,62 @@ describe('Telegram knowledge normalization', () => {
     expect(result.candidates[0]?.evidence).toContain('adjacent administrator message');
   });
 
+  it('inherits XXYY product context for terse chain questions from the support inbox', () => {
+    const result = extractTelegramKnowledgeCandidates(
+      {
+        id: -100123,
+        messages: [
+          {
+            date: '2026-07-15T01:00:00Z',
+            from_id: 'user456',
+            id: 10,
+            text: 'Bsc的可以用usdt交易吗',
+          },
+          {
+            date: '2026-07-15T01:02:00Z',
+            from_id: 'user123',
+            id: 11,
+            text: '不行，用bnb的',
+          },
+        ],
+      },
+      { productContext: 'xxyy', trustedAuthors: [trustedAuthor()] },
+    );
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      canonicalAnswer: '不行，用bnb的',
+      extractionMethod: 'deterministic_adjacent_admin_message',
+      question: '关于 XXYY，Bsc的可以用usdt交易吗',
+    });
+  });
+
+  it('does not turn unrelated group chatter into XXYY knowledge', () => {
+    const result = extractTelegramKnowledgeCandidates(
+      {
+        id: -100123,
+        messages: [
+          {
+            date: '2026-07-15T01:00:00Z',
+            from_id: 'user456',
+            id: 10,
+            text: '今天天气怎么样',
+          },
+          {
+            date: '2026-07-15T01:02:00Z',
+            from_id: 'user123',
+            id: 11,
+            text: '今天晴天',
+          },
+        ],
+      },
+      { productContext: 'xxyy', trustedAuthors: [trustedAuthor()] },
+    );
+
+    expect(result.candidates).toEqual([]);
+    expect(result.skippedBoundaryCount).toBe(1);
+  });
+
   it('pairs adjacent administrator answers without a time limit', () => {
     const result = extractTelegramKnowledgeCandidates(
       {

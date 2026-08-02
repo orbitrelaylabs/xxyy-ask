@@ -46,4 +46,25 @@ describe('Telegram group message inbox', () => {
     expect(observedValues.slice(0, 2)).toEqual(['-100123', '42']);
     expect(observedValues).not.toContain('plaintext');
   });
+
+  it('requeues selected processed messages without deleting their text', async () => {
+    let observedSql = '';
+    let observedValues: readonly unknown[] = [];
+    const store = createPgTelegramGroupMessageStore({
+      client: {
+        query<T>(sql: string, values: readonly unknown[] = []) {
+          observedSql = sql;
+          observedValues = values;
+          return Promise.resolve({ rows: [{ message_id: '42' }] as T[] });
+        },
+      },
+    });
+
+    const count = await store.markUnprocessed({ chatId: '-100123', messageIds: ['42'] });
+
+    expect(count).toBe(1);
+    expect(observedSql).toContain('set processed_at = null');
+    expect(observedSql).not.toContain('delete from');
+    expect(observedValues).toEqual(['-100123', ['42']]);
+  });
 });

@@ -106,6 +106,8 @@ pnpm rag:knowledge:author:list -- \
 
 Bot 同时订阅 `my_chat_member`，把加群、退群和被移除状态写入 `telegram_group_registry`；任何新收到的 `group` / `supergroup` 文本也会幂等写入 `telegram_group_messages`，保存作者 ID、Reply 关系、发送时间、编辑后的正文和处理状态。原始正文只保存在本地 PostgreSQL，默认保留 30 天，可用 `TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS` 调整。由于 Telegram Bot API 不提供全量群历史和删除事件，升级前历史消息不能自动补拉，删除仍需后台确认或通过定期导出对账。
 
+后台整理会为链、代币、交易等省略式问题继承 XXYY 官方答疑群的产品上下文，但不会把普通闲聊强制改写为产品知识。只有创建出候选或确认是重复候选时才把本批消息标记为已处理；零产出的消息保留为待整理并返回边界过滤、问答配对、作者验证和 Curator 失败统计。管理员可从群聊页面显式重新整理已处理消息，候选写入仍保持幂等。
+
 受保护管理后台的“Telegram 群聊”页面显示群状态、待整理数量和最近 200 条本地消息。管理员点击“整理待处理消息”后：
 
 1. 读取该群最近最多 2000 条本地消息，合并同一作者的连续发言。

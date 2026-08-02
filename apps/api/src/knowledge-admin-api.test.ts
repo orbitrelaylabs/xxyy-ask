@@ -403,10 +403,16 @@ describe('handleKnowledgeAdminApi', () => {
     );
     const processTelegramInbox = vi.fn(() =>
       Promise.resolve({
+        agentFailedThreadCount: 0,
         candidateCount: 1,
         createdCount: 1,
         duplicateCount: 0,
         processedMessageCount: 2,
+        requeuedMessageCount: 0,
+        retainedMessageCount: 0,
+        skippedBoundaryCount: 0,
+        skippedMissingReplyCount: 0,
+        unverifiedAuthorMessageCount: 0,
       }),
     );
     const services = knowledgeAdminServices({
@@ -437,6 +443,19 @@ describe('handleKnowledgeAdminApi', () => {
     });
     expect(processed.statusCode).toBe(200);
     expect(processTelegramInbox).toHaveBeenCalledWith({ chatId: '-100123' });
+
+    const reprocessed = await callAdmin({
+      authenticator: authenticator('reviewer'),
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/telegram-groups/-100123/reprocess',
+    });
+    expect(reprocessed.statusCode).toBe(200);
+    expect(processTelegramInbox).toHaveBeenLastCalledWith({
+      chatId: '-100123',
+      reprocess: true,
+    });
   });
 
   it('exposes the support queue to viewers and restricts ticket updates to reviewers', async () => {
@@ -1201,6 +1220,7 @@ function telegramMessageStore(
     list: () => Promise.resolve([]),
     listByIds: () => Promise.resolve([]),
     markProcessed: () => Promise.resolve(0),
+    markUnprocessed: () => Promise.resolve(0),
     migrate: () => Promise.resolve(),
     purgeOlderThan: () => Promise.resolve(0),
     ...overrides,

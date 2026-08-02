@@ -57,11 +57,17 @@ export interface KnowledgeAdminServices {
     curationMode: KnowledgeCurationMode;
     rawExport: unknown;
   }): Promise<ImportTelegramKnowledgeResult>;
-  processTelegramInbox(input: { chatId: string }): Promise<{
+  processTelegramInbox(input: { chatId: string; reprocess?: boolean }): Promise<{
+    agentFailedThreadCount: number;
     candidateCount: number;
     createdCount: number;
     duplicateCount: number;
     processedMessageCount: number;
+    requeuedMessageCount: number;
+    retainedMessageCount: number;
+    skippedBoundaryCount: number;
+    skippedMissingReplyCount: number;
+    unverifiedAuthorMessageCount: number;
   }>;
 }
 
@@ -470,10 +476,17 @@ async function routeKnowledgeAdminRequest(
       sendJson(options.response, 200, { messages });
       return;
     }
-    if (segments.length === 3 && segments[2] === 'process') {
+    if (segments.length === 3 && (segments[2] === 'process' || segments[2] === 'reprocess')) {
       requirePermission(principal, 'import:telegram');
       requireMethod(method, 'POST');
-      sendJson(options.response, 200, await services.processTelegramInbox({ chatId }));
+      sendJson(
+        options.response,
+        200,
+        await services.processTelegramInbox({
+          chatId,
+          ...(segments[2] === 'reprocess' ? { reprocess: true } : {}),
+        }),
+      );
       return;
     }
     sendNotFound(options.response);

@@ -41,6 +41,7 @@ export interface PgTelegramGroupMessageStore {
     messageIds: readonly string[];
     processedAt: string;
   }): Promise<number>;
+  markUnprocessed(input: { chatId: string; messageIds: readonly string[] }): Promise<number>;
   migrate(): Promise<void>;
   purgeOlderThan(cutoff: string): Promise<number>;
 }
@@ -179,6 +180,21 @@ export function createPgTelegramGroupMessageStore(options: {
         returning message_id
         `,
         [normalizeId(input.chatId, 'chat id'), ids, normalizeTimestamp(input.processedAt)],
+      );
+      return response.rows.length;
+    },
+
+    async markUnprocessed(input): Promise<number> {
+      const ids = [...new Set(input.messageIds.map((id) => normalizeId(id, 'message id')))];
+      if (ids.length === 0) return 0;
+      const response = await options.client.query<{ message_id: string }>(
+        `
+        update telegram_group_messages
+        set processed_at = null
+        where chat_id = $1 and message_id = any($2::text[]) and processed_at is not null
+        returning message_id
+        `,
+        [normalizeId(input.chatId, 'chat id'), ids],
       );
       return response.rows.length;
     },
