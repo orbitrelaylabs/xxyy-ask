@@ -12,7 +12,7 @@ Capability Plane 已完成产品检索、公开交易查询与证据受控的深
 - `get_transaction` 解析六条内置链的 Explorer 链接或显式 network + transaction id，通过配置的 EVM/Solana RPC 查询；工具输入不接受 endpoint。
 - `skills/onchain-transaction-inspector` 和 `skills/evm-sandwich-detector` 默认禁止外部 MCP host 隐式调用；XXYY 公开 composition 只为固定 `web/anonymous` 与 `telegram/service` 创建三项 Chain 工具的六条精确授权，内部 factory 仍只接受 `internal/(service|admin)` 或 `cli/admin`。
 - `packages/xxyy-onchain-support-mcp` 在通用链事实之上组合固定 XXYY 成交查询、池子判定和可选截图，暴露单一 `diagnose_xxyy_transaction`；`skills/xxyy-transaction-diagnosis` 同样禁止隐式调用。
-- `pnpm onchain:mcp:dev` 自动读取根目录 `.env` 中必填的 `ONCHAIN_RPC_CONFIG_JSON`。`evm` / `solana` 配置基础快照，可选 `execution` 和 `mevObservation` 分别配置 trace/factory 与 archive/pool allowlist；`.env.example` 的免费公共 RPC 便利配置本身不启用 Sandwich。
+- `pnpm onchain:mcp:dev` 启动固定 Explorer + XXYY 页面的浏览器诊断 MCP，只读取 `XXYY_BROWSER_PROFILE_DIRECTORY`，不接受 RPC 配置。
 - `pnpm onchain:query` 是固定 `cli/admin` 的开发集成入口，实际执行 Tool → Skill → MCP 两层授权与 linked in-memory MCP protocol；生产环境失败关闭。
 - `pnpm onchain:query:production` 是固定 `cli/admin` 的生产内部查询入口，通过子进程 stdio 连接 readiness-gated composition；不读取 `.env`，门禁失败时不回退公共 RPC。
 - `pnpm chain:mcp:serve` 是 XXYY 的 production composition，只有在固定 data-plane manifest 和 canonical readiness lineage 当前有效时才启动，且每次调用继续检查 attestation 时间窗。
@@ -97,7 +97,7 @@ pnpm chain:mcp:serve
 NODE_ENV=production pnpm onchain:query:production -- help
 ```
 
-`onchain:mcp:dev` 自动读取根目录 `.env` 中的 `ONCHAIN_RPC_CONFIG_JSON`，同名进程环境变量优先；该变量在所有 `NODE_ENV` 下都必填，运行时代码不包含 RPC endpoint 或开发/生产 Provider 分支。`.env.example` 提供六链公共 RPC 便利值，生产部署沿用同一 JSON 结构替换为托管 Provider。`chain:mcp:serve` 仍不读取项目 `.env`，并要求 deployment environment 显式提供独立 control DB、manifest/secret mount、instance identity，以及：
+`onchain:mcp:dev` 只使用隔离、持久的 Chrome Profile 访问固定 Explorer 与 XXYY 页面。`chain:mcp:serve` 是与公开客服隔离的历史内部入口，仍要求 deployment environment 显式提供独立 control DB、manifest/secret mount、instance identity，以及：
 
 - `CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT`；
 - `CHAIN_ANALYSIS_READINESS_FINGERPRINT`。
@@ -130,7 +130,7 @@ NODE_ENV=production pnpm onchain:query:production -- help
 | Telegram Bot     | `telegram` | `service`   |
 | 默认内部 runtime | `agent`    | `service`   |
 
-产品 runtime 为产品 Skill/MCP 创建覆盖自身 channel/principal 的两条精确 grant。配置 `ONCHAIN_RPC_CONFIG_JSON` 时，Web 与 Telegram 另为三项通用 Chain 工具创建六条精确 grant，并为 XXYY 交易诊断创建两条独立精确 grant。使用其它 channel、principal、source、version、side effect 或 data scope 会在解析业务输入前拒绝。
+产品 runtime 为产品 Skill/MCP 创建覆盖自身 channel/principal 的两条精确 grant。配置浏览器 Profile 时，Web 与 Telegram 为基础公开交易查询和 XXYY 交易诊断创建精确 grant。使用其它 channel、principal、source、version、side effect 或 data scope 会在解析业务输入前拒绝。
 
 XXYY 提供两个分离的 Chain registry factory：公开 factory 只接受 `web/anonymous` 或 `telegram/service`，内部 factory 只接受 `internal/(service|admin)` 或 `cli/admin`；两者都为三个 Skill/MCP 对创建六条仅覆盖固定 caller 的 grant。数据权限没有合并：公开查询只能使用启动时配置的公开链数据，生产深度 composition 继续由 readiness、Provider lineage、budget 和 pool allowlist 门禁。独立 MCP host 可以安装通用 Skills，但这不自动改变 XXYY 授权。
 

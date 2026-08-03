@@ -21,12 +21,20 @@ export const xxyyMarketTradeSchema = z
   })
   .strict();
 
+export const xxyyContextTradeSchema = xxyyMarketTradeSchema
+  .extend({
+    displayIndex: z.number().int().nonnegative().max(499),
+    relation: z.enum(['earlier', 'same_time', 'later']),
+  })
+  .strict();
+
 export const xxyyTradeLookupInputSchema = z
   .object({
     actor: identifierSchema.optional(),
     chain: z.string().trim().min(2).max(96),
     targetTokenAddresses: z.array(identifierSchema).min(1).max(8),
     timestampMs: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+    transactionAccountAddresses: z.array(identifierSchema).max(512).optional(),
     transactionId: identifierSchema,
   })
   .strict();
@@ -53,6 +61,7 @@ export const xxyyMarketDiagnosticSchema = z
 export const xxyyTradeLookupResultSchema = z
   .object({
     candidatePairs: z.array(xxyyPairCandidateSchema).max(64),
+    contextTrades: z.array(xxyyContextTradeSchema).max(12).optional(),
     diagnostics: z.array(xxyyMarketDiagnosticSchema).max(100),
     matchedPair: xxyyPairCandidateSchema.optional(),
     status: z.enum(['exact', 'conflict', 'not_found']),
@@ -72,7 +81,9 @@ export const xxyyTradeLookupResultSchema = z
     }
     if (
       value.status !== 'exact' &&
-      (value.trade !== undefined || value.matchedPair !== undefined)
+      (value.trade !== undefined ||
+        value.matchedPair !== undefined ||
+        (value.contextTrades?.length ?? 0) > 0)
     ) {
       context.addIssue({
         code: 'custom',
@@ -80,9 +91,20 @@ export const xxyyTradeLookupResultSchema = z
         path: ['status'],
       });
     }
+    if (
+      value.trade !== undefined &&
+      value.contextTrades?.some((trade) => trade.transactionId === value.trade?.transactionId)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Context trades must exclude the exact target transaction.',
+        path: ['contextTrades'],
+      });
+    }
   });
 
 export type XxyyMarketTrade = z.output<typeof xxyyMarketTradeSchema>;
+export type XxyyContextTrade = z.output<typeof xxyyContextTradeSchema>;
 export type XxyyMarketDiagnostic = z.output<typeof xxyyMarketDiagnosticSchema>;
 export type XxyyTradeLookupInput = z.output<typeof xxyyTradeLookupInputSchema>;
 export type XxyyTradeLookupResult = z.output<typeof xxyyTradeLookupResultSchema>;

@@ -66,7 +66,7 @@ describe('XXYY transaction diagnosis core', () => {
     });
   });
 
-  it('does not confirm same-slot bracketing without loss and profit evidence', () => {
+  it('marks same-slot bracketing as likely without loss and profit evidence', () => {
     expect(
       assessXxyySandwichPattern({
         coverage: {
@@ -83,8 +83,8 @@ describe('XXYY transaction diagnosis core', () => {
         targetTransactionId: 'target',
       }),
     ).toMatchObject({
-      reasonCodes: ['loss_or_profit_missing'],
-      verdict: 'insufficient_data',
+      reasonCodes: ['candidate_pattern_complete', 'loss_or_profit_missing'],
+      verdict: 'likely',
     });
   });
 

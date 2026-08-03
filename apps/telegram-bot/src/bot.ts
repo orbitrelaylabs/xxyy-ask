@@ -891,7 +891,7 @@ async function sendChatResponse(
   config: Pick<TelegramBotConfig, 'publicBaseUrl'>,
   replyToMessageId?: number,
 ): Promise<void> {
-  const attachments = filterQuestionRelevantAttachments(question, response.attachments);
+  const attachments = userVisibleAttachments(question, response.attachments);
   const attachmentLines = attachmentFallbackLines(
     attachments,
     config.publicBaseUrl,
@@ -947,6 +947,18 @@ async function sendChatResponse(
       ...(replyToMessageId === undefined ? {} : { replyToMessageId }),
     });
   }
+}
+
+function userVisibleAttachments(
+  question: string,
+  attachments: ChatResponse['attachments'],
+): NonNullable<ChatResponse['attachments']> {
+  const required = (attachments ?? []).filter((attachment) => attachment.delivery === 'required');
+  const onRequest = filterQuestionRelevantAttachments(
+    question,
+    (attachments ?? []).filter((attachment) => attachment.delivery !== 'required'),
+  );
+  return [...required, ...onRequest];
 }
 
 function formatTelegramChatResponse(response: ChatResponse, attachmentLines: string[]): string {

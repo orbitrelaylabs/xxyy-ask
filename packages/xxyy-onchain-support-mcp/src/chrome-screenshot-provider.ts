@@ -47,6 +47,7 @@ export function createChromeXxyyScreenshotProvider(
             '--hide-scrollbars',
             '--no-default-browser-check',
             '--no-first-run',
+            ...chromeRootSandboxFlags(),
             '--remote-debugging-port=0',
             `--user-data-dir=${profileDirectory}`,
             '--window-size=1600,1000',
@@ -63,8 +64,13 @@ export function createChromeXxyyScreenshotProvider(
           const highlighted = await pollForVerifiedRow({
             cdp,
             makerSuffix: input.maker.slice(-6),
+            ...(input.nativeAmount === undefined ? {} : { nativeAmount: input.nativeAmount }),
             timeoutMs,
+            ...(input.timestamp === undefined ? {} : { timestamp: input.timestamp }),
+            ...(input.tokenAmount === undefined ? {} : { tokenAmount: input.tokenAmount }),
             transactionId: input.transactionId,
+            ...(input.type === undefined ? {} : { type: input.type }),
+            ...(input.usdAmount === undefined ? {} : { usdAmount: input.usdAmount }),
           });
           if (!highlighted) {
             throw new Error(
@@ -107,6 +113,10 @@ export function createChromeXxyyScreenshotProvider(
   };
 }
 
+function chromeRootSandboxFlags(): string[] {
+  return typeof process.getuid === 'function' && process.getuid() === 0 ? ['--no-sandbox'] : [];
+}
+
 export function xxyyPairUrl(chain: string, pairAddress: string): string {
   const slug: Record<string, string> = {
     'eip155:1': 'eth',
@@ -121,12 +131,13 @@ export function xxyyPairUrl(chain: string, pairAddress: string): string {
   return `https://www.xxyy.io/${route}/${pairAddress}`;
 }
 
-interface CdpClient {
+export interface CdpClient {
   call(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
   close(): void;
+  on(method: string, listener: (params: Record<string, unknown>) => void): () => void;
 }
 
-async function readDebuggerUrl(
+export async function readDebuggerUrl(
   process: ChildProcess,
   timeoutMs: number,
   signal: AbortSignal | undefined,
@@ -162,7 +173,7 @@ async function readDebuggerUrl(
   });
 }
 
-async function findPageDebuggerUrl(
+export async function findPageDebuggerUrl(
   debuggerUrl: URL,
   timeoutMs: number,
   signal: AbortSignal | undefined,
@@ -193,7 +204,7 @@ async function findPageDebuggerUrl(
   throw new Error('Chrome page debugger target was unavailable.');
 }
 
-async function createCdpClient(
+export async function createCdpClient(
   url: string,
   timeoutMs: number,
   signal: AbortSignal | undefined,
@@ -220,9 +231,16 @@ async function createCdpClient(
     number,
     { reject: (error: Error) => void; resolve: (value: Record<string, unknown>) => void }
   >();
+  const listeners = new Map<string, Set<(params: Record<string, unknown>) => void>>();
   socket.addEventListener('message', (event) => {
     const message = JSON.parse(String(event.data)) as unknown;
-    if (!isRecord(message) || typeof message.id !== 'number') return;
+    if (!isRecord(message)) return;
+    if (typeof message.method === 'string') {
+      const params = isRecord(message.params) ? message.params : {};
+      for (const listener of listeners.get(message.method) ?? []) listener(params);
+      return;
+    }
+    if (typeof message.id !== 'number') return;
     const request = pending.get(message.id);
     if (request === undefined) return;
     pending.delete(message.id);
@@ -254,6 +272,16 @@ async function createCdpClient(
       socket.close();
       for (const request of pending.values()) request.reject(new Error('CDP connection closed.'));
       pending.clear();
+      listeners.clear();
+    },
+    on(method, listener) {
+      const set = listeners.get(method) ?? new Set();
+      set.add(listener);
+      listeners.set(method, set);
+      return () => {
+        set.delete(listener);
+        if (set.size === 0) listeners.delete(method);
+      };
     },
   };
 }
@@ -261,22 +289,48 @@ async function createCdpClient(
 async function pollForVerifiedRow(input: {
   cdp: CdpClient;
   makerSuffix: string;
+  nativeAmount?: string;
   timeoutMs: number;
+  timestamp?: number;
+  tokenAmount?: string;
   transactionId: string;
+  type?: 'buy' | 'sell';
+  usdAmount?: string;
 }): Promise<boolean> {
   const deadline = Date.now() + input.timeoutMs;
+  const timeFragments = input.timestamp === undefined ? [] : timestampFragments(input.timestamp);
+  const amountFragments = [input.tokenAmount, input.nativeAmount, input.usdAmount].flatMap(
+    compactAmountFragments,
+  );
   const expression = `(() => {
     const suffix = ${JSON.stringify(input.makerSuffix)};
     const tx = ${JSON.stringify(input.transactionId)};
+    const side = ${JSON.stringify(input.type ?? '')};
+    const times = ${JSON.stringify(timeFragments)};
+    const amounts = ${JSON.stringify(amountFragments)};
     const nodes = [...document.querySelectorAll('body *')];
-    const leaf = nodes.find((node) => node.children.length === 0 && (node.textContent || '').trim().endsWith(suffix));
-    if (!leaf) return false;
-    let row = leaf;
-    for (let i = 0; i < 8 && row.parentElement; i += 1) {
-      const text = (row.textContent || '').trim();
-      if (/\\b(?:Buy|Sell)\\b/i.test(text) && text.length < 1200) break;
-      row = row.parentElement;
+    const leaves = nodes.filter((node) => node.children.length === 0 && (node.textContent || '').trim().endsWith(suffix));
+    const rows = [];
+    for (const leaf of leaves) {
+      let row = leaf;
+      for (let i = 0; i < 8 && row.parentElement; i += 1) {
+        const text = (row.textContent || '').trim();
+        if (/\\b(?:Buy|Sell)\\b/i.test(text) && text.length < 1200) break;
+        row = row.parentElement;
+      }
+      if (!rows.includes(row)) rows.push(row);
     }
+    if (rows.length === 0) return false;
+    const scored = rows.map((row) => {
+      const text = (row.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+      let score = 0;
+      if (side && new RegExp('\\\\b' + side + '\\\\b', 'i').test(text)) score += 6;
+      if (times.some((value) => text.includes(value.toLowerCase()))) score += 5;
+      score += amounts.filter((value) => text.includes(value.toLowerCase())).length * 2;
+      return {row, score};
+    }).sort((a, b) => b.score - a.score);
+    if (scored.length > 1 && scored[0].score === scored[1].score) return false;
+    const row = scored[0].row;
     row.scrollIntoView({block: 'center', inline: 'nearest'});
     row.style.setProperty('outline', '4px solid #ff3b30', 'important');
     row.style.setProperty('outline-offset', '-4px', 'important');
@@ -300,6 +354,47 @@ async function pollForVerifiedRow(input: {
   return false;
 }
 
+function timestampFragments(timestamp: number): string[] {
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return [];
+  return ['UTC', 'Asia/Shanghai'].flatMap((timeZone) => {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat('en-CA', {
+        day: '2-digit',
+        hour: '2-digit',
+        hour12: false,
+        minute: '2-digit',
+        month: '2-digit',
+        second: '2-digit',
+        timeZone,
+      })
+        .formatToParts(date)
+        .map((part) => [part.type, part.value]),
+    );
+    const time = `${parts.hour}:${parts.minute}:${parts.second}`;
+    return [time, `${parts.month}-${parts.day} ${time}`];
+  });
+}
+
+function compactAmountFragments(value: string | undefined): string[] {
+  if (value === undefined || value.length === 0) return [];
+  const numeric = Number(value);
+  const normalized = value.includes('.') ? value.replace(/0+$/u, '').replace(/\.$/u, '') : value;
+  const fragments = new Set([value, normalized]);
+  if (Number.isFinite(numeric) && numeric >= 1_000) {
+    for (const divisor of [
+      { suffix: 'K', value: 1_000 },
+      { suffix: 'M', value: 1_000_000 },
+      { suffix: 'B', value: 1_000_000_000 },
+    ]) {
+      if (numeric >= divisor.value && numeric < divisor.value * 1_000) {
+        fragments.add(`${Number((numeric / divisor.value).toFixed(2))}${divisor.suffix}`);
+      }
+    }
+  }
+  return [...fragments].filter((fragment) => fragment.length > 0);
+}
+
 function recordString(value: Record<string, unknown>, key: string): string {
   const item = value[key];
   if (typeof item !== 'string') throw new Error(`CDP response omitted ${key}.`);
@@ -312,7 +407,7 @@ function ensureTrailingSlash(url: URL): URL {
   return copy;
 }
 
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
+export function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const finish = () => {
       signal?.removeEventListener('abort', abort);
@@ -340,6 +435,6 @@ function positiveInteger(value: number, label: string): number {
   return value;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

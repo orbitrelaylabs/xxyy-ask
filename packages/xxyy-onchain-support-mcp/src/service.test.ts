@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createChainAnalysisMcpClientStub } from '@xxyy/chain-analysis-mcp';
+import { createChainAnalysisFixtureRuntime } from '@xxyy/chain-analysis-mcp/test-fixtures';
 import { createXxyyMarketDataClientStub } from '@xxyy/xxyy-market-data-adapter';
 
 import { createXxyyTransactionDiagnosisService } from './service.js';
@@ -10,6 +11,8 @@ const maker = '5'.repeat(44);
 const mint = '6'.repeat(44);
 const pair = '7'.repeat(44);
 const dominantPair = '8'.repeat(44);
+const frontSignature = '3'.repeat(88);
+const backSignature = '9'.repeat(88);
 
 function transactionOutput() {
   return {
@@ -45,6 +48,86 @@ function transactionOutput() {
 }
 
 describe('createXxyyTransactionDiagnosisService', () => {
+  it('never calls deep MEV analysis from the browser-only EVM diagnosis path', async () => {
+    const fixture = await createChainAnalysisFixtureRuntime('synthetic.confirmed-v2');
+    const transaction = await fixture.handler.getTransaction({
+      network: `eip155:${fixture.chainId}`,
+      reference: fixture.transactionHash,
+    });
+    if (transaction.family !== 'evm') throw new Error('Expected an EVM fixture.');
+    const actor = transaction.analysis.transaction.from;
+    const evidenceId = transaction.analysis.evidence[0]?.id;
+    const poolAddress = fixture.poolAddress;
+    if (actor === undefined || evidenceId === undefined || poolAddress === undefined) {
+      throw new Error('Expected fixture actor, pool, and evidence.');
+    }
+    const tokenAddress = '0x1111111111111111111111111111111111111111';
+    transaction.analysis.tokenTransfers.push({
+      amountRaw: '100',
+      evidenceId,
+      from: actor,
+      logIndex: 0,
+      to: poolAddress,
+      tokenAddress,
+      transferType: 'transfer',
+    });
+    const detectSandwich = vi.fn();
+    const service = createXxyyTransactionDiagnosisService({
+      chainAnalysis: createChainAnalysisMcpClientStub({
+        detectSandwich,
+        getTransaction: async () => transaction,
+      }),
+      marketData: createXxyyMarketDataClientStub(async () => ({
+        candidatePairs: [
+          {
+            baseToken: tokenAddress,
+            chain: `eip155:${fixture.chainId}`,
+            liquidityUsd: '100000',
+            pairAddress: poolAddress,
+            quoteToken: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          },
+        ],
+        diagnostics: [],
+        matchedPair: {
+          baseToken: tokenAddress,
+          chain: `eip155:${fixture.chainId}`,
+          liquidityUsd: '100000',
+          pairAddress: poolAddress,
+          quoteToken: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        },
+        status: 'exact',
+        trade: {
+          maker: actor,
+          nativeAmount: '1',
+          timestamp: 1_700_000_000_000,
+          tokenAmount: '100',
+          transactionId: fixture.transactionHash,
+          type: 'buy',
+          usdAmount: '2000',
+        },
+      })),
+      poolPolicy: {
+        maxSmallPoolLiquidityUsd: '10000',
+        maxSmallPoolRelativeLiquidityPpm: 100_000,
+        version: '1.0.0',
+      },
+    });
+
+    const result = await service.diagnoseXxyyTransaction({
+      checks: ['sandwich'],
+      network: `eip155:${fixture.chainId}`,
+      reference: fixture.transactionHash,
+    });
+
+    expect(detectSandwich).not.toHaveBeenCalled();
+    expect(result.sandwichAssessment).toMatchObject({
+      verdict: 'insufficient_data',
+    });
+    expect(result.warnings).toContain(
+      'Browser and XXYY rows can support a same-block/slot structural pattern, but pool-state and profit/loss evidence remain unavailable for confirmation.',
+    );
+  });
+
   it('keeps pool and Sandwich conclusions separate and returns auditable screenshot metadata', async () => {
     const findTrade = vi.fn(async () => ({
       candidatePairs: [
@@ -64,6 +147,30 @@ describe('createXxyyTransactionDiagnosisService', () => {
         },
       ],
       diagnostics: [],
+      contextTrades: [
+        {
+          displayIndex: 2,
+          maker: 'A'.repeat(44),
+          nativeAmount: '0.5',
+          relation: 'earlier' as const,
+          timestamp: 1_775_353_322_000,
+          tokenAmount: '5',
+          transactionId: frontSignature,
+          type: 'buy' as const,
+          usdAmount: '50',
+        },
+        {
+          displayIndex: 0,
+          maker: 'A'.repeat(44),
+          nativeAmount: '0.6',
+          relation: 'later' as const,
+          timestamp: 1_775_353_324_000,
+          tokenAmount: '5.5',
+          transactionId: backSignature,
+          type: 'sell' as const,
+          usdAmount: '60',
+        },
+      ],
       matchedPair: {
         baseToken: mint,
         chain: 'solana:mainnet',
@@ -85,7 +192,12 @@ describe('createXxyyTransactionDiagnosisService', () => {
     const service = createXxyyTransactionDiagnosisService({
       canonicalPoolResolver: () => dominantPair,
       chainAnalysis: createChainAnalysisMcpClientStub({
-        getTransaction: async () => transactionOutput(),
+        getTransaction: async (input) => {
+          const output = transactionOutput();
+          output.transactionId = input.reference;
+          output.analysis.transactionId = input.reference;
+          return output;
+        },
       }),
       marketData: createXxyyMarketDataClientStub(findTrade),
       poolPolicy: {
@@ -121,7 +233,16 @@ describe('createXxyyTransactionDiagnosisService', () => {
       canonicalMatch: 'does_not_match',
       liquidityClass: 'small',
     });
-    expect(result.sandwichAssessment).toMatchObject({ verdict: 'insufficient_data' });
+    expect(result.sandwichAssessment).toMatchObject({
+      backTransactionId: backSignature,
+      candidateActor: 'A'.repeat(44),
+      frontTransactionId: frontSignature,
+      verdict: 'likely',
+    });
+    expect(result.surroundingTrades).toEqual([
+      expect.objectContaining({ slot: '1234', transactionId: frontSignature }),
+      expect.objectContaining({ slot: '1234', transactionId: backSignature }),
+    ]);
     expect(result.screenshotEvidence).toMatchObject({
       artifact: { maker, pairAddress: pair, transactionId: signature },
       status: 'ready',

@@ -19,8 +19,6 @@
   },
   "scripts": {
     "mcp": "tsx src/mcp-stdio.ts",
-    "mcp:dev": "tsx src/public-mcp-stdio.ts",
-    "query:dev": "tsx src/internal-query.ts",
     "query:production": "tsx src/production-query.ts",
     "start": "tsx src/index.ts",
     "test": "vitest run src",

@@ -7,6 +7,7 @@ export interface Citation {
 }
 
 export interface Attachment {
+  delivery?: 'on_request' | 'required';
   kind: 'image' | 'video';
   mediaType?: string;
   posterUrl?: string;

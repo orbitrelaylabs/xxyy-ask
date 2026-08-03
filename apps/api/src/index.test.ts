@@ -1297,7 +1297,10 @@ describe('createRequestHandler', () => {
       getTransaction: vi.fn(),
       inspectTransaction: vi.fn(),
     };
-    const createPublicOnchainMcpClient = vi.fn(() => publicChainMcpClient);
+    const createBrowserChainAnalysisClient = vi.fn(() => publicChainMcpClient);
+    const resolveBrowserChromeExecutable = vi.fn(() =>
+      Promise.resolve('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
+    );
 
     vi.doMock('@xxyy/agent-core', async (importOriginal) => {
       const actual = await importOriginal<Record<string, unknown>>();
@@ -1313,11 +1316,12 @@ describe('createRequestHandler', () => {
         createOpenAiEmbeddingProvider: vi.fn(() => ({ embedTexts: vi.fn() })),
       };
     });
-    vi.doMock('@xxyy/chain-analysis-mcp', async (importOriginal) => {
+    vi.doMock('@xxyy/xxyy-onchain-support-mcp', async (importOriginal) => {
       const actual = await importOriginal<Record<string, unknown>>();
       return {
         ...actual,
-        createPublicOnchainMcpClient,
+        createBrowserChainAnalysisClient,
+        resolveBrowserChromeExecutable,
       };
     });
     vi.doMock('@xxyy/rag-core', async (importOriginal) => {
@@ -1336,9 +1340,9 @@ describe('createRequestHandler', () => {
         createRequestId: () => 'req-agent-1',
         env: {
           DATABASE_URL: 'postgres://xxyy:secret@example.test/xxyy_ask',
-          ONCHAIN_RPC_CONFIG_JSON: '{"evm":[]}',
           OPENAI_API_KEY: 'test-key',
           OPENAI_MODEL: 'test-model',
+          XXYY_BROWSER_PROFILE_DIRECTORY: '/tmp/xxyy-browser-profile',
         },
       });
 
@@ -1389,10 +1393,10 @@ describe('createRequestHandler', () => {
         principal: 'anonymous',
       });
       expect(serviceOptions.xxyyOnchainMcpClient).toBeDefined();
-      expect(createPublicOnchainMcpClient).toHaveBeenCalledWith({
-        env: {
-          ONCHAIN_RPC_CONFIG_JSON: '{"evm":[]}',
-        },
+      expect(resolveBrowserChromeExecutable).toHaveBeenCalledWith(undefined);
+      expect(createBrowserChainAnalysisClient).toHaveBeenCalledWith({
+        chromeExecutable: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        profileDirectory: '/tmp/xxyy-browser-profile',
       });
       expect(serviceOptions.retriever).toBe(retriever);
       expect(typeof serviceOptions.answerProvider.answer).toBe('function');
@@ -1404,9 +1408,9 @@ describe('createRequestHandler', () => {
       });
     } finally {
       vi.doUnmock('@xxyy/agent-core');
-      vi.doUnmock('@xxyy/chain-analysis-mcp');
       vi.doUnmock('@xxyy/knowledge');
       vi.doUnmock('@xxyy/rag-core');
+      vi.doUnmock('@xxyy/xxyy-onchain-support-mcp');
     }
   });
 

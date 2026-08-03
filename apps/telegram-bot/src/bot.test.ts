@@ -1184,6 +1184,55 @@ describe('createTelegramBot', () => {
     });
   });
 
+  it('always returns required chain evidence screenshots even when the question does not ask for an image', async () => {
+    const sendPhoto = vi.fn(() => Promise.resolve());
+    const bot = createTelegramBot({
+      api: {
+        getUpdates: vi.fn(),
+        sendMessage: createSendMessageMock(),
+        sendPhoto,
+      },
+      chatService: {
+        ask: vi.fn(() =>
+          Promise.resolve(
+            createResponse({
+              agentRoute: 'chain_answer',
+              answer: '池子判断：small。Sandwich 判断：likely。已附上 XXYY 截图。',
+              attachments: [
+                {
+                  delivery: 'required',
+                  kind: 'image',
+                  mediaType: 'image/png',
+                  title: 'XXYY 成交查证截图',
+                  url: 'https://ask.example.com/xxyy-evidence/evidence.png',
+                },
+              ],
+              intent: 'onchain_transaction',
+            }),
+          ),
+        ),
+      },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+    });
+
+    await bot.handleUpdate({
+      message: {
+        chat: { id: 123 },
+        from: { id: 456 },
+        message_id: 1,
+        text: '这笔交易是不是小池子，是否被夹？0xabc',
+      },
+      update_id: 10,
+    });
+
+    expect(sendPhoto).toHaveBeenCalledWith({
+      caption: 'XXYY 成交查证截图',
+      chatId: 123,
+      photo: 'https://ask.example.com/xxyy-evidence/evidence.png',
+      replyToMessageId: 1,
+    });
+  });
+
   it('does not send promotional attachments for a factual product question', async () => {
     const sendMessage = createSendMessageMock();
     const sendPhoto = vi.fn(() => Promise.resolve());

@@ -123,6 +123,7 @@ export interface Citation {
 
 export type ChatAttachment =
   | {
+      delivery?: 'on_request' | 'required';
       kind: 'video';
       title: string;
       url: string;
@@ -130,6 +131,7 @@ export type ChatAttachment =
       posterUrl?: string;
     }
   | {
+      delivery?: 'on_request' | 'required';
       kind: 'image';
       title: string;
       url: string;
@@ -169,6 +171,7 @@ export const citationSchema = z.object({
 
 export const chatAttachmentSchema = z.discriminatedUnion('kind', [
   z.object({
+    delivery: z.enum(['on_request', 'required']).optional(),
     kind: z.literal('video'),
     mediaType: z.enum(['video/mp4', 'text/html']),
     posterUrl: z.string().optional(),
@@ -176,6 +179,7 @@ export const chatAttachmentSchema = z.discriminatedUnion('kind', [
     url: z.string(),
   }),
   z.object({
+    delivery: z.enum(['on_request', 'required']).optional(),
     kind: z.literal('image'),
     mediaType: z.enum([
       'image/png',

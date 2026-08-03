@@ -140,6 +140,15 @@ export function hasPublicTransactionReference(query: string): boolean {
   return resolveTransactionQueries(query).status !== 'invalid_reference';
 }
 
+export function resolveSinglePublicTransactionInput(
+  query: string,
+): GetTransactionInput | undefined {
+  const resolution = resolveTransactionQueries(query);
+  return resolution.status === 'ready' && resolution.inputs.length === 1
+    ? resolution.inputs[0]
+    : undefined;
+}
+
 function resolveTransactionQueries(query: string): QueryResolution {
   const explorerInputs = resolveExplorerInputs(query);
   if (explorerInputs.length > MAX_PUBLIC_TRANSACTIONS_PER_QUESTION) {

@@ -472,6 +472,12 @@ importers:
       '@xxyy/rag-core':
         specifier: workspace:*
         version: link:../rag-core
+      '@xxyy/solana-data-adapter':
+        specifier: workspace:*
+        version: link:../solana-data-adapter
+      '@xxyy/transaction-analysis-core':
+        specifier: workspace:*
+        version: link:../transaction-analysis-core
       '@xxyy/xxyy-market-data-adapter':
         specifier: workspace:*
         version: link:../xxyy-market-data-adapter

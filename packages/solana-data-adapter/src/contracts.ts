@@ -132,7 +132,7 @@ export const solanaTokenBalanceChangeSchema = z
 export const solanaTransactionSourceSchema = z
   .object({
     id: solanaProviderIdSchema,
-    kind: z.literal('rpc'),
+    kind: z.enum(['rpc', 'explorer_browser']),
     observedAt: z.string().datetime({ offset: true }),
     payloadHash: fingerprintSchema,
     provenanceUrl: z.string().url(),

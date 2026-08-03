@@ -71,6 +71,7 @@ describe('chat contract', () => {
       answer: '根据知识库，XXYY Pro 提供更多产品权益。',
       attachments: [
         {
+          delivery: 'required',
           kind: 'video',
           mediaType: 'video/mp4',
           title: '添加到桌面演示',
@@ -99,6 +100,7 @@ describe('chat contract', () => {
     expect(request.requestId).toBe('req-contract-1');
     expect(response.citations[0]?.title).toBe('Pro');
     expect(response.attachments?.[0]?.kind).toBe('video');
+    expect(chatResponseSchema.parse(response).attachments?.[0]?.delivery).toBe('required');
     expect(response.tokenUsage?.totalTokens).toBe(156);
   });
 

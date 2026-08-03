@@ -9,12 +9,14 @@ export {
   XXYY_MARKET_DATA_ORIGIN,
   xxyyMarketDiagnosticCodes,
   xxyyMarketDiagnosticSchema,
+  xxyyContextTradeSchema,
   xxyyMarketTradeSchema,
   xxyyTradeLookupInputSchema,
   xxyyTradeLookupResultSchema,
 } from './contracts.js';
 export type {
   XxyyMarketDataClient,
+  XxyyContextTrade,
   XxyyMarketDiagnostic,
   XxyyMarketTrade,
   XxyyTradeLookupInput,

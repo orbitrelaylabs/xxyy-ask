@@ -5,13 +5,14 @@ import {
   resolveWorkspaceCwd,
   type RagEnv,
 } from '@xxyy/rag-core';
-import { createPublicOnchainMcpClient } from '@xxyy/chain-analysis-mcp';
 import { createXxyyMarketDataClient } from '@xxyy/xxyy-market-data-adapter';
 import {
   createChromeXxyyScreenshotProvider,
+  createBrowserChainAnalysisClient,
   createConfiguredCanonicalPoolResolver,
   createInMemoryXxyyOnchainSupportMcpClient,
   createXxyyTransactionDiagnosisService,
+  resolveBrowserChromeExecutable,
 } from '@xxyy/xxyy-onchain-support-mcp';
 import {
   loadAnswerQualityRolloutConfig,
@@ -44,14 +45,13 @@ type TelegramEnv = RagEnv &
       | 'ANSWER_QUALITY_TELEGRAM_OPTIMIZED_PERCENTAGE'
       | 'ANSWER_QUALITY_WEB_MODE'
       | 'ANSWER_QUALITY_WEB_OPTIMIZED_PERCENTAGE'
-      | 'ONCHAIN_ALLOW_INSECURE_LOCALHOST'
-      | 'ONCHAIN_RPC_CONFIG_JSON'
       | 'XXYY_SMALL_POOL_MAX_LIQUIDITY_USD'
       | 'XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM'
       | 'XXYY_CANONICAL_POOL_CONFIG_JSON'
       | 'XXYY_SCREENSHOT_CHROME_EXECUTABLE'
       | 'XXYY_SCREENSHOT_DIRECTORY'
       | 'XXYY_SCREENSHOT_PUBLIC_BASE_URL'
+      | 'XXYY_BROWSER_PROFILE_DIRECTORY'
       | 'TELEGRAM_API_BASE_URL'
       | 'TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS',
       string
@@ -72,21 +72,19 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
   const workspaceEnv = loadWorkspaceEnv({ cwd: workspaceCwd, env });
   const config = loadRagConfig(workspaceEnv);
   const botConfig = loadTelegramBotConfig(workspaceEnv);
-  const publicChainMcpClient =
-    workspaceEnv.ONCHAIN_RPC_CONFIG_JSON?.trim().length === 0 ||
-    workspaceEnv.ONCHAIN_RPC_CONFIG_JSON === undefined
+  const publicChainMcpClient = await resolveBrowserChromeExecutable(
+    workspaceEnv.XXYY_SCREENSHOT_CHROME_EXECUTABLE,
+  ).then((chromeExecutable) =>
+    chromeExecutable === undefined ||
+    workspaceEnv.XXYY_BROWSER_PROFILE_DIRECTORY?.trim().length === 0 ||
+    workspaceEnv.XXYY_BROWSER_PROFILE_DIRECTORY === undefined
       ? undefined
-      : createPublicOnchainMcpClient({
-          env: {
-            ...(workspaceEnv.NODE_ENV === undefined ? {} : { NODE_ENV: workspaceEnv.NODE_ENV }),
-            ...(workspaceEnv.ONCHAIN_ALLOW_INSECURE_LOCALHOST === undefined
-              ? {}
-              : {
-                  ONCHAIN_ALLOW_INSECURE_LOCALHOST: workspaceEnv.ONCHAIN_ALLOW_INSECURE_LOCALHOST,
-                }),
-            ONCHAIN_RPC_CONFIG_JSON: workspaceEnv.ONCHAIN_RPC_CONFIG_JSON,
-          },
-        });
+      : createBrowserChainAnalysisClient({
+          chromeExecutable,
+          profileDirectory: workspaceEnv.XXYY_BROWSER_PROFILE_DIRECTORY,
+        }),
+  );
+  const xxyyChainMcpClient = publicChainMcpClient;
   const screenshotProvider = createOptionalScreenshotProvider(workspaceEnv);
   const canonicalPoolResolver =
     workspaceEnv.XXYY_CANONICAL_POOL_CONFIG_JSON?.trim() === undefined ||
@@ -103,12 +101,12 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
         }
       : {}),
     ...(publicChainMcpClient === undefined ? {} : { publicChainMcpClient }),
-    ...(publicChainMcpClient === undefined
+    ...(xxyyChainMcpClient === undefined
       ? {}
       : {
           xxyyOnchainMcpClient: createInMemoryXxyyOnchainSupportMcpClient({
             handler: createXxyyTransactionDiagnosisService({
-              chainAnalysis: publicChainMcpClient,
+              chainAnalysis: xxyyChainMcpClient,
               ...(canonicalPoolResolver === undefined ? {} : { canonicalPoolResolver }),
               marketData: createXxyyMarketDataClient(),
               poolPolicy: {

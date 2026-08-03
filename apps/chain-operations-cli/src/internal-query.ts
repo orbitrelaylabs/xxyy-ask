@@ -10,7 +10,6 @@ import {
 } from '@xxyy/agent-core';
 import {
   ChainAnalysisMcpToolError,
-  createInMemoryChainAnalysisMcpClient,
   detectSandwichInputSchema,
   getTransactionInputSchema,
   inspectTransactionInputSchema,
@@ -20,9 +19,6 @@ import {
   type InspectTransactionInput,
 } from '@xxyy/chain-analysis-mcp';
 
-import { loadPublicOnchainMcpConfig, type PublicOnchainMcpEnv } from './public-mcp-config.js';
-import { loadPublicOnchainMcpEnv } from './public-mcp-env.js';
-import { createPublicOnchainMcpHandler } from './public-mcp-runtime.js';
 import { ChainOperationsCliError } from './runtime-config.js';
 
 type InternalOnchainQueryCommand =
@@ -114,17 +110,19 @@ export async function runInternalOnchainQuery(
       return 0;
     }
     if (profile === 'development') {
-      const mcpEnv = loadPublicOnchainMcpEnv({
-        cwd: io.cwd,
-        env: io.env,
-      });
-      if (mcpEnv.NODE_ENV === 'production') {
+      if (io.env.NODE_ENV === 'production') {
         throw new ChainOperationsCliError(
           'configuration_error',
           'Internal onchain query uses the development MCP profile and is disabled in production.',
         );
       }
-      mcpClient = dependencies.createMcpClient?.(io) ?? createDefaultMcpClient(mcpEnv);
+      if (dependencies.createMcpClient === undefined) {
+        throw new ChainOperationsCliError(
+          'configuration_error',
+          'The RPC-backed development query profile was removed; inject a browser-backed MCP client or use the XXYY diagnosis MCP.',
+        );
+      }
+      mcpClient = dependencies.createMcpClient(io);
     } else {
       if (io.env.NODE_ENV !== 'production') {
         throw new ChainOperationsCliError(
@@ -181,13 +179,6 @@ function helpText(profile: InternalOnchainQueryProfile): string {
     '',
     profileNotice,
   ].join('\n');
-}
-
-function createDefaultMcpClient(env: PublicOnchainMcpEnv): ChainAnalysisMcpClient {
-  const config = loadPublicOnchainMcpConfig(env);
-  return createInMemoryChainAnalysisMcpClient({
-    handler: createPublicOnchainMcpHandler(config),
-  });
 }
 
 function toolName(

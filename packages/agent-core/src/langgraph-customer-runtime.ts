@@ -61,7 +61,10 @@ import {
   type PlannerToolDescriptor,
 } from './planner-model.js';
 import type { ToolContext, ToolRegistry } from './tool-registry.js';
-import { PUBLIC_TRANSACTION_TOOL_NAME } from './public-transaction-tool.js';
+import {
+  PUBLIC_TRANSACTION_TOOL_NAME,
+  resolveSinglePublicTransactionInput,
+} from './public-transaction-tool.js';
 import { PUBLIC_XXYY_TRANSACTION_DIAGNOSIS_TOOL_NAME } from './xxyy-transaction-diagnosis-tool.js';
 
 const KNOWLEDGE_ONLY_CLARIFICATION =
@@ -573,6 +576,21 @@ function deterministicInitialPlan(
   const classification = classifyQuestion(productQuestion);
   const understanding = understandProductQuestion(productQuestion, classification);
   const registeredToolNames = new Set(registry.list().map((tool) => tool.name));
+  const xxyyDiagnosisChecks = requestedXxyyDiagnosisChecks(state.request.message);
+  const xxyyTransactionInput = resolveSinglePublicTransactionInput(state.request.message);
+  if (
+    xxyyDiagnosisChecks.length > 0 &&
+    xxyyTransactionInput !== undefined &&
+    registeredToolNames.has(PUBLIC_XXYY_TRANSACTION_DIAGNOSIS_TOOL_NAME)
+  ) {
+    return {
+      input: { ...xxyyTransactionInput, checks: xxyyDiagnosisChecks },
+      kind: 'tool',
+      reason: 'deterministic XXYY transaction diagnosis request',
+      route: 'chain_answer',
+      toolName: PUBLIC_XXYY_TRANSACTION_DIAGNOSIS_TOOL_NAME,
+    };
+  }
   if (
     classification.intent === 'onchain_transaction' &&
     registeredToolNames.has(PUBLIC_TRANSACTION_TOOL_NAME)
@@ -634,6 +652,26 @@ function deterministicInitialPlan(
     route: 'product_answer',
     toolName,
   };
+}
+
+function requestedXxyyDiagnosisChecks(query: string): Array<'sandwich' | 'pool'> {
+  const normalized = query.normalize('NFKC');
+  const checks: Array<'sandwich' | 'pool'> = [];
+  if (
+    /detect[_\s-]?sandwich|被夹|夹子|三明治(?:攻击)?|sandwich|\bmev\b|front[- ]?run|back[- ]?run/iu.test(
+      normalized,
+    )
+  ) {
+    checks.push('sandwich');
+  }
+  if (
+    /小池(?:子)?|小流动性池|买错(?:了)?池(?:子)?|错误池(?:子)?|(?:正确|官方|canonical|主流动性)池(?:子)?|wrong\s+pool|small(?:[-\s]+liquidity)?\s+pool/iu.test(
+      normalized,
+    )
+  ) {
+    checks.push('pool');
+  }
+  return checks;
 }
 
 function deterministicProductContinuationPlan(
@@ -1799,7 +1837,8 @@ function createClarificationResponse(answer: string): ChatResponse {
 function createPublicTransactionUnavailableResponse(): ChatResponse {
   return {
     agentRoute: 'clarify',
-    answer: '公开链上只读分析当前未配置。请稍后重试，或联系管理员检查 ONCHAIN_RPC_CONFIG_JSON。',
+    answer:
+      '公开链上浏览器查证当前不可用。请稍后重试，或联系管理员检查隔离的浏览器 Profile 和目标 Explorer 页面。',
     citations: [],
     confidence: 0.2,
     intent: 'onchain_transaction',

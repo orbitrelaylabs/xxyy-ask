@@ -114,8 +114,10 @@ const criterionSchema = z.enum(['yes', 'no', 'unknown']);
 
 export const xxyySandwichAssessmentSchema = z
   .object({
+    attackerProfitRaw: unsignedDecimalSchema.optional(),
     backTransactionId: identifierSchema.optional(),
     candidateActor: identifierSchema.optional(),
+    counterfactualAmountOutRaw: unsignedDecimalSchema.optional(),
     criteria: z
       .object({
         actorLoop: criterionSchema,
@@ -128,6 +130,7 @@ export const xxyySandwichAssessmentSchema = z
       })
       .strict(),
     frontTransactionId: identifierSchema.optional(),
+    profitToken: identifierSchema.optional(),
     reasonCodes: z.array(
       z.enum([
         'actor_mismatch',
@@ -150,6 +153,8 @@ export const xxyySandwichAssessmentSchema = z
       ]),
     ),
     verdict: z.enum(['confirmed', 'likely', 'unlikely', 'insufficient_data']),
+    victimLossPpm: unsignedDecimalSchema.optional(),
+    victimLossRaw: unsignedDecimalSchema.optional(),
   })
   .strict();
 

@@ -5,13 +5,13 @@ XXYY 客服 Agentic RAG 项目。当前阶段暂时收敛为知识库产品问�
 当前运行面提供知识库问答与受控公开链只读分析：
 
 - 产品功能、配置步骤、权益说明和官方更新相关问题会走 Product RAG。
-- Web 与 Telegram 已接入公开交易只读查询：基础查询返回状态、区块、地址、金额、手续费和公开转账事实；单笔 EVM 深度查询可返回调用追踪、内部转账与回滚证据；指定或唯一推断的 allowlisted pool 可执行 Sandwich/MEV 四态判断。
-- 已新增 XXYY 交易诊断：对一笔用户提供的公开交易交叉核对完整交易哈希、maker、成交方向、金额和池子，分别输出 Sandwich 四态与 canonical/小池判断；截图是可选辅助证据，缺失时结构化结果会明确降级。
+- Web 与 Telegram 已接入浏览器公开交易只读查询：基础查询返回页面可验证的状态、区块、地址、金额、手续费和公开转账事实；不提供 EVM 深度调用追踪或确定性 MEV 结论。
+- 已新增 XXYY 交易诊断：对一笔用户提供的公开交易交叉核对完整交易哈希、maker、成交方向、金额、周边成交和池子，分别输出 Sandwich 四态与 canonical/小池判断；截图提供器是可选部署能力，但生成成功的截图是 Web/Telegram 必须返回给用户的正式交付物，缺失时结构化结果会明确降级。
 - Telegram Bot 会订阅加群/退群事件，并在收到群消息时更新本地群注册表；`/admin` 可查看 Bot 已识别的群 ID、名称、成员状态和最近活动时间。注册表不保存普通群消息正文，升级前已加入的群会在收到下一条新消息后补登记。
-- 已接入只读 `xxyy-product-support` MCP server 和同名 project Skill。另已实现与产品域解耦的 `onchain-analysis` MCP、onchain transaction inspector / EVM Sandwich detector Skills，以及独立 `xxyy-onchain-support` / transaction diagnosis Skill；公开运行面为固定 `web/anonymous` 与 `telegram/service` 创建通用 Chain 六条和 XXYY 诊断两条 Skill/MCP 精确授权。深度结果仍受 trace/archive Provider、池子 allowlist 和生产 readiness 门禁约束。内置网络为 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain。
+- 已接入只读 `xxyy-product-support` MCP server 和同名 project Skill，以及浏览器驱动的 `xxyy-onchain-support` MCP / transaction diagnosis Skill。公开运行面固定为 `web/anonymous` 与 `telegram/service`，只读取用户给出的公开交易、XXYY 成交与截图证据，不调用链节点。支持网络为 Solana、Ethereum、BSC、Base、Robinhood Chain、Stable Chain。
 - 不查询用户账户、订单、钱包余额或私有交易记录，不提供投资建议。
 
-最终产品需求与总体设计见 [docs/target-product-design.md](docs/target-product-design.md)，当前功能状态见 [docs/feature-status.md](docs/feature-status.md)，XXYY 交易诊断设计见 [docs/xxyy-transaction-diagnosis.md](docs/xxyy-transaction-diagnosis.md)，知识采集、审批与发布流程见 [docs/knowledge-evolution.md](docs/knowledge-evolution.md)，知识图谱、别名与三路混合召回见 [docs/knowledge-graph-retrieval.md](docs/knowledge-graph-retrieval.md)，MCP / Skill 安全执行与当前接入见 [docs/capability-plane.md](docs/capability-plane.md)，通用链上 MCP、Explorer 和 RPC 配置见 [docs/onchain-analysis-mcp.md](docs/onchain-analysis-mcp.md)，离线 EVM 交易核心见 [docs/transaction-analysis-core.md](docs/transaction-analysis-core.md)，执行语义增强见 [docs/evm-execution-enrichment.md](docs/evm-execution-enrichment.md)，价格影响与 Sandwich 判定见 [docs/evm-price-impact-sandwich.md](docs/evm-price-impact-sandwich.md)，受控标准 RPC 数据边界见 [docs/evm-data-adapter.md](docs/evm-data-adapter.md)，受控执行数据边界见 [docs/evm-execution-data-adapter.md](docs/evm-execution-data-adapter.md)，同区块 MEV observation 数据边界见 [docs/evm-mev-observation-data-adapter.md](docs/evm-mev-observation-data-adapter.md)，离线组合与评测见 [docs/evm-chain-analysis-harness.md](docs/evm-chain-analysis-harness.md)，主网采样计划与 evidence intake 见 [docs/evm-chain-analysis-sampling.md](docs/evm-chain-analysis-sampling.md)，manifest 到 candidate 的无偏交接见 [docs/evm-chain-analysis-sampling-handoff.md](docs/evm-chain-analysis-sampling-handoff.md)，单 owner 复核任务队列见 [docs/evm-chain-analysis-review-work-queue.md](docs/evm-chain-analysis-review-work-queue.md)，reviewed replay 与生产数据面就绪控制见 [docs/evm-chain-analysis-readiness.md](docs/evm-chain-analysis-readiness.md)，Postgres 治理与共享控制 backend 见 [docs/evm-chain-analysis-control-store.md](docs/evm-chain-analysis-control-store.md)，production provisioning 运维见 [docs/chain-control-provisioning-operations.md](docs/chain-control-provisioning-operations.md)，Provider/worker data plane 运维见 [docs/chain-data-plane-operations.md](docs/chain-data-plane-operations.md)，可重算 readiness 证据账本见 [docs/evm-chain-analysis-readiness-evidence-ledger.md](docs/evm-chain-analysis-readiness-evidence-ledger.md)，生产运行说明见 [docs/production-readiness.md](docs/production-readiness.md)，后续规划见 [docs/roadmap.md](docs/roadmap.md)。
+最终产品需求与总体设计见 [docs/target-product-design.md](docs/target-product-design.md)，当前功能状态见 [docs/feature-status.md](docs/feature-status.md)，XXYY 交易诊断设计见 [docs/xxyy-transaction-diagnosis.md](docs/xxyy-transaction-diagnosis.md)，知识采集、审批与发布流程见 [docs/knowledge-evolution.md](docs/knowledge-evolution.md)，MCP / Skill 安全执行与当前接入见 [docs/capability-plane.md](docs/capability-plane.md)，浏览器链上 MCP 与 Explorer 证据配置见 [docs/onchain-analysis-mcp.md](docs/onchain-analysis-mcp.md)。仓库中的 EVM adapter、readiness 和 control-plane 文档描述隔离的历史内部组件，不属于公开客服运行路径。
 
 ## 项目结构
 
@@ -82,10 +82,7 @@ CHAIN_CONTROL_AUTHORITY_SYSTEM_ID=
 CHAIN_CONTROL_AUTHORITY_PUBLIC_KEY_FILE=
 CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT=
 CHAIN_ANALYSIS_READINESS_FINGERPRINT=
-# Required by pnpm onchain:mcp:dev. Copy the six-chain public example from .env.example,
-# then replace its endpoints with managed Providers for production.
-ONCHAIN_RPC_CONFIG_JSON='{"evm":[...],"solana":{...}}'
-ONCHAIN_ALLOW_INSECURE_LOCALHOST=false
+XXYY_BROWSER_PROFILE_DIRECTORY=/isolated/xxyy-browser-profile
 
 OPENAI_API_KEY=...
 OPENAI_BASE_URL=https://api.openai.com/v1
@@ -132,7 +129,7 @@ TELEGRAM_CURATION_DEBOUNCE_SECONDS=30
 TELEGRAM_CURATION_WORKER_POLL_MS=1000
 ```
 
-数据库默认从 `POSTGRES_*` 组装连接串；使用托管数据库时可以配置 `DATABASE_URL` 覆盖。`OPENAI_*` 配置 Chat/Planner；`EMBEDDING_API_KEY` 和 `EMBEDDING_BASE_URL` 可把向量请求发送到独立的 OpenAI-compatible 服务，未配置时回退使用 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。`pnpm run app:up` 会把 `ONCHAIN_RPC_CONFIG_JSON` 和 `ONCHAIN_ALLOW_INSECURE_LOCALHOST` 显式映射给 API 与 Telegram；未配置时产品客服仍可用，但公开交易查询会返回配置提示。当 `OPENAI_BASE_URL` 指向宿主机上的本地服务时，设置 `COMPOSE_OPENAI_BASE_URL=http://host.docker.internal:<端口>/v1`，让容器访问宿主机，同时保留 `app:dev` 使用的 `localhost` 地址。OpenAI-compatible 请求默认 30 秒超时、重试 1 次。默认 embedding 维度是 `1536`，匹配 `text-embedding-3-small`；更换 embedding 模型和维度时需要同步调整 `EMBEDDING_DIMENSION`，备份数据库后显式运行 `pnpm rag:ingest -- --rebuild-embedding-schema`。`.env.example` 会列出当前代码支持的环境变量。
+数据库默认从 `POSTGRES_*` 组装连接串；使用托管数据库时可以配置 `DATABASE_URL` 覆盖。`OPENAI_*` 配置 Chat/Planner；`EMBEDDING_API_KEY` 和 `EMBEDDING_BASE_URL` 可把向量请求发送到独立的 OpenAI-compatible 服务，未配置时回退使用 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。公开链上查询只使用 `XXYY_BROWSER_PROFILE_DIRECTORY` 的固定 Explorer 浏览器证据，不接受 RPC 配置。该 Profile 必须隔离、持久，并在需要时完成 Explorer 页面验证；浏览器证据始终标为 partial。当 `OPENAI_BASE_URL` 指向宿主机上的本地服务时，设置 `COMPOSE_OPENAI_BASE_URL=http://host.docker.internal:<端口>/v1`。
 
 回答质量流程可以按 Web、Telegram 和 CLI 独立设置 `optimized`、`legacy` 或 `shadow`。`shadow` 按对应的 `*_OPTIMIZED_PERCENTAGE` 稳定选择主流程，同时在后台运行另一流程；只把主回答返回给用户，追踪中仅保存路线、状态、来源类型、引用数量差、答案指纹是否一致、延迟和 Token 差，不保存两份回答正文或具体答案指纹，也不从 Shadow 结果创建知识候选。Shadow 或灰度前应设置 `ANSWER_QUALITY_OBSERVABILITY_ENABLED=true`；Web API 和 Telegram 会输出 `event=answer_quality_rollout` 的 JSON line，记录渠道、模式、稳定分流比例、主/影子流程和上述脱敏差异，不包含问题、答案、用户 ID、会话 ID或请求 ID。紧急回滚可只把受影响渠道的 `*_MODE` 改为 `legacy`；回滚只切换 Query Plan、多轮补检和证据充分性策略，不改变客服边界、工具授权或知识发布门禁。
 
@@ -257,11 +254,9 @@ pnpm check                       # Web build + format check + typecheck + tests 
 
 `pnpm product:mcp:dev` 暴露一个 read-only MCP tool `search_product_docs`，以及 `xxyy://skills/product-support` Skill Resource 和 `xxyy_product_support` Prompt。API、CLI 和 Telegram 不需要额外进程：它们在同一进程内通过 MCP SDK 的 linked in-memory transport 调用完全相同的 server，再由 Capability Registry 对 `product.skill.search_docs → product.mcp.search_docs` 两层执行精确授权、超时、输出大小和脱敏审计。MCP discovery 不会自动扩展 Planner 工具列表。
 
-`pnpm onchain:mcp:dev` 启动与产品域解耦的 `onchain-analysis` server，暴露 `get_transaction`、`inspect_transaction`、`detect_sandwich`、capabilities Resource、两个 Skill Resources 和 Prompts。它自动读取根目录 `.env`，解析 Solscan/Solana Explorer、Etherscan、BscScan、Basescan/Base Blockscout、Robinhood Blockscout、Stablescan 链接，并从必填的 `ONCHAIN_RPC_CONFIG_JSON` 获取 RPC allowlist。`evm` / `solana` 配置基础快照；可选 `execution` 显式配置 trace source 和 factory allowlist；可选 `mevObservation` 显式配置 archive Provider 与 pool allowlist。代码不内置 endpoint，也不按 `NODE_ENV` 选择 Provider；`.env.example` 的 Robinhood 示例组合官方公共 RPC 与 Blockscout raw trace，因此可返回带明确部分证据警告的调用树，仍不能作为可靠 Sandwich 或 production readiness 证据。
+`pnpm onchain:mcp:dev` 与 `pnpm chain:mcp:dev` 都启动浏览器证据驱动的 XXYY 交易诊断 MCP。它从固定 Explorer 页面读取交易事实，再访问 XXYY 最新成交页面定位交易、前后成交和池子，并生成给用户的标注截图。公开运行面不发起 RPC，也不提供调用追踪或确定性 MEV 判定。
 
-`pnpm onchain:query` 是内部集成入口，固定使用 `cli/admin` grant，并在同一进程内执行 `ToolRegistry → chain.skill.* → chain.mcp.* → MCP protocol`。它自动读取开发 MCP 的 `ONCHAIN_RPC_CONFIG_JSON`，支持 `transaction`、`inspect` 和 `sandwich` 三个显式子命令；`NODE_ENV=production` 时失败关闭，不能绕过 `pnpm chain:mcp:serve` 的生产 readiness 门禁。Web/API/Telegram 复用同一启动时 allowlist，并以固定公开 caller 注册三项只读能力的六条精确 grant。
-
-`pnpm onchain:query:production` 是对应的受控生产查询入口，同样固定为 `cli/admin` 并保留 Tool → Skill → MCP 两层精确授权。它要求 `NODE_ENV=production`，只把 allowlist 中的 chain-control、manifest、secret mount 和 Product RAG 数据库身份配置传给子进程，然后通过无额外 stdout 包装的 Node/stdio transport 启动与 `pnpm chain:mcp:serve` 相同的生产 MCP 入口。该入口不读取项目 `.env`、不接受 RPC endpoint 参数，也不会在生产门禁失败时回退到 `ONCHAIN_RPC_CONFIG_JSON` 或公共 RPC。
+`pnpm onchain:query:production` 是与公开客服隔离的历史 readiness-gated 内部查询入口。它不是公开运行时的回退路径，Web、API、Telegram 和 XXYY 诊断 MCP 都不会调用它。
 
 `pnpm chain:mcp:serve` 启动相同 MCP surface 的 XXYY 内部 production composition。该命令不自动加载 `.env`，stdout 只承载 MCP protocol；启动前必须固定 `CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT` 与 `CHAIN_ANALYSIS_READINESS_FINGERPRINT`，并从独立 control DB 重读 attestation、operations evidence 和 policy。证明缺失、非 `ready`、过期或 Provider/budget lineage 漂移都会失败关闭；进程启动后每次调用仍检查有效时间窗。仓库当前没有真实生产证明，因此这不是公开客服入口或 production-ready 声明。通用配置与能力矩阵见 [Onchain Analysis MCP / Skills](docs/onchain-analysis-mcp.md)。
 

@@ -30,6 +30,15 @@ describe('XXYY market data adapter', () => {
         code: 0,
         data: [
           {
+            maker: 'earlier-attacker',
+            nativeAmount: '0.8',
+            timestamp: 1_699_999_999_999,
+            tokenAmount: '800',
+            txHash: 'earlier-transaction-id',
+            type: 'buy',
+            usdAmount: '160',
+          },
+          {
             maker: 'full-maker-address',
             nativeAmount: '1.25',
             timestamp: 1_700_000_000_000,
@@ -63,7 +72,23 @@ describe('XXYY market data adapter', () => {
       matchedPair: { pairAddress: 'pool-1' },
       status: 'exact',
       trade: { maker: 'full-maker-address', transactionId: 'exact-transaction-id' },
+      contextTrades: [
+        expect.objectContaining({
+          maker: 'earlier-attacker',
+          relation: 'earlier',
+          transactionId: 'earlier-transaction-id',
+        }),
+        expect.objectContaining({
+          maker: 'suffix-collision-address',
+          relation: 'later',
+          transactionId: 'different-transaction-id',
+        }),
+      ],
     });
+    const tradeRequest = fetchImpl.mock.calls.find(([url]) =>
+      String(url).includes('/api/data/trades/search'),
+    );
+    expect(JSON.parse(String(tradeRequest?.[1]?.body))).toMatchObject({ makerAddress: '' });
   });
 
   it('fails closed when the chain-derived actor conflicts with XXYY market data', async () => {
@@ -210,6 +235,51 @@ describe('XXYY market data adapter', () => {
     ).resolves.toMatchObject({
       diagnostics: [{ code: 'multiple_transaction_matches' }],
       status: 'conflict',
+    });
+  });
+
+  it('resolves duplicate XXYY matches only when one candidate pool is present in the chain transaction', async () => {
+    const client = createXxyyMarketDataClient({
+      fetchImpl: async (url) =>
+        String(url).includes('/search/v3')
+          ? jsonResponse({
+              code: 0,
+              data: {
+                results: ['pool-1', 'pool-2'].map((address) => ({
+                  pairInfo: {
+                    address,
+                    baseToken: 'token-1',
+                    chain: 'sol',
+                    quoteToken: 'wrapped-sol',
+                  },
+                })),
+              },
+            })
+          : jsonResponse({
+              code: 0,
+              data: [
+                {
+                  maker: 'maker-1',
+                  nativeAmount: '1',
+                  timestamp: 1,
+                  tokenAmount: '2',
+                  txHash: 'tx-1',
+                  type: 'buy',
+                },
+              ],
+            }),
+    });
+
+    await expect(
+      client.findTrade({
+        chain: 'solana:mainnet',
+        targetTokenAddresses: ['token-1'],
+        transactionAccountAddresses: ['maker-1', 'pool-2'],
+        transactionId: 'tx-1',
+      }),
+    ).resolves.toMatchObject({
+      matchedPair: { pairAddress: 'pool-2' },
+      status: 'exact',
     });
   });
 });

@@ -11,13 +11,14 @@ import {
   type AnswerQualityRolloutObservation,
   type AnswerQualityRolloutObserver,
 } from '@xxyy/agent-core';
-import { createPublicOnchainMcpClient } from '@xxyy/chain-analysis-mcp';
 import { createXxyyMarketDataClient } from '@xxyy/xxyy-market-data-adapter';
 import {
   createChromeXxyyScreenshotProvider,
+  createBrowserChainAnalysisClient,
   createConfiguredCanonicalPoolResolver,
   createInMemoryXxyyOnchainSupportMcpClient,
   createXxyyTransactionDiagnosisService,
+  resolveBrowserChromeExecutable,
 } from '@xxyy/xxyy-onchain-support-mcp';
 import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxyy/knowledge';
 import {
@@ -88,14 +89,13 @@ type ApiEnv = RagEnv &
       | 'ANSWER_QUALITY_WEB_OPTIMIZED_PERCENTAGE'
       | 'XXYY_AGENT_API_KEYS_JSON'
       | 'NODE_ENV'
-      | 'ONCHAIN_ALLOW_INSECURE_LOCALHOST'
-      | 'ONCHAIN_RPC_CONFIG_JSON'
       | 'XXYY_SMALL_POOL_MAX_LIQUIDITY_USD'
       | 'XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM'
       | 'XXYY_CANONICAL_POOL_CONFIG_JSON'
       | 'XXYY_SCREENSHOT_CHROME_EXECUTABLE'
       | 'XXYY_SCREENSHOT_DIRECTORY'
       | 'XXYY_SCREENSHOT_PUBLIC_BASE_URL'
+      | 'XXYY_BROWSER_PROFILE_DIRECTORY'
       | 'KNOWLEDGE_ADMIN_MAX_BODY_BYTES'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_MAX'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS'
@@ -1429,7 +1429,7 @@ function createCachedChatServiceLoader(
 ): () => Promise<ChatService> {
   let cachedService: ChatService | undefined;
 
-  return () => {
+  return async () => {
     if (cachedService !== undefined) {
       return Promise.resolve(cachedService);
     }
@@ -1456,7 +1456,8 @@ function createCachedChatServiceLoader(
         throw error;
       }
     });
-    const publicChainMcpClient = createOptionalPublicOnchainMcpClient(env);
+    const publicChainMcpClient = await createOptionalBrowserChainAnalysisClient(env);
+    const xxyyChainMcpClient = publicChainMcpClient;
     const screenshotProvider = createOptionalXxyyScreenshotProvider(env);
     const canonicalPoolResolver =
       env.XXYY_CANONICAL_POOL_CONFIG_JSON?.trim() === undefined ||
@@ -1464,11 +1465,11 @@ function createCachedChatServiceLoader(
         ? undefined
         : createConfiguredCanonicalPoolResolver(env.XXYY_CANONICAL_POOL_CONFIG_JSON);
     const xxyyOnchainMcpClient =
-      publicChainMcpClient === undefined
+      xxyyChainMcpClient === undefined
         ? undefined
         : createInMemoryXxyyOnchainSupportMcpClient({
             handler: createXxyyTransactionDiagnosisService({
-              chainAnalysis: publicChainMcpClient,
+              chainAnalysis: xxyyChainMcpClient,
               ...(canonicalPoolResolver === undefined ? {} : { canonicalPoolResolver }),
               marketData: createXxyyMarketDataClient(),
               poolPolicy: loadXxyyPoolPolicy(env),
@@ -1572,22 +1573,15 @@ function parseBoundedInteger(
   return resolved;
 }
 
-function createOptionalPublicOnchainMcpClient(env: ApiEnv) {
-  if (
-    env.ONCHAIN_RPC_CONFIG_JSON?.trim().length === 0 ||
-    env.ONCHAIN_RPC_CONFIG_JSON === undefined
-  ) {
-    return undefined;
-  }
-  return createPublicOnchainMcpClient({
-    env: {
-      ...(env.NODE_ENV === undefined ? {} : { NODE_ENV: env.NODE_ENV }),
-      ...(env.ONCHAIN_ALLOW_INSECURE_LOCALHOST === undefined
-        ? {}
-        : { ONCHAIN_ALLOW_INSECURE_LOCALHOST: env.ONCHAIN_ALLOW_INSECURE_LOCALHOST }),
-      ONCHAIN_RPC_CONFIG_JSON: env.ONCHAIN_RPC_CONFIG_JSON,
-    },
-  });
+async function createOptionalBrowserChainAnalysisClient(env: ApiEnv) {
+  const profileDirectory = env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim();
+  if (profileDirectory === undefined || profileDirectory.length === 0) return undefined;
+  const chromeExecutable = await resolveBrowserChromeExecutable(
+    env.XXYY_SCREENSHOT_CHROME_EXECUTABLE,
+  );
+  return chromeExecutable === undefined
+    ? undefined
+    : createBrowserChainAnalysisClient({ chromeExecutable, profileDirectory });
 }
 
 function createCachedFeedbackRecorder(config: ReturnType<typeof loadRagConfig>): FeedbackRecorder {

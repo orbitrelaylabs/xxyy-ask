@@ -177,6 +177,58 @@ describe('createLangGraphCustomerRuntime', () => {
     expect(execute).toHaveBeenCalledOnce();
   });
 
+  it('routes XXYY sandwich and small-pool requests before the generic transaction tool', async () => {
+    const registry = createToolRegistry();
+    const genericExecute = vi.fn(() => Promise.reject(new Error('generic tool must not run')));
+    const diagnosisExecute = vi.fn(() =>
+      Promise.resolve({
+        agentRoute: 'chain_answer' as const,
+        answer: 'XXYY 诊断完成并附带截图。',
+        citations: [],
+        confidence: 0.9,
+        intent: 'onchain_transaction' as const,
+      }),
+    );
+    registry.register({
+      name: 'get_public_transaction',
+      description: 'Generic transaction lookup.',
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.custom<ChatResponse>(() => true),
+      execute: genericExecute,
+    });
+    registry.register({
+      name: 'diagnose_xxyy_transaction',
+      description: 'XXYY transaction diagnosis.',
+      inputSchema: z.object({
+        checks: z.array(z.enum(['sandwich', 'pool'])),
+        network: z.string().optional(),
+        reference: z.string(),
+      }),
+      outputSchema: z.custom<ChatResponse>(() => true),
+      execute: diagnosisExecute,
+    });
+    const transactionHash = `0x${'a'.repeat(64)}`;
+    const explorerUrl = `https://etherscan.io/tx/${transactionHash}`;
+
+    const response = await createLangGraphCustomerRuntime({
+      planner: createScriptedPlannerModel([]),
+      registry,
+    }).ask({
+      channel: 'web',
+      message: `检查这笔 XXYY 交易是不是小池子，是否被夹：${explorerUrl}`,
+    });
+
+    expect(response.answer).toContain('XXYY 诊断完成');
+    expect(genericExecute).not.toHaveBeenCalled();
+    expect(diagnosisExecute).toHaveBeenCalledWith(
+      {
+        checks: ['sandwich', 'pool'],
+        reference: explorerUrl,
+      },
+      expect.objectContaining({ channel: 'web' }),
+    );
+  });
+
   it('clarifies instead of guessing a tool when planner parsing repeatedly fails', async () => {
     const registry = createToolRegistry();
     const response: ChatResponse = {
@@ -740,7 +792,7 @@ describe('createLangGraphCustomerRuntime', () => {
       citations: [],
       intent: 'onchain_transaction',
     });
-    expect(response.answer).toContain('ONCHAIN_RPC_CONFIG_JSON');
+    expect(response.answer).toContain('浏览器 Profile');
     expect(planner.plan).not.toHaveBeenCalled();
   });
 

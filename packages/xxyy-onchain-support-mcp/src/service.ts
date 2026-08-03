@@ -1,14 +1,9 @@
-import type {
-  ChainAnalysisMcpClient,
-  DetectSandwichOutput,
-  GetTransactionOutput,
-} from '@xxyy/chain-analysis-mcp';
+import type { ChainAnalysisMcpClient, GetTransactionOutput } from '@xxyy/chain-analysis-mcp';
 import type { XxyyMarketDataClient, XxyyTradeLookupResult } from '@xxyy/xxyy-market-data-adapter';
 import {
   assessXxyyPoolSelection,
   assessXxyySandwichPattern,
   xxyyPoolPolicySchema,
-  xxyySandwichAssessmentSchema,
   type XxyyPairCandidate,
   type XxyyTradeObservation,
 } from '@xxyy/xxyy-transaction-diagnosis-core';
@@ -19,6 +14,7 @@ import {
   type XxyyDiagnosisPoolPolicy,
   type XxyyScreenshotEvidence,
   type XxyyScreenshotEvidenceProvider,
+  type XxyySurroundingTrade,
   type XxyyTransactionDiagnosisHandler,
 } from './contracts.js';
 
@@ -50,6 +46,15 @@ export function createXxyyTransactionDiagnosisService(
       );
       const context = extractLookupContext(transaction);
       const warnings: string[] = [];
+      if (
+        (transaction.family === 'solana' &&
+          transaction.analysis?.sources.some((source) => source.kind === 'explorer_browser')) ||
+        (transaction.family === 'evm' && transaction.status === 'partial')
+      ) {
+        warnings.push(
+          'Transaction facts came from a fixed Explorer browser page and are partial, single-source evidence.',
+        );
+      }
       const market =
         context.targetTokenAddresses.length === 0
           ? undefined
@@ -59,6 +64,9 @@ export function createXxyyTransactionDiagnosisService(
                 chain: context.chain,
                 targetTokenAddresses: context.targetTokenAddresses,
                 ...(context.timestampMs === undefined ? {} : { timestampMs: context.timestampMs }),
+                ...(context.transactionAccountAddresses.length === 0
+                  ? {}
+                  : { transactionAccountAddresses: context.transactionAccountAddresses }),
                 transactionId: transaction.transactionId,
               },
               requestOptions.signal === undefined ? {} : { signal: requestOptions.signal },
@@ -85,32 +93,26 @@ export function createXxyyTransactionDiagnosisService(
         });
       }
 
+      const surroundingTrades =
+        input.checks.includes('sandwich') && market?.status === 'exact'
+          ? await resolveSurroundingTrades(
+              market,
+              context.chain,
+              options.chainAnalysis,
+              requestOptions.signal,
+            )
+          : [];
+      if (surroundingTrades.some((trade) => trade.chainStatus === 'unavailable')) {
+        warnings.push('Some surrounding XXYY trades could not be resolved to a block or slot.');
+      }
+
       let sandwichAssessment;
       if (input.checks.includes('sandwich')) {
         if (market?.status === 'exact') {
-          if (transaction.family === 'evm') {
-            try {
-              const deepResult = await options.chainAnalysis.detectSandwich(
-                {
-                  chainId: transaction.chainId,
-                  poolAddress: market.matchedPair!.pairAddress,
-                  transactionHash: transaction.transactionId,
-                },
-                requestOptions.signal === undefined ? {} : { signal: requestOptions.signal },
-              );
-              sandwichAssessment = projectEvmSandwich(deepResult);
-            } catch {
-              sandwichAssessment = insufficientPublicSandwich(transaction, market);
-              warnings.push(
-                'The EVM archive/MEV data plane or verified pool allowlist was unavailable.',
-              );
-            }
-          } else {
-            sandwichAssessment = insufficientPublicSandwich(transaction, market);
-            warnings.push(
-              'Same-slot neighboring swaps and profit/loss evidence are not available from the current Solana public data plane.',
-            );
-          }
+          sandwichAssessment = assessMarketSandwichEvidence(transaction, market, surroundingTrades);
+          warnings.push(
+            'Browser and XXYY rows can support a same-block/slot structural pattern, but pool-state and profit/loss evidence remain unavailable for confirmation.',
+          );
         } else {
           warnings.push('Sandwich analysis requires one exact XXYY trade match.');
         }
@@ -129,8 +131,15 @@ export function createXxyyTransactionDiagnosisService(
               {
                 chain: context.chain,
                 maker: market.trade!.maker,
+                nativeAmount: market.trade!.nativeAmount,
                 pairAddress: market.matchedPair!.pairAddress,
+                timestamp: market.trade!.timestamp,
+                tokenAmount: market.trade!.tokenAmount,
                 transactionId: transaction.transactionId,
+                type: market.trade!.type,
+                ...(market.trade!.usdAmount === undefined
+                  ? {}
+                  : { usdAmount: market.trade!.usdAmount }),
               },
               requestOptions.signal === undefined ? {} : { signal: requestOptions.signal },
             );
@@ -148,6 +157,7 @@ export function createXxyyTransactionDiagnosisService(
                 transaction,
               }),
               summary: buildSummary(transaction, market.status, true),
+              ...(surroundingTrades.length === 0 ? {} : { surroundingTrades }),
               transaction,
               warnings,
             });
@@ -171,6 +181,7 @@ export function createXxyyTransactionDiagnosisService(
           transaction,
         }),
         summary: buildSummary(transaction, market?.status, false),
+        ...(surroundingTrades.length === 0 ? {} : { surroundingTrades }),
         transaction,
         warnings,
       });
@@ -183,11 +194,20 @@ function extractLookupContext(transaction: GetTransactionOutput): {
   chain: string;
   targetTokenAddresses: string[];
   timestampMs?: number;
+  transactionAccountAddresses: string[];
 } {
   if (transaction.family === 'evm') {
-    const tokenAddresses = unique(
-      transaction.analysis.tokenTransfers.map((item) => item.tokenAddress),
-    );
+    const browserEvidence = transaction.analysis.evidence.flatMap((item) => {
+      const data = item.structuredData;
+      return isRecord(data) ? [data] : [];
+    });
+    const tokenAddresses = unique([
+      ...transaction.analysis.tokenTransfers.map((item) => item.tokenAddress),
+      ...transaction.analysis.assetChanges.flatMap((change) =>
+        change.asset.kind === 'erc20' ? [change.asset.contractAddress] : [],
+      ),
+      ...browserEvidence.flatMap((item) => stringArray(item.tokenAddresses)),
+    ]);
     const timestamp = transaction.analysis.transaction.blockTimestamp;
     return {
       ...(transaction.analysis.transaction.from === undefined
@@ -195,13 +215,26 @@ function extractLookupContext(transaction: GetTransactionOutput): {
         : { actor: transaction.analysis.transaction.from }),
       chain: transaction.network,
       targetTokenAddresses: tokenAddresses.slice(0, 8),
+      transactionAccountAddresses: unique([
+        ...transaction.analysis.assetChanges.map((change) => change.address),
+        ...transaction.analysis.tokenTransfers.flatMap((transfer) => [transfer.from, transfer.to]),
+        ...(transaction.analysis.transaction.to === undefined ||
+        transaction.analysis.transaction.to === null
+          ? []
+          : [transaction.analysis.transaction.to]),
+        ...browserEvidence.flatMap((item) => stringArray(item.accountAddresses)),
+      ]),
       ...(timestamp === undefined ? {} : { timestampMs: Number(BigInt(timestamp) * 1_000n) }),
     };
   }
 
   const snapshot = transaction.analysis;
   if (snapshot === undefined) {
-    return { chain: transaction.network, targetTokenAddresses: [] };
+    return {
+      chain: transaction.network,
+      targetTokenAddresses: [],
+      transactionAccountAddresses: [],
+    };
   }
   const changes = snapshot.tokenBalanceChanges.filter((item) => item.deltaRaw !== '0');
   const owners = unique(changes.flatMap((item) => (item.owner === undefined ? [] : [item.owner])));
@@ -210,6 +243,7 @@ function extractLookupContext(transaction: GetTransactionOutput): {
     ...(owners.length === 1 ? { actor: owners[0] } : {}),
     chain: transaction.network,
     targetTokenAddresses: unique(changes.map((item) => item.mint)).slice(0, 8),
+    transactionAccountAddresses: snapshot.accountKeys,
     ...(timestampMs === undefined || Number.isNaN(timestampMs) ? {} : { timestampMs }),
   };
 }
@@ -246,6 +280,7 @@ function diagnosisStatus(input: {
   }
   const conclusionIncomplete =
     input.sandwichAssessment?.verdict === 'insufficient_data' ||
+    input.sandwichAssessment?.verdict === 'likely' ||
     input.poolAssessment?.liquidityClass === 'unknown';
   return input.transaction.status === 'success' &&
     input.marketStatus === 'exact' &&
@@ -255,11 +290,30 @@ function diagnosisStatus(input: {
     : 'partial';
 }
 
-function insufficientPublicSandwich(
+function assessMarketSandwichEvidence(
   transaction: GetTransactionOutput,
   market: XxyyTradeLookupResult,
+  surroundingTrades: readonly XxyySurroundingTrade[],
 ) {
-  const target = targetObservation(transaction, market.matchedPair!.pairAddress, market.trade!);
+  const target = {
+    ...targetObservation(transaction, market.matchedPair!.pairAddress, market.trade!),
+    transactionIndex: 1,
+  };
+  const earlier = [...surroundingTrades]
+    .filter((trade) => trade.relation === 'earlier')
+    .sort((left, right) => right.timestamp - left.timestamp)[0];
+  const later = [...surroundingTrades]
+    .filter((trade) => trade.relation === 'later')
+    .sort((left, right) => left.timestamp - right.timestamp)[0];
+  const observations: XxyyTradeObservation[] = [
+    ...(earlier === undefined
+      ? []
+      : [surroundingObservation(earlier, market.matchedPair!.pairAddress, 0)]),
+    target,
+    ...(later === undefined
+      ? []
+      : [surroundingObservation(later, market.matchedPair!.pairAddress, 2)]),
+  ];
   return assessXxyySandwichPattern({
     coverage: {
       actorAssetDeltas: 'missing',
@@ -267,109 +321,59 @@ function insufficientPublicSandwich(
       poolState: 'missing',
       sourceConflicts: market.diagnostics.some((item) => item.code.includes('conflict')) ? 1 : 0,
     },
-    observations: [target],
+    observations,
     targetTransactionId: transaction.transactionId,
   });
 }
 
-function projectEvmSandwich(output: DetectSandwichOutput) {
-  const sandwich = output.mev?.sandwich;
-  if (sandwich === undefined) {
-    return xxyySandwichAssessmentSchema.parse({
-      criteria: unknownCriteria(),
-      reasonCodes: ['neighborhood_incomplete'],
-      verdict: 'insufficient_data',
-    });
-  }
-  const positiveCandidate = sandwich.verdict === 'confirmed' || sandwich.verdict === 'likely';
-  return xxyySandwichAssessmentSchema.parse({
-    ...(sandwich.backTransactionHash === undefined
-      ? {}
-      : { backTransactionId: sandwich.backTransactionHash }),
-    ...(sandwich.attacker === undefined ? {} : { candidateActor: sandwich.attacker }),
-    criteria: {
-      actorLoop: sandwich.assetLoopVerified
-        ? 'yes'
-        : sandwich.reasonCodes.includes('actor_deltas_contradict_loop')
-          ? 'no'
-          : 'unknown',
-      adverseVictimImpact:
-        sandwich.victimLossRaw === undefined
-          ? sandwich.reasonCodes.includes('target_not_adversely_affected')
-            ? 'no'
-            : 'unknown'
-          : sandwich.victimLossRaw === '0'
-            ? 'no'
-            : 'yes',
-      profitableActor:
-        sandwich.attackerProfitRaw === undefined
-          ? sandwich.reasonCodes.includes('attacker_not_profitable')
-            ? 'no'
-            : 'unknown'
-          : sandwich.attackerProfitRaw === '0'
-            ? 'no'
-            : 'yes',
-      sameBlockOrSlot: positiveCandidate ? 'yes' : 'unknown',
-      samePool: positiveCandidate ? 'yes' : 'unknown',
-      transactionOrder: positiveCandidate ? 'yes' : 'unknown',
-      twoSidedDirection: positiveCandidate ? 'yes' : 'unknown',
-    },
-    ...(sandwich.frontTransactionHash === undefined
-      ? {}
-      : { frontTransactionId: sandwich.frontTransactionHash }),
-    reasonCodes: projectEvmReasonCodes(sandwich.reasonCodes, sandwich.verdict),
-    verdict: sandwich.verdict,
-  });
-}
-
-function projectEvmReasonCodes(
-  codes: readonly string[],
-  verdict: 'confirmed' | 'likely' | 'unlikely' | 'insufficient_data',
-) {
-  const mapped = new Set<
-    | 'actor_loop_contradicted'
-    | 'actor_mismatch'
-    | 'candidate_pattern_complete'
-    | 'direction_mismatch'
-    | 'loss_or_profit_missing'
-    | 'neighborhood_incomplete'
-    | 'no_bracketing_transactions'
-    | 'not_profitable'
-    | 'pool_state_discontinuity'
-    | 'quote_mismatch'
-    | 'source_conflict'
-    | 'target_not_adversely_affected'
-    | 'unsupported_observation'
-  >();
-  if (verdict === 'confirmed' || verdict === 'likely') mapped.add('candidate_pattern_complete');
-  for (const code of codes) {
-    if (code === 'actor_mismatch') mapped.add('actor_mismatch');
-    if (code === 'actor_deltas_contradict_loop') mapped.add('actor_loop_contradicted');
-    if (code === 'bracketing_direction_mismatch') mapped.add('direction_mismatch');
-    if (code === 'actor_deltas_missing') mapped.add('loss_or_profit_missing');
-    if (code === 'neighborhood_incomplete') mapped.add('neighborhood_incomplete');
-    if (code === 'no_adjacent_bracketing_transactions') mapped.add('no_bracketing_transactions');
-    if (code === 'attacker_not_profitable') mapped.add('not_profitable');
-    if (code === 'pool_state_discontinuity') mapped.add('pool_state_discontinuity');
-    if (code === 'quote_mismatch') mapped.add('quote_mismatch');
-    if (code === 'source_conflict') mapped.add('source_conflict');
-    if (code === 'target_not_adversely_affected') mapped.add('target_not_adversely_affected');
-    if (code === 'unsupported_observation') mapped.add('unsupported_observation');
-  }
-  if (mapped.size === 0) mapped.add('neighborhood_incomplete');
-  return [...mapped];
-}
-
-function unknownCriteria() {
+function surroundingObservation(
+  trade: XxyySurroundingTrade,
+  poolAddress: string,
+  transactionIndex: number,
+): XxyyTradeObservation {
   return {
-    actorLoop: 'unknown' as const,
-    adverseVictimImpact: 'unknown' as const,
-    profitableActor: 'unknown' as const,
-    sameBlockOrSlot: 'unknown' as const,
-    samePool: 'unknown' as const,
-    transactionOrder: 'unknown' as const,
-    twoSidedDirection: 'unknown' as const,
+    actor: trade.maker,
+    ...(trade.blockNumber === undefined ? {} : { blockNumber: trade.blockNumber }),
+    ...(trade.slot === undefined ? {} : { slot: trade.slot }),
+    poolAddress,
+    side: trade.type,
+    transactionId: trade.transactionId,
+    transactionIndex,
   };
+}
+
+async function resolveSurroundingTrades(
+  market: XxyyTradeLookupResult,
+  network: string,
+  chainAnalysis: ChainAnalysisMcpClient,
+  signal: AbortSignal | undefined,
+): Promise<XxyySurroundingTrade[]> {
+  return await Promise.all(
+    (market.contextTrades ?? []).map(async (trade): Promise<XxyySurroundingTrade> => {
+      try {
+        const transaction = await chainAnalysis.getTransaction(
+          { network, reference: trade.transactionId },
+          signal === undefined ? {} : { signal },
+        );
+        if (transaction.family === 'evm') {
+          const blockNumber = transaction.analysis.transaction.blockNumber;
+          return {
+            ...trade,
+            ...(blockNumber === undefined ? {} : { blockNumber }),
+            chainStatus: blockNumber === undefined ? 'unavailable' : 'resolved',
+          };
+        }
+        const slot = transaction.analysis?.slot;
+        return {
+          ...trade,
+          ...(slot === undefined ? {} : { slot }),
+          chainStatus: slot === undefined ? 'unavailable' : 'resolved',
+        };
+      } catch {
+        return { ...trade, chainStatus: 'unavailable' };
+      }
+    }),
+  );
 }
 
 function buildSummary(
@@ -388,4 +392,14 @@ function buildSummary(
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
 }

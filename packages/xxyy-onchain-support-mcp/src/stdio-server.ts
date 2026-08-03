@@ -1,10 +1,13 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import { createPublicOnchainMcpClient } from '@xxyy/chain-analysis-mcp';
 import { loadWorkspaceEnv, resolveWorkspaceCwd } from '@xxyy/rag-core';
 import { createXxyyMarketDataClient } from '@xxyy/xxyy-market-data-adapter';
 
 import { createChromeXxyyScreenshotProvider } from './chrome-screenshot-provider.js';
+import {
+  createBrowserChainAnalysisClient,
+  resolveBrowserChromeExecutable,
+} from './browser-chain-analysis-client.js';
 import { createConfiguredCanonicalPoolResolver } from './canonical-pool-config.js';
 import { createXxyyOnchainSupportMcpServer } from './server.js';
 import { createXxyyTransactionDiagnosisService } from './service.js';
@@ -13,19 +16,24 @@ const env = loadWorkspaceEnv({
   cwd: resolveWorkspaceCwd(process.cwd(), process.env),
   env: process.env,
 });
-const rpcConfig = env.ONCHAIN_RPC_CONFIG_JSON?.trim();
-if (rpcConfig === undefined || rpcConfig.length === 0) {
-  throw new TypeError('ONCHAIN_RPC_CONFIG_JSON is required for xxyy-onchain-support MCP.');
+const chromeExecutable = await resolveBrowserChromeExecutable(
+  env.XXYY_SCREENSHOT_CHROME_EXECUTABLE,
+);
+const browserProfileDirectory = env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim();
+const chainAnalysis =
+  chromeExecutable === undefined ||
+  browserProfileDirectory === undefined ||
+  browserProfileDirectory.length === 0
+    ? undefined
+    : createBrowserChainAnalysisClient({
+        chromeExecutable,
+        profileDirectory: browserProfileDirectory,
+      });
+if (chainAnalysis === undefined) {
+  throw new TypeError(
+    'XXYY diagnosis needs an installed Chrome/Chromium browser with XXYY_BROWSER_PROFILE_DIRECTORY.',
+  );
 }
-const chainAnalysis = createPublicOnchainMcpClient({
-  env: {
-    ...(env.NODE_ENV === undefined ? {} : { NODE_ENV: env.NODE_ENV }),
-    ...(env.ONCHAIN_ALLOW_INSECURE_LOCALHOST === undefined
-      ? {}
-      : { ONCHAIN_ALLOW_INSECURE_LOCALHOST: env.ONCHAIN_ALLOW_INSECURE_LOCALHOST }),
-    ONCHAIN_RPC_CONFIG_JSON: rpcConfig,
-  },
-});
 const screenshotProvider = optionalScreenshotProvider(env);
 const canonicalPoolResolver =
   env.XXYY_CANONICAL_POOL_CONFIG_JSON?.trim() === undefined ||

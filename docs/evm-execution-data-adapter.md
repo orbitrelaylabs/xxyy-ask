@@ -4,7 +4,7 @@
 
 `@xxyy/evm-execution-data-adapter` 是内部专用的公开链执行数据边界。它从启动时配置的 provider 获取 Geth `debug_traceTransaction` / `callTracer`，或从显式配置的 Blockscout v2 `raw-trace` 端点获取有界调用树；同时在指定历史 block 上读取和验证 Uniswap V2/V3 pool metadata，输出可以直接交给 `@xxyy/evm-execution-enrichment-core` 的 `EvmCallTrace` 与 `EvmPoolMetadata`。
 
-该包没有内置 endpoint 或环境变量 loader；通用 `ONCHAIN_RPC_CONFIG_JSON.execution` 可在开发/小规模验证中显式配置 Provider 与 factory allowlist，隔离的私有 data-plane composition root 则从 opaque secret mount 配置双 provider 和共享控制。基础配置没有 trace/factory 时会安全跳过 execution enrichment。API、Web、Telegram 已授权 `inspect_transaction` / `detect_sandwich`，但只消费 MCP 的有界投影，不能注入 endpoint、method、tracer 或 calldata。仓库仍没有真实 production credential/部署；生产深度接线路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
+该包是与公开客服隔离的历史内部 execution adapter，只能由 readiness-gated 私有 composition 注入受控 trace 来源。API、Web、Telegram 和开发 MCP 不调用它；公开浏览器路径不提供 call trace、tracer 或深度 execution enrichment。历史生产接线路径见 [Chain Analysis Provider & Worker Data Plane](chain-data-plane-operations.md)。
 
 现有 `@xxyy/evm-data-adapter` 的标准 RPC allowlist 仍保持 transaction、receipt、chain id 和 block 四个方法不变。执行数据使用独立包和独立 RPC call schema，避免把通用 `debug_*` 或任意 `eth_call` 权限加入基础 snapshot client。
 

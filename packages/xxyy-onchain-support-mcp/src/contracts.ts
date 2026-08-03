@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { getTransactionOutputSchema } from '@xxyy/chain-analysis-mcp';
 import { xxyyTradeLookupResultSchema } from '@xxyy/xxyy-market-data-adapter';
+import { xxyyContextTradeSchema } from '@xxyy/xxyy-market-data-adapter';
 import {
   xxyyPoolAssessmentSchema,
   xxyyPoolPolicySchema,
@@ -62,6 +63,20 @@ export const xxyyScreenshotEvidenceSchema = z
     }
   });
 
+export const xxyySurroundingTradeSchema = xxyyContextTradeSchema
+  .extend({
+    blockNumber: z
+      .string()
+      .regex(/^(?:0|[1-9]\d*)$/u)
+      .optional(),
+    chainStatus: z.enum(['resolved', 'unavailable']),
+    slot: z
+      .string()
+      .regex(/^(?:0|[1-9]\d*)$/u)
+      .optional(),
+  })
+  .strict();
+
 export const diagnoseXxyyTransactionOutputSchema = z
   .object({
     checks: z.array(xxyyDiagnosisCheckSchema).min(1).max(2),
@@ -71,6 +86,7 @@ export const diagnoseXxyyTransactionOutputSchema = z
     screenshotEvidence: xxyyScreenshotEvidenceSchema,
     status: z.enum(['insufficient_data', 'partial', 'success']),
     summary: z.string().trim().min(1).max(4_096),
+    surroundingTrades: z.array(xxyySurroundingTradeSchema).max(12).optional(),
     transaction: getTransactionOutputSchema,
     warnings: z.array(z.string().trim().min(1).max(512)).max(32),
   })
@@ -80,6 +96,7 @@ export type DiagnoseXxyyTransactionInput = z.output<typeof diagnoseXxyyTransacti
 export type DiagnoseXxyyTransactionOutput = z.output<typeof diagnoseXxyyTransactionOutputSchema>;
 export type XxyyScreenshotArtifact = z.output<typeof xxyyScreenshotArtifactSchema>;
 export type XxyyScreenshotEvidence = z.output<typeof xxyyScreenshotEvidenceSchema>;
+export type XxyySurroundingTrade = z.output<typeof xxyySurroundingTradeSchema>;
 
 export interface XxyyTransactionDiagnosisHandler {
   diagnoseXxyyTransaction(
@@ -97,8 +114,13 @@ export interface XxyyScreenshotEvidenceProvider {
     input: {
       chain: string;
       maker: string;
+      nativeAmount?: string;
       pairAddress: string;
+      timestamp?: number;
+      tokenAmount?: string;
       transactionId: string;
+      type?: 'buy' | 'sell';
+      usdAmount?: string;
     },
     options?: { signal?: AbortSignal },
   ): Promise<XxyyScreenshotArtifact>;

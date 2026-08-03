@@ -12,6 +12,7 @@ import {
   xxyyTradeLookupResultSchema,
   type XxyyMarketDataClient,
   type XxyyMarketDiagnostic,
+  type XxyyContextTrade,
   type XxyyMarketTrade,
   type XxyyTradeLookupResult,
 } from './contracts.js';
@@ -99,7 +100,7 @@ export function createXxyyMarketDataClient(
         requestTimeoutMs,
         ...(requestOptions.signal === undefined ? {} : { signal: requestOptions.signal }),
       });
-      const matches = await loadMatchingTrades({
+      const tradeSearch = await loadMatchingTrades({
         candidatePairs,
         diagnostics,
         fetchImpl,
@@ -108,6 +109,7 @@ export function createXxyyMarketDataClient(
         requestTimeoutMs,
         ...(requestOptions.signal === undefined ? {} : { signal: requestOptions.signal }),
       });
+      const matches = disambiguateMatchesByTransactionAccounts(input, tradeSearch.matches);
       if (matches.length !== 1) {
         if (matches.length > 1) {
           diagnostics.push({
@@ -140,6 +142,10 @@ export function createXxyyMarketDataClient(
       }
       return xxyyTradeLookupResultSchema.parse({
         candidatePairs,
+        contextTrades: contextTradesForMatch(
+          match.trade,
+          tradeSearch.tradesByPair.get(match.pair.pairAddress) ?? [],
+        ),
         diagnostics,
         matchedPair: match.pair,
         status: 'exact',
@@ -211,15 +217,19 @@ async function loadMatchingTrades(input: {
   maxResponseBytes: number;
   requestTimeoutMs: number;
   signal?: AbortSignal;
-}): Promise<Array<{ pair: XxyyPairCandidate; trade: XxyyMarketTrade }>> {
+}): Promise<{
+  matches: Array<{ pair: XxyyPairCandidate; trade: XxyyMarketTrade }>;
+  tradesByPair: Map<string, XxyyMarketTrade[]>;
+}> {
   const matches: Array<{ pair: XxyyPairCandidate; trade: XxyyMarketTrade }> = [];
+  const tradesByPair = new Map<string, XxyyMarketTrade[]>();
   for (const pair of input.candidatePairs) {
     try {
       const timestamp = input.input.timestampMs;
       const response = tradeSearchResponseSchema.parse(
         await requestJson({
           body: {
-            makerAddress: input.input.actor ?? '',
+            makerAddress: '',
             nativeAmountEnd: '',
             nativeAmountStart: '',
             pageSize: 50,
@@ -241,29 +251,75 @@ async function loadMatchingTrades(input: {
           url: new URL('/api/data/trades/search', XXYY_MARKET_DATA_ORIGIN),
         }),
       );
-      for (const rawTrade of response.data) {
-        if (!identifierEquals(input.input.chain, rawTrade.txHash, input.input.transactionId)) {
+      const pairTrades = response.data.map(parseMarketTrade);
+      tradesByPair.set(pair.pairAddress, pairTrades);
+      for (const trade of pairTrades) {
+        if (!identifierEquals(input.input.chain, trade.transactionId, input.input.transactionId)) {
           continue;
         }
         matches.push({
           pair,
-          trade: xxyyMarketTradeSchema.parse({
-            maker: rawTrade.maker,
-            ...(rawTrade.marketCapUSD === undefined ? {} : { marketCapUsd: rawTrade.marketCapUSD }),
-            nativeAmount: rawTrade.nativeAmount,
-            timestamp: rawTrade.timestamp,
-            tokenAmount: rawTrade.tokenAmount,
-            transactionId: rawTrade.txHash,
-            type: rawTrade.type,
-            ...(rawTrade.usdAmount === undefined ? {} : { usdAmount: rawTrade.usdAmount }),
-          }),
+          trade,
         });
       }
     } catch (error) {
       input.diagnostics.push(diagnosticFor(error, 'trade_search'));
     }
   }
-  return matches;
+  return { matches, tradesByPair };
+}
+
+function parseMarketTrade(rawTrade: z.output<typeof tradeApiSchema>): XxyyMarketTrade {
+  return xxyyMarketTradeSchema.parse({
+    maker: rawTrade.maker,
+    ...(rawTrade.marketCapUSD === undefined ? {} : { marketCapUsd: rawTrade.marketCapUSD }),
+    nativeAmount: rawTrade.nativeAmount,
+    timestamp: rawTrade.timestamp,
+    tokenAmount: rawTrade.tokenAmount,
+    transactionId: rawTrade.txHash,
+    type: rawTrade.type,
+    ...(rawTrade.usdAmount === undefined ? {} : { usdAmount: rawTrade.usdAmount }),
+  });
+}
+
+function contextTradesForMatch(
+  target: XxyyMarketTrade,
+  pairTrades: readonly XxyyMarketTrade[],
+): XxyyContextTrade[] {
+  return pairTrades
+    .map((trade, displayIndex) => ({ displayIndex, trade }))
+    .filter(({ trade }) => trade.transactionId !== target.transactionId)
+    .map(({ displayIndex, trade }) => ({
+      ...trade,
+      displayIndex,
+      relation:
+        trade.timestamp < target.timestamp
+          ? ('earlier' as const)
+          : trade.timestamp > target.timestamp
+            ? ('later' as const)
+            : ('same_time' as const),
+    }))
+    .sort((left, right) => {
+      const distance =
+        Math.abs(left.timestamp - target.timestamp) - Math.abs(right.timestamp - target.timestamp);
+      return distance === 0 ? left.displayIndex - right.displayIndex : distance;
+    })
+    .slice(0, 6)
+    .sort((left, right) => left.displayIndex - right.displayIndex);
+}
+
+function disambiguateMatchesByTransactionAccounts(
+  input: z.output<typeof xxyyTradeLookupInputSchema>,
+  matches: Array<{ pair: XxyyPairCandidate; trade: XxyyMarketTrade }>,
+): Array<{ pair: XxyyPairCandidate; trade: XxyyMarketTrade }> {
+  if (matches.length <= 1 || input.transactionAccountAddresses === undefined) return matches;
+  const observed = new Set(
+    input.transactionAccountAddresses.map((address) => normalizeIdentifier(input.chain, address)),
+  );
+  const onchainMatches = matches.filter((match) =>
+    observed.has(normalizeIdentifier(input.chain, match.pair.pairAddress)),
+  );
+  return onchainMatches.length === 1 ? onchainMatches : matches;
 }
 
 async function requestJson(input: {
@@ -364,9 +420,11 @@ function normalizeChain(chain: string): string {
 }
 
 function identifierEquals(chain: string, left: string, right: string): boolean {
-  return normalizeChain(chain).startsWith('eip155:')
-    ? left.toLowerCase() === right.toLowerCase()
-    : left === right;
+  return normalizeIdentifier(chain, left) === normalizeIdentifier(chain, right);
+}
+
+function normalizeIdentifier(chain: string, value: string): string {
+  return normalizeChain(chain).startsWith('eip155:') ? value.toLowerCase() : value;
 }
 
 function positiveInteger(value: number, label: string): number {

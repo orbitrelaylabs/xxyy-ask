@@ -68,8 +68,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env}
       OPENAI_BASE_URL: ${COMPOSE_OPENAI_BASE_URL:-${OPENAI_BASE_URL}}
       OPENAI_MODEL: ${OPENAI_MODEL:?Set OPENAI_MODEL in .env}
-      ONCHAIN_ALLOW_INSECURE_LOCALHOST: ${ONCHAIN_ALLOW_INSECURE_LOCALHOST:-false}
-      ONCHAIN_RPC_CONFIG_JSON: ${ONCHAIN_RPC_CONFIG_JSON:-}
+      XXYY_BROWSER_PROFILE_DIRECTORY: ${COMPOSE_XXYY_BROWSER_PROFILE_DIRECTORY:-/var/lib/xxyy-browser-profile}
       XXYY_SMALL_POOL_MAX_LIQUIDITY_USD: ${XXYY_SMALL_POOL_MAX_LIQUIDITY_USD:-10000}
       XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM: ${XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM:-100000}
       XXYY_CANONICAL_POOL_CONFIG_JSON: ${XXYY_CANONICAL_POOL_CONFIG_JSON:-}
@@ -90,6 +89,7 @@ services:
       - '${APP_BIND_HOST:-127.0.0.1}:${APP_PORT:-3000}:3000'
     volumes:
       - './.rag/knowledge-refresh:/app/.rag/knowledge-refresh:ro'
+      - xxyy_api_browser_profile:/var/lib/xxyy-browser-profile
     healthcheck:
       test:
         [
@@ -120,8 +120,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env}
       OPENAI_BASE_URL: ${COMPOSE_OPENAI_BASE_URL:-${OPENAI_BASE_URL}}
       OPENAI_MODEL: ${OPENAI_MODEL:?Set OPENAI_MODEL in .env}
-      ONCHAIN_ALLOW_INSECURE_LOCALHOST: ${ONCHAIN_ALLOW_INSECURE_LOCALHOST:-false}
-      ONCHAIN_RPC_CONFIG_JSON: ${ONCHAIN_RPC_CONFIG_JSON:-}
+      XXYY_BROWSER_PROFILE_DIRECTORY: ${COMPOSE_XXYY_BROWSER_PROFILE_DIRECTORY:-/var/lib/xxyy-browser-profile}
       XXYY_SMALL_POOL_MAX_LIQUIDITY_USD: ${XXYY_SMALL_POOL_MAX_LIQUIDITY_USD:-10000}
       XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM: ${XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM:-100000}
       XXYY_CANONICAL_POOL_CONFIG_JSON: ${XXYY_CANONICAL_POOL_CONFIG_JSON:-}
@@ -143,6 +142,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - './.rag/knowledge-refresh:/app/.rag/knowledge-refresh:ro'
+      - xxyy_telegram_browser_profile:/var/lib/xxyy-browser-profile
 
   telegram-curation-worker:
     <<: *app-base
@@ -181,4 +181,6 @@ services:
         condition: service_completed_successfully
 
 volumes:
+  xxyy_api_browser_profile:
   xxyy_pgdata:
+  xxyy_telegram_browser_profile:

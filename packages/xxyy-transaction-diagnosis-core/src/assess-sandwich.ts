@@ -74,7 +74,7 @@ export function assessXxyySandwichPattern(input: unknown): XxyySandwichAssessmen
   const victimLoss = parsed.calculation?.victimLossRaw;
   const attackerProfit = parsed.calculation?.attackerProfitRaw;
   if (victimLoss === undefined || attackerProfit === undefined) {
-    return result('insufficient_data', ['loss_or_profit_missing'], {
+    return result('likely', ['candidate_pattern_complete', 'loss_or_profit_missing'], {
       back,
       criteria,
       front,
