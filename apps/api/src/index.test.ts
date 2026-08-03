@@ -993,6 +993,30 @@ describe('createRequestHandler', () => {
     expect(styles.headers['Content-Type']).toBe('text/css; charset=utf-8');
   });
 
+  it('serves only hash-addressed XXYY screenshot evidence from its isolated directory', async () => {
+    const evidenceDir = await mkdtemp(path.join(tmpdir(), 'xxyy-api-evidence-'));
+    const evidenceName = `${'a'.repeat(64)}.png`;
+    await writeFile(path.join(evidenceDir, evidenceName), Buffer.from('screenshot-bytes'));
+    await writeFile(path.join(evidenceDir, 'private.json'), Buffer.from('{"private":true}'));
+    const handler = createRequestHandler({
+      env: { XXYY_SCREENSHOT_DIRECTORY: evidenceDir },
+    });
+
+    const allowed = await callHandler(handler, {
+      method: 'GET',
+      url: `/xxyy-evidence/${evidenceName}`,
+    });
+    const blocked = await callHandler(handler, {
+      method: 'GET',
+      url: '/xxyy-evidence/private.json',
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.headers['Content-Type']).toBe('image/png');
+    expect(allowed.rawBody).toEqual(Buffer.from('screenshot-bytes'));
+    expect(blocked.statusCode).toBe(404);
+  });
+
   it('passes chat requests through ChatService', async () => {
     const chatResponse: ChatResponse = {
       answer: '产品功能截图如下。',
@@ -1348,6 +1372,8 @@ describe('createRequestHandler', () => {
         'publicChainMcpClient',
         'retriever',
         'tracer',
+        'xxyyDiagnosisCapabilityCaller',
+        'xxyyOnchainMcpClient',
       ]);
       expect(serviceOptions.productCapabilityCaller).toEqual({
         channel: 'web',
@@ -1358,6 +1384,11 @@ describe('createRequestHandler', () => {
         principal: 'anonymous',
       });
       expect(serviceOptions.publicChainMcpClient).toBe(publicChainMcpClient);
+      expect(serviceOptions.xxyyDiagnosisCapabilityCaller).toEqual({
+        channel: 'web',
+        principal: 'anonymous',
+      });
+      expect(serviceOptions.xxyyOnchainMcpClient).toBeDefined();
       expect(createPublicOnchainMcpClient).toHaveBeenCalledWith({
         env: {
           ONCHAIN_RPC_CONFIG_JSON: '{"evm":[]}',

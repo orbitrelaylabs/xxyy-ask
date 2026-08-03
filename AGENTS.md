@@ -17,7 +17,7 @@
 
 - 可以回答 XXYY 产品功能、配置步骤、权益说明和官方更新相关问题。
 - Web 与 Telegram 可以对用户提供的公开交易哈希/Explorer 链接执行基础查询、单笔 EVM `inspect_transaction` 调用追踪/内部转账/回滚分析，以及指定或唯一推断的 allowlisted pool `detect_sandwich`。深度证据缺失时必须返回部分数据、数据不足或配置提示，不能编造结论。
-- 已提供只读 `xxyy-product-support` MCP server 和同名 project Skill；另有与产品域解耦的 `onchain-analysis` MCP、`onchain-transaction-inspector` / `evm-sandwich-detector` 两个 project Skills，以及 readiness-gated 的深度生产 composition。公开客服对固定 `web/anonymous` 与 `telegram/service` 精确授权 `get_transaction`、`inspect_transaction` 和 `detect_sandwich`，但不得绕过 Provider、池子 allowlist 或生产 readiness。
+- 已提供只读 `xxyy-product-support` MCP server 和同名 project Skill；另有与产品域解耦的 `onchain-analysis` MCP、两个通用 Chain Skills，以及 XXYY 专用 `xxyy-onchain-support` / `xxyy-transaction-diagnosis`。公开客服对固定 `web/anonymous` 与 `telegram/service` 精确授权三项通用 Chain 能力和一项 XXYY 诊断能力，但不得绕过 Provider、池子 allowlist、完整哈希/地址交叉验证或生产 readiness。
 - 不直接查询用户账户、订单、钱包余额或私有交易记录。
 - 不提供投资建议。
 - 对边界问题必须返回边界回复，不要编造实时数据。
@@ -42,6 +42,9 @@
 - `packages/agent-core`：LangGraph 客服 Agent runtime、planner、tool registry、Capability Registry，以及 Product Skill → MCP 与公开三项 Chain Skill → MCP 的显式授权 bridge。
 - `packages/product-qa-mcp`：只读产品知识 MCP server/client、`search_product_docs` 契约、Skill Resource/Prompt 和 stdio 入口。
 - `packages/chain-analysis-mcp`：通用只读 `onchain-analysis` MCP server/client、`get_transaction` / `inspect_transaction` / `detect_sandwich`、Explorer 引用解析、Skill Resource/Prompt、输出投影与 readiness 时间窗门禁；自身不绑定 XXYY 产品。
+- `packages/xxyy-transaction-diagnosis-core`：无网络依赖的 XXYY 池子匹配/小池与 Sandwich 四态投影；canonical 与流动性判断严格分离。
+- `packages/xxyy-market-data-adapter`：固定访问 `https://www.xxyy.io` 的只读成交/多池适配器；完整哈希和完整 maker 冲突时失败关闭，不接受调用方 endpoint。
+- `packages/xxyy-onchain-support-mcp`：XXYY 专用 `diagnose_xxyy_transaction` MCP、Skill Resource/Prompt、通用 Chain MCP 组合与可选隔离 Chrome 截图提供器。
 - `packages/transaction-analysis-core`：无网络依赖的 EVM transaction snapshot 领域分析；由 Chain MCP composition 调用。
 - `packages/evm-data-adapter`：启动时 allowlist 的只读 EVM JSON-RPC 获取、归一化和 provider 协调；公开三项 Chain 能力共享其基础交易快照。
 - `packages/solana-data-adapter`：启动时 allowlist 的只读 Solana `getTransaction` 获取、余额变化归一化和多 Provider 对账；不暴露任意 RPC。
@@ -63,6 +66,7 @@
 - `skills/xxyy-product-support`：项目级 XXYY 产品支持 Skill；只依赖同名只读 MCP，不扩大客服边界。
 - `skills/onchain-transaction-inspector`：通用 EVM / Solana 单交易查询与证据解释 Skill；默认禁止隐式调用。
 - `skills/evm-sandwich-detector`：通用 EVM allowlisted pool Sandwich 四态判断 Skill；默认禁止隐式调用。
+- `skills/xxyy-transaction-diagnosis`：单笔公开交易的 XXYY 成交、池子与 Sandwich 证据诊断；默认禁止隐式调用。
 - `docs/product-features`：知识库种子文档和静态资产。
 
 ## 运行模式

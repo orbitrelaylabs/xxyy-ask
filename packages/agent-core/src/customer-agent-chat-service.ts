@@ -1,5 +1,6 @@
 import type { RagIndex } from '@xxyy/shared';
 import type { ChainAnalysisMcpClient } from '@xxyy/chain-analysis-mcp';
+import type { XxyyOnchainSupportMcpClient } from '@xxyy/xxyy-onchain-support-mcp';
 import {
   createInMemoryProductQaMcpClient,
   createProductSearchHandler,
@@ -37,6 +38,8 @@ import {
 import { createPublicChainTransactionTool } from './public-transaction-tool.js';
 import { createAgentTools } from './tools/agent-tools.js';
 import { createToolRegistry } from './tool-registry.js';
+import { createXxyyTransactionDiagnosisCapabilityRegistry } from './xxyy-transaction-diagnosis-capabilities.js';
+import { createPublicXxyyTransactionDiagnosisTool } from './xxyy-transaction-diagnosis-tool.js';
 
 export interface CreateCustomerAgentChatServiceOptions {
   answerQualityRollout?: AnswerQualityRolloutConfig;
@@ -51,6 +54,8 @@ export interface CreateCustomerAgentChatServiceOptions {
   publicChainMcpClient?: ChainAnalysisMcpClient;
   retriever?: Retriever;
   tracer?: QualityTracer;
+  xxyyDiagnosisCapabilityCaller?: PublicChainAnalysisCaller;
+  xxyyOnchainMcpClient?: XxyyOnchainSupportMcpClient;
 }
 
 export function createCustomerAgentChatService(
@@ -110,6 +115,30 @@ export function createCustomerAgentChatService(
       createPublicChainTransactionTool({
         caller: options.publicChainCapabilityCaller,
         registry: publicChainRegistry,
+      }),
+    );
+  }
+
+  const hasXxyyDiagnosisCaller = options.xxyyDiagnosisCapabilityCaller !== undefined;
+  const hasXxyyDiagnosisClient = options.xxyyOnchainMcpClient !== undefined;
+  if (hasXxyyDiagnosisCaller !== hasXxyyDiagnosisClient) {
+    throw new TypeError(
+      'XXYY transaction diagnosis capability requires both a fixed caller and an MCP client.',
+    );
+  }
+  if (
+    options.xxyyDiagnosisCapabilityCaller !== undefined &&
+    options.xxyyOnchainMcpClient !== undefined
+  ) {
+    const xxyyDiagnosisRegistry = createXxyyTransactionDiagnosisCapabilityRegistry({
+      caller: options.xxyyDiagnosisCapabilityCaller,
+      mcpClient: options.xxyyOnchainMcpClient,
+      ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
+    });
+    registry.register(
+      createPublicXxyyTransactionDiagnosisTool({
+        caller: options.xxyyDiagnosisCapabilityCaller,
+        registry: xxyyDiagnosisRegistry,
       }),
     );
   }

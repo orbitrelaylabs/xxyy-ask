@@ -7,11 +7,9 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@xxyy/agent-core": "workspace:*",
     "@xxyy/chain-analysis-mcp": "workspace:*",
-    "@xxyy/evm-data-adapter": "workspace:*",
     "@xxyy/evm-chain-analysis-control-store": "workspace:*",
     "@xxyy/evm-chain-analysis-data-plane": "workspace:*",
     "@xxyy/evm-chain-analysis-readiness": "workspace:*",
-    "@xxyy/solana-data-adapter": "workspace:*",
     "@xxyy/transaction-analysis-core": "workspace:*",
     "pg": "^8.21.0",
     "zod": "^4.0.0"

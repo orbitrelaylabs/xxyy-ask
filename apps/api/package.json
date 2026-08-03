@@ -10,6 +10,8 @@
     "@xxyy/rag-core": "workspace:*",
     "@xxyy/shared": "workspace:*",
     "@xxyy/web": "workspace:*",
+    "@xxyy/xxyy-market-data-adapter": "workspace:*",
+    "@xxyy/xxyy-onchain-support-mcp": "workspace:*",
     "zod": "^4.0.0"
   },
   "scripts": {

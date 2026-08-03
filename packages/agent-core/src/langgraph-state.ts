@@ -9,6 +9,7 @@ export const AGENT_MAX_STEPS_DEFAULT = 4;
 export const ALLOWED_AGENT_TOOL_NAMES = [
   'describe_agent_capabilities',
   'get_public_transaction',
+  'diagnose_xxyy_transaction',
   'search_product_docs',
 ] as const;
 

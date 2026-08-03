@@ -47,6 +47,12 @@ importers:
       '@xxyy/web':
         specifier: workspace:*
         version: link:../web
+      '@xxyy/xxyy-market-data-adapter':
+        specifier: workspace:*
+        version: link:../../packages/xxyy-market-data-adapter
+      '@xxyy/xxyy-onchain-support-mcp':
+        specifier: workspace:*
+        version: link:../../packages/xxyy-onchain-support-mcp
       zod:
         specifier: ^4.0.0
         version: 4.4.3
@@ -87,12 +93,6 @@ importers:
       '@xxyy/evm-chain-analysis-readiness':
         specifier: workspace:*
         version: link:../../packages/evm-chain-analysis-readiness
-      '@xxyy/evm-data-adapter':
-        specifier: workspace:*
-        version: link:../../packages/evm-data-adapter
-      '@xxyy/solana-data-adapter':
-        specifier: workspace:*
-        version: link:../../packages/solana-data-adapter
       '@xxyy/transaction-analysis-core':
         specifier: workspace:*
         version: link:../../packages/transaction-analysis-core
@@ -139,6 +139,12 @@ importers:
       '@xxyy/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@xxyy/xxyy-market-data-adapter':
+        specifier: workspace:*
+        version: link:../../packages/xxyy-market-data-adapter
+      '@xxyy/xxyy-onchain-support-mcp':
+        specifier: workspace:*
+        version: link:../../packages/xxyy-onchain-support-mcp
 
   apps/web:
     dependencies:
@@ -182,6 +188,9 @@ importers:
       '@xxyy/shared':
         specifier: workspace:*
         version: link:../shared
+      '@xxyy/xxyy-onchain-support-mcp':
+        specifier: workspace:*
+        version: link:../xxyy-onchain-support-mcp
       zod:
         specifier: ^4.0.0
         version: 4.4.3
@@ -439,6 +448,42 @@ importers:
       '@xxyy/shared':
         specifier: workspace:*
         version: link:../shared
+      zod:
+        specifier: ^4.0.0
+        version: 4.4.3
+
+  packages/xxyy-market-data-adapter:
+    dependencies:
+      '@xxyy/xxyy-transaction-diagnosis-core':
+        specifier: workspace:*
+        version: link:../xxyy-transaction-diagnosis-core
+      zod:
+        specifier: ^4.0.0
+        version: 4.4.3
+
+  packages/xxyy-onchain-support-mcp:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
+      '@xxyy/chain-analysis-mcp':
+        specifier: workspace:*
+        version: link:../chain-analysis-mcp
+      '@xxyy/rag-core':
+        specifier: workspace:*
+        version: link:../rag-core
+      '@xxyy/xxyy-market-data-adapter':
+        specifier: workspace:*
+        version: link:../xxyy-market-data-adapter
+      '@xxyy/xxyy-transaction-diagnosis-core':
+        specifier: workspace:*
+        version: link:../xxyy-transaction-diagnosis-core
+      zod:
+        specifier: ^4.0.0
+        version: 4.4.3
+
+  packages/xxyy-transaction-diagnosis-core:
+    dependencies:
       zod:
         specifier: ^4.0.0
         version: 4.4.3

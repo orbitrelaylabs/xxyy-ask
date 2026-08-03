@@ -4,6 +4,7 @@ import {
   type AnswerQualityRolloutObserver,
 } from '@xxyy/agent-core';
 import type { ChainAnalysisMcpClient } from '@xxyy/chain-analysis-mcp';
+import type { XxyyOnchainSupportMcpClient } from '@xxyy/xxyy-onchain-support-mcp';
 import { createOpenAiEmbeddingProvider } from '@xxyy/knowledge';
 import type {
   ChatHistoryMessage,
@@ -45,6 +46,7 @@ export function createTelegramChatRuntime(
     answerQualityRolloutObserver?: AnswerQualityRolloutObserver;
     publicChainMcpClient?: ChainAnalysisMcpClient;
     supportOperationsStore?: PgSupportOperationsStore;
+    xxyyOnchainMcpClient?: XxyyOnchainSupportMcpClient;
   } = {},
 ): TelegramChatRuntime {
   let vectorPool: ReturnType<typeof createPgPool> | undefined;
@@ -98,6 +100,15 @@ export function createTelegramChatRuntime(
           },
           publicChainMcpClient: options.publicChainMcpClient,
         }),
+    ...(options.xxyyOnchainMcpClient === undefined
+      ? {}
+      : {
+          xxyyDiagnosisCapabilityCaller: {
+            channel: 'telegram' as const,
+            principal: 'service' as const,
+          },
+          xxyyOnchainMcpClient: options.xxyyOnchainMcpClient,
+        }),
     retriever,
     tracer,
   });
@@ -128,6 +139,7 @@ export function createTelegramChatRuntime(
         currentFeedbackPool?.end(),
         currentSupportPool?.end(),
         options.publicChainMcpClient?.close(),
+        options.xxyyOnchainMcpClient?.close(),
       ]);
     },
     service: withLowEvidenceFeedback(

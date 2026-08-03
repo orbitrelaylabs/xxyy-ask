@@ -62,6 +62,7 @@ import {
 } from './planner-model.js';
 import type { ToolContext, ToolRegistry } from './tool-registry.js';
 import { PUBLIC_TRANSACTION_TOOL_NAME } from './public-transaction-tool.js';
+import { PUBLIC_XXYY_TRANSACTION_DIAGNOSIS_TOOL_NAME } from './xxyy-transaction-diagnosis-tool.js';
 
 const KNOWLEDGE_ONLY_CLARIFICATION =
   '当前只支持基于 XXYY 知识库回答产品功能、配置步骤、权益说明和官方更新相关问题。请补充一个具体的 XXYY 产品问题。';
@@ -1143,7 +1144,10 @@ function routeForToolName(toolName: string): AgentRoute {
   if (toolName === 'describe_agent_capabilities') {
     return 'agent_answer';
   }
-  return toolName === PUBLIC_TRANSACTION_TOOL_NAME ? 'chain_answer' : 'product_answer';
+  return toolName === PUBLIC_TRANSACTION_TOOL_NAME ||
+    toolName === PUBLIC_XXYY_TRANSACTION_DIAGNOSIS_TOOL_NAME
+    ? 'chain_answer'
+    : 'product_answer';
 }
 
 type AgentEvidenceForSearch = Extract<AgentEvidence, { kind: 'search_results' }>['output'];
@@ -1762,6 +1766,9 @@ function progressForTool(toolName: string): {
   }
   if (toolName === PUBLIC_TRANSACTION_TOOL_NAME) {
     return { message: '正在执行公开链上只读分析…', phase: 'retrieving' };
+  }
+  if (toolName === PUBLIC_XXYY_TRANSACTION_DIAGNOSIS_TOOL_NAME) {
+    return { message: '正在核对链上交易与 XXYY 成交证据…', phase: 'retrieving' };
   }
   return { message: '正在生成回答…', phase: 'answering' };
 }

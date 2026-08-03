@@ -6,6 +6,13 @@ import {
   type RagEnv,
 } from '@xxyy/rag-core';
 import { createPublicOnchainMcpClient } from '@xxyy/chain-analysis-mcp';
+import { createXxyyMarketDataClient } from '@xxyy/xxyy-market-data-adapter';
+import {
+  createChromeXxyyScreenshotProvider,
+  createConfiguredCanonicalPoolResolver,
+  createInMemoryXxyyOnchainSupportMcpClient,
+  createXxyyTransactionDiagnosisService,
+} from '@xxyy/xxyy-onchain-support-mcp';
 import {
   loadAnswerQualityRolloutConfig,
   type AnswerQualityRolloutEnv,
@@ -39,6 +46,12 @@ type TelegramEnv = RagEnv &
       | 'ANSWER_QUALITY_WEB_OPTIMIZED_PERCENTAGE'
       | 'ONCHAIN_ALLOW_INSECURE_LOCALHOST'
       | 'ONCHAIN_RPC_CONFIG_JSON'
+      | 'XXYY_SMALL_POOL_MAX_LIQUIDITY_USD'
+      | 'XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM'
+      | 'XXYY_CANONICAL_POOL_CONFIG_JSON'
+      | 'XXYY_SCREENSHOT_CHROME_EXECUTABLE'
+      | 'XXYY_SCREENSHOT_DIRECTORY'
+      | 'XXYY_SCREENSHOT_PUBLIC_BASE_URL'
       | 'TELEGRAM_API_BASE_URL'
       | 'TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS',
       string
@@ -74,6 +87,12 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
             ONCHAIN_RPC_CONFIG_JSON: workspaceEnv.ONCHAIN_RPC_CONFIG_JSON,
           },
         });
+  const screenshotProvider = createOptionalScreenshotProvider(workspaceEnv);
+  const canonicalPoolResolver =
+    workspaceEnv.XXYY_CANONICAL_POOL_CONFIG_JSON?.trim() === undefined ||
+    workspaceEnv.XXYY_CANONICAL_POOL_CONFIG_JSON.trim().length === 0
+      ? undefined
+      : createConfiguredCanonicalPoolResolver(workspaceEnv.XXYY_CANONICAL_POOL_CONFIG_JSON);
   const runtime = createTelegramChatRuntime(config, undefined, {
     answerQualityRollout: loadAnswerQualityRolloutConfig(workspaceEnv as AnswerQualityRolloutEnv),
     ...(parseBoolean(workspaceEnv.ANSWER_QUALITY_OBSERVABILITY_ENABLED, false)
@@ -84,6 +103,26 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
         }
       : {}),
     ...(publicChainMcpClient === undefined ? {} : { publicChainMcpClient }),
+    ...(publicChainMcpClient === undefined
+      ? {}
+      : {
+          xxyyOnchainMcpClient: createInMemoryXxyyOnchainSupportMcpClient({
+            handler: createXxyyTransactionDiagnosisService({
+              chainAnalysis: publicChainMcpClient,
+              ...(canonicalPoolResolver === undefined ? {} : { canonicalPoolResolver }),
+              marketData: createXxyyMarketDataClient(),
+              poolPolicy: {
+                maxSmallPoolLiquidityUsd:
+                  workspaceEnv.XXYY_SMALL_POOL_MAX_LIQUIDITY_USD?.trim() || '10000',
+                maxSmallPoolRelativeLiquidityPpm: Number(
+                  workspaceEnv.XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM ?? '100000',
+                ),
+                version: '1.0.0',
+              },
+              ...(screenshotProvider === undefined ? {} : { screenshotProvider }),
+            }),
+          }),
+        }),
   });
   const knowledgeRuntime = createTelegramKnowledgeAutomationRuntime({
     botToken: botConfig.botToken,
@@ -141,6 +180,22 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
     process.off('SIGTERM', stop);
     await Promise.all([runtime.close(), knowledgeRuntime.close()]);
   }
+}
+
+function createOptionalScreenshotProvider(env: TelegramEnv) {
+  const chromeExecutable = env.XXYY_SCREENSHOT_CHROME_EXECUTABLE?.trim();
+  const artifactDirectory = env.XXYY_SCREENSHOT_DIRECTORY?.trim();
+  const publicBaseUrl = env.XXYY_SCREENSHOT_PUBLIC_BASE_URL?.trim();
+  const values = [chromeExecutable, artifactDirectory, publicBaseUrl];
+  if (values.every((value) => value === undefined || value.length === 0)) return undefined;
+  if (values.some((value) => value === undefined || value.length === 0)) {
+    throw new TypeError('XXYY screenshot configuration must be provided as one complete set.');
+  }
+  return createChromeXxyyScreenshotProvider({
+    artifactDirectory: artifactDirectory!,
+    chromeExecutable: chromeExecutable!,
+    publicBaseUrl: publicBaseUrl!,
+  });
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {

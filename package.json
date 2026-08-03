@@ -39,6 +39,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}\" \".vscode/*.json\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}\" \".vscode/*.json\"",
     "product:mcp:dev": "pnpm --filter @xxyy/product-qa-mcp start",
+    "xxyy:onchain:mcp:dev": "pnpm --filter @xxyy/xxyy-onchain-support-mcp start",
     "rag:ask": "pnpm --filter @xxyy/cli rag:ask",
     "rag:evaluate": "pnpm --filter @xxyy/cli rag:evaluate",
     "rag:feedback:backlog": "pnpm --filter @xxyy/cli rag:feedback:backlog",

@@ -1,5 +1,5 @@
 {
-  "name": "@xxyy/agent-core",
+  "name": "@xxyy/xxyy-onchain-support-mcp",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,16 +7,16 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@langchain/core": "^1.2.0",
-    "@langchain/langgraph": "^1.4.4",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@xxyy/chain-analysis-mcp": "workspace:*",
-    "@xxyy/product-qa-mcp": "workspace:*",
     "@xxyy/rag-core": "workspace:*",
-    "@xxyy/shared": "workspace:*",
-    "@xxyy/xxyy-onchain-support-mcp": "workspace:*",
+    "@xxyy/xxyy-market-data-adapter": "workspace:*",
+    "@xxyy/xxyy-transaction-diagnosis-core": "workspace:*",
     "zod": "^4.0.0"
   },
   "scripts": {
+    "start": "tsx src/stdio-server.ts",
+    "test": "vitest run src",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }

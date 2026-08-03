@@ -1,0 +1,17 @@
+{
+  "name": "@xxyy/xxyy-market-data-adapter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@xxyy/xxyy-transaction-diagnosis-core": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "scripts": {
+    "test": "vitest run src",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

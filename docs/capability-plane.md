@@ -11,13 +11,14 @@ Capability Plane 已完成产品检索、公开交易查询与证据受控的深
 - `packages/chain-analysis-mcp` 提供与产品域解耦的 `onchain-analysis` MCP server/client、`get_transaction`、`inspect_transaction`、`detect_sandwich`、capabilities/Skill Resources 与 Prompts。
 - `get_transaction` 解析六条内置链的 Explorer 链接或显式 network + transaction id，通过配置的 EVM/Solana RPC 查询；工具输入不接受 endpoint。
 - `skills/onchain-transaction-inspector` 和 `skills/evm-sandwich-detector` 默认禁止外部 MCP host 隐式调用；XXYY 公开 composition 只为固定 `web/anonymous` 与 `telegram/service` 创建三项 Chain 工具的六条精确授权，内部 factory 仍只接受 `internal/(service|admin)` 或 `cli/admin`。
+- `packages/xxyy-onchain-support-mcp` 在通用链事实之上组合固定 XXYY 成交查询、池子判定和可选截图，暴露单一 `diagnose_xxyy_transaction`；`skills/xxyy-transaction-diagnosis` 同样禁止隐式调用。
 - `pnpm onchain:mcp:dev` 自动读取根目录 `.env` 中必填的 `ONCHAIN_RPC_CONFIG_JSON`。`evm` / `solana` 配置基础快照，可选 `execution` 和 `mevObservation` 分别配置 trace/factory 与 archive/pool allowlist；`.env.example` 的免费公共 RPC 便利配置本身不启用 Sandwich。
 - `pnpm onchain:query` 是固定 `cli/admin` 的开发集成入口，实际执行 Tool → Skill → MCP 两层授权与 linked in-memory MCP protocol；生产环境失败关闭。
 - `pnpm onchain:query:production` 是固定 `cli/admin` 的生产内部查询入口，通过子进程 stdio 连接 readiness-gated composition；不读取 `.env`，门禁失败时不回退公共 RPC。
 - `pnpm chain:mcp:serve` 是 XXYY 的 production composition，只有在固定 data-plane manifest 和 canonical readiness lineage 当前有效时才启动，且每次调用继续检查 attestation 时间窗。
 - 用户提供的公开交易引用基础查询、单笔 EVM inspection 和 allowlisted pool Sandwich/MEV 判断已开放；账户、订单、钱包余额、任意地址历史、地址归属、交易执行和投资建议仍不开放。
 
-Planner 的业务工具列表只包含经过审查且由 composition root 注册的 `search_product_docs` 与可选 `get_public_transaction`。公开交易引用先走确定性路由；MCP discovery、Resource 或 Skill 元数据不会自动注册工具，也不会自动生成 grant。
+Planner 的业务工具列表只包含经过审查且由 composition root 注册的 `search_product_docs`、可选 `get_public_transaction` 与可选 `diagnose_xxyy_transaction`。公开交易引用先走确定性路由；MCP discovery、Resource 或 Skill 元数据不会自动注册工具，也不会自动生成 grant。
 
 ## 执行链
 
@@ -115,6 +116,8 @@ NODE_ENV=production pnpm onchain:query:production -- help
 | `chain.mcp.inspect_transaction`   | `mcp`   | moderate | `external_read` | public EVM transaction/execution     | 公开间接授权    |
 | `chain.skill.detect_sandwich`     | `skill` | moderate | `external_read` | public EVM transaction/execution/MEV | 公开固定 bridge |
 | `chain.mcp.detect_sandwich`       | `mcp`   | moderate | `external_read` | public EVM transaction/execution/MEV | 公开间接授权    |
+| `xxyy.skill.diagnose_transaction` | `skill` | moderate | `external_read` | public transaction/XXYY market/image | 公开固定 bridge |
+| `xxyy.mcp.diagnose_transaction`   | `mcp`   | moderate | `external_read` | public transaction/XXYY market/image | 公开间接授权    |
 
 两项 Product 能力均固定为 `1.0.0`，单次 timeout 为 30 秒，最大 JSON 输出为 262144 bytes。六项 Chain 能力固定为 `0.3.0`；基础 transaction query 的 timeout/output 上限为 30 秒/524288 bytes，EVM transaction inspection 为 60 秒/524288 bytes，Sandwich 为 120 秒/1048576 bytes。它们都是只读 external read，不要求确认或幂等 key。Skill adapter 只能调用同一 Registry 内已授权的 MCP capability。
 
@@ -127,7 +130,7 @@ NODE_ENV=production pnpm onchain:query:production -- help
 | Telegram Bot     | `telegram` | `service`   |
 | 默认内部 runtime | `agent`    | `service`   |
 
-产品 runtime 为产品 Skill/MCP 创建覆盖自身 channel/principal 的两条精确 grant。配置 `ONCHAIN_RPC_CONFIG_JSON` 时，Web 与 Telegram 另为三项 Chain 工具创建六条精确 grant。使用其它 channel、principal、source、version、side effect 或 data scope 会在解析业务输入前拒绝。
+产品 runtime 为产品 Skill/MCP 创建覆盖自身 channel/principal 的两条精确 grant。配置 `ONCHAIN_RPC_CONFIG_JSON` 时，Web 与 Telegram 另为三项通用 Chain 工具创建六条精确 grant，并为 XXYY 交易诊断创建两条独立精确 grant。使用其它 channel、principal、source、version、side effect 或 data scope 会在解析业务输入前拒绝。
 
 XXYY 提供两个分离的 Chain registry factory：公开 factory 只接受 `web/anonymous` 或 `telegram/service`，内部 factory 只接受 `internal/(service|admin)` 或 `cli/admin`；两者都为三个 Skill/MCP 对创建六条仅覆盖固定 caller 的 grant。数据权限没有合并：公开查询只能使用启动时配置的公开链数据，生产深度 composition 继续由 readiness、Provider lineage、budget 和 pool allowlist 门禁。独立 MCP host 可以安装通用 Skills，但这不自动改变 XXYY 授权。
 
@@ -166,6 +169,8 @@ Skill 是受控编排层，不是权限来源。Skill 文件提到某项能力�
 输出复用 deterministic harness 的 transaction/execution/MEV projection，保留 evidence、coverage、conflicts、warnings、diagnostics、fingerprints 和 `success | partial | insufficient_data`。Sandwich verdict 原样保留 `confirmed | likely | unlikely | insufficient_data`；MCP 不返回构建判定所用的 raw observation payload。
 
 两个通用 Chain Skills 位于 `skills/onchain-transaction-inspector` 与 `skills/evm-sandwich-detector`。Transaction workflow 先执行 `get_transaction`，EVM 需要深度证据时再执行 `inspect_transaction`。Sandwich workflow 只能从已验证 swap evidence 选 pool；多 pool 时不得猜测。Skill metadata 的 `allow_implicit_invocation` 为 `false`，且 metadata 本身不授予执行权限。
+
+XXYY 专用 `diagnose_xxyy_transaction` 只接受一笔 reference、可选 network、`pool | sandwich` checks 和可选 swapIndex。它使用完整交易哈希、完整 maker 和链事实交叉验证；同一交易出现在多个候选池时返回 conflict。截图仅在唯一精确匹配后生成，失败不会覆盖结构化结果。完整设计见 [XXYY Transaction Diagnosis MCP / Skill](xxyy-transaction-diagnosis.md)。
 
 ## Manifest 与授权规则
 

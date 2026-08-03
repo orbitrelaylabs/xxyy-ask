@@ -35,6 +35,7 @@ describe('langgraph agent state helpers', () => {
   it('allows only reviewed customer support tools', () => {
     expect(isAllowedAgentToolName('describe_agent_capabilities')).toBe(true);
     expect(isAllowedAgentToolName('get_public_transaction')).toBe(true);
+    expect(isAllowedAgentToolName('diagnose_xxyy_transaction')).toBe(true);
     expect(isAllowedAgentToolName('answer_product_question')).toBe(false);
     expect(isAllowedAgentToolName('search_product_docs')).toBe(true);
     expect(isExecutableAgentToolName('answer_product_question')).toBe(true);

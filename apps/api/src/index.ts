@@ -12,6 +12,13 @@ import {
   type AnswerQualityRolloutObserver,
 } from '@xxyy/agent-core';
 import { createPublicOnchainMcpClient } from '@xxyy/chain-analysis-mcp';
+import { createXxyyMarketDataClient } from '@xxyy/xxyy-market-data-adapter';
+import {
+  createChromeXxyyScreenshotProvider,
+  createConfiguredCanonicalPoolResolver,
+  createInMemoryXxyyOnchainSupportMcpClient,
+  createXxyyTransactionDiagnosisService,
+} from '@xxyy/xxyy-onchain-support-mcp';
 import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxyy/knowledge';
 import {
   createOpenAiAnswerProvider,
@@ -83,6 +90,12 @@ type ApiEnv = RagEnv &
       | 'NODE_ENV'
       | 'ONCHAIN_ALLOW_INSECURE_LOCALHOST'
       | 'ONCHAIN_RPC_CONFIG_JSON'
+      | 'XXYY_SMALL_POOL_MAX_LIQUIDITY_USD'
+      | 'XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM'
+      | 'XXYY_CANONICAL_POOL_CONFIG_JSON'
+      | 'XXYY_SCREENSHOT_CHROME_EXECUTABLE'
+      | 'XXYY_SCREENSHOT_DIRECTORY'
+      | 'XXYY_SCREENSHOT_PUBLIC_BASE_URL'
       | 'KNOWLEDGE_ADMIN_MAX_BODY_BYTES'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_MAX'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS'
@@ -252,6 +265,7 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
   const createRequestId = options.createRequestId ?? randomUUID;
   const staticAssetsDir = options.staticAssetsDir ?? createDefaultStaticAssetsDir(options, env);
   const webAssetsDir = options.webAssetsDir ?? createDefaultWebAssetsDir(options, env);
+  const xxyyEvidenceDir = env.XXYY_SCREENSHOT_DIRECTORY?.trim();
   const rateLimiter = createRateLimiter(apiConfig, now);
   const adminMutationRateLimiter = createRateLimiter(
     {
@@ -399,6 +413,17 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
 
       if (request.method === 'GET' && requestUrl.pathname.startsWith('/web-assets/')) {
         await sendStaticAsset(response, webAssetsDir, requestUrl.pathname);
+        return;
+      }
+
+      if (request.method === 'GET' && requestUrl.pathname.startsWith('/xxyy-evidence/')) {
+        if (xxyyEvidenceDir === undefined || xxyyEvidenceDir.length === 0) {
+          sendJson(response, 404, { error: 'not_found', message: 'Asset not found.' });
+          return;
+        }
+        await sendStaticAsset(response, xxyyEvidenceDir, requestUrl.pathname, (assetName) =>
+          /^[0-9a-f]{64}\.png$/u.test(assetName),
+        );
         return;
       }
 
@@ -1432,6 +1457,24 @@ function createCachedChatServiceLoader(
       }
     });
     const publicChainMcpClient = createOptionalPublicOnchainMcpClient(env);
+    const screenshotProvider = createOptionalXxyyScreenshotProvider(env);
+    const canonicalPoolResolver =
+      env.XXYY_CANONICAL_POOL_CONFIG_JSON?.trim() === undefined ||
+      env.XXYY_CANONICAL_POOL_CONFIG_JSON.trim().length === 0
+        ? undefined
+        : createConfiguredCanonicalPoolResolver(env.XXYY_CANONICAL_POOL_CONFIG_JSON);
+    const xxyyOnchainMcpClient =
+      publicChainMcpClient === undefined
+        ? undefined
+        : createInMemoryXxyyOnchainSupportMcpClient({
+            handler: createXxyyTransactionDiagnosisService({
+              chainAnalysis: publicChainMcpClient,
+              ...(canonicalPoolResolver === undefined ? {} : { canonicalPoolResolver }),
+              marketData: createXxyyMarketDataClient(),
+              poolPolicy: loadXxyyPoolPolicy(env),
+              ...(screenshotProvider === undefined ? {} : { screenshotProvider }),
+            }),
+          });
     cachedService = createCustomerAgentChatService({
       answerQualityRollout: loadAnswerQualityRolloutConfig(env),
       ...(answerQualityRolloutObserver === undefined ? {} : { answerQualityRolloutObserver }),
@@ -1450,11 +1493,83 @@ function createCachedChatServiceLoader(
             },
             publicChainMcpClient,
           }),
+      ...(xxyyOnchainMcpClient === undefined
+        ? {}
+        : {
+            xxyyDiagnosisCapabilityCaller: {
+              channel: 'web' as const,
+              principal: 'anonymous' as const,
+            },
+            xxyyOnchainMcpClient,
+          }),
       retriever,
       tracer,
     });
     return Promise.resolve(cachedService);
   };
+}
+
+function loadXxyyPoolPolicy(env: ApiEnv) {
+  return {
+    maxSmallPoolLiquidityUsd: parseNonnegativeDecimal(
+      env.XXYY_SMALL_POOL_MAX_LIQUIDITY_USD,
+      '10000',
+      'XXYY_SMALL_POOL_MAX_LIQUIDITY_USD',
+    ),
+    maxSmallPoolRelativeLiquidityPpm: parseBoundedInteger(
+      env.XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM,
+      100_000,
+      0,
+      1_000_000,
+      'XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM',
+    ),
+    version: '1.0.0',
+  };
+}
+
+function createOptionalXxyyScreenshotProvider(env: ApiEnv) {
+  const values = [
+    env.XXYY_SCREENSHOT_CHROME_EXECUTABLE?.trim(),
+    env.XXYY_SCREENSHOT_DIRECTORY?.trim(),
+    env.XXYY_SCREENSHOT_PUBLIC_BASE_URL?.trim(),
+  ];
+  if (values.every((value) => value === undefined || value.length === 0)) return undefined;
+  if (values.some((value) => value === undefined || value.length === 0)) {
+    throw new TypeError(
+      'XXYY screenshot capture requires Chrome executable, artifact directory, and public base URL together.',
+    );
+  }
+  return createChromeXxyyScreenshotProvider({
+    artifactDirectory: values[1]!,
+    chromeExecutable: values[0]!,
+    publicBaseUrl: values[2]!,
+  });
+}
+
+function parseNonnegativeDecimal(
+  value: string | undefined,
+  fallback: string,
+  label: string,
+): string {
+  const resolved = value?.trim() || fallback;
+  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(resolved)) {
+    throw new TypeError(`${label} must be a nonnegative decimal.`);
+  }
+  return resolved;
+}
+
+function parseBoundedInteger(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+  label: string,
+): number {
+  const resolved = value === undefined || value.trim() === '' ? fallback : Number(value);
+  if (!Number.isSafeInteger(resolved) || resolved < minimum || resolved > maximum) {
+    throw new TypeError(`${label} must be an integer from ${minimum} to ${maximum}.`);
+  }
+  return resolved;
 }
 
 function createOptionalPublicOnchainMcpClient(env: ApiEnv) {
@@ -1893,7 +2008,9 @@ async function sendStaticAsset(
   pathname: string,
   isAllowedAssetName?: (assetName: string) => boolean,
 ): Promise<void> {
-  const assetName = decodeURIComponent(pathname.replace(/^\/(?:assets|web-assets)\//u, ''));
+  const assetName = decodeURIComponent(
+    pathname.replace(/^\/(?:assets|web-assets|xxyy-evidence)\//u, ''),
+  );
   if (
     !/^[A-Za-z0-9._-]+$/u.test(assetName) ||
     (isAllowedAssetName !== undefined && !isAllowedAssetName(assetName))

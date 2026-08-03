@@ -45,6 +45,15 @@ export {
   createCapabilityRegistry,
 } from './capability-registry.js';
 export type { CapabilityRegistry, CreateCapabilityRegistryOptions } from './capability-registry.js';
+export {
+  XXYY_DIAGNOSIS_MCP_CAPABILITY_ID,
+  XXYY_DIAGNOSIS_SKILL_CAPABILITY_ID,
+  createXxyyTransactionDiagnosisCapabilityRegistry,
+} from './xxyy-transaction-diagnosis-capabilities.js';
+export {
+  PUBLIC_XXYY_TRANSACTION_DIAGNOSIS_TOOL_NAME,
+  createPublicXxyyTransactionDiagnosisTool,
+} from './xxyy-transaction-diagnosis-tool.js';
 export { createCustomerAgentChatService } from './customer-agent-chat-service.js';
 export type { CreateCustomerAgentChatServiceOptions } from './customer-agent-chat-service.js';
 export {

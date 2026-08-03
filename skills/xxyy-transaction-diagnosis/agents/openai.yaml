@@ -1,0 +1,12 @@
+interface:
+  display_name: 'XXYY Transaction Diagnosis'
+  short_description: 'Diagnose Sandwich evidence and pool selection for one XXYY trade'
+  default_prompt: 'Use $xxyy-transaction-diagnosis to check whether this public transaction was sandwiched or routed through an unexpected pool.'
+dependencies:
+  tools:
+    - type: 'mcp'
+      value: 'xxyy-onchain-support'
+      description: 'Read-only normalized chain facts and exact XXYY market evidence'
+      transport: 'stdio'
+policy:
+  allow_implicit_invocation: false
