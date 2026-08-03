@@ -1,15 +1,16 @@
 # 群聊知识治理与 Knowledge Curator
 
-当前实现不会让模型直接“学习群聊”或无条件修改线上知识。Bot 通过实时 Update 把群文本幂等写入本地 PostgreSQL 收件箱，不在 Update 内创建候选。管理员从 `/admin` 选择群聊并点击整理后，系统才重建对话、合并连续发言、验证作者并运行受控 Knowledge Curator。生成项带 `manual_review_required` 并保持 `pending`，必须人工编辑、批准或拒绝。批准会创建 `PublicationJob`，隔离 Worker 通过发布门禁后才进入 `admin_verified` 和 pgvector。
+当前实现不会让模型直接“学习群聊”或无条件修改线上知识。Bot 通过实时 Update 把群文本幂等写入本地 PostgreSQL 审计缓冲并创建持久化整理任务，不在 Update 内调用模型。独立 `telegram-curation-worker` 自动重建对话、合并连续发言、验证作者并运行受控 Knowledge Curator。生成项带 `manual_review_required` 并保持 `pending`，必须由管理员编辑、批准或拒绝。批准会创建 `PublicationJob`，隔离发布 Worker 通过发布门禁后才进入 `admin_verified` 和 pgvector。
 
 公开问答路径始终只读取已发布的正式知识。Telegram Bot 额外具有窄化的群回复采集入口，但不直接写 pgvector；公开 Chat API 和 LangGraph Agent 都没有候选、审批或发布工具。
 
 ```mermaid
 flowchart LR
   Live["Telegram 实时 Update"] --> Inbox["本地群消息收件箱"]
-  Inbox --> Click["后台点击整理"]
+  Inbox --> Job["每群持久化整理任务"]
+  Job --> Worker["自动整理 Worker：租约 + 重试"]
   Export["Telegram JSON 导出"] --> Role["作者角色与有效期验证"]
-  Click --> Role
+  Worker --> Role
   Role --> Thread["Reply、紧邻对话与连续发言重建"]
   Thread --> Rules["确定性问答配对提取"]
   Thread --> Agent["Auto / deterministic / required Curator"]
@@ -48,6 +49,7 @@ flowchart LR
 - `knowledge_governance_audit_events`：候选创建、修订、决策、发布和可信作者变更事件。
 - `telegram_group_registry`：Bot 观察到的群 ID、名称、群类型、成员状态、首次/最近发现时间和最近消息时间。
 - `telegram_group_messages`：本地群消息 Inbox，保存 Bot 从实时 Update 收到的文本、作者、reply 关系、编辑内容和处理状态；默认保留 30 天。
+- `telegram_knowledge_curation_jobs`：每个群一条可合并的自动整理任务，保存 queued/running/succeeded/failed、租约、重试次数和脱敏处理结果。
 
 候选状态只能按以下方向变化：
 
@@ -98,25 +100,26 @@ pnpm rag:knowledge:author:list -- \
 
 ## 2. Telegram 采集
 
-### 群内实时沉淀与后台整理
+### 群内实时沉淀与自动整理
 
 群消息通过 Telegram Update 实时沉淀，但知识整理不在 Update 内执行。Web 聊天不会成为知识来源。
 
 学习观察与客服回复是两条独立路径。`TELEGRAM_GROUP_RESPONSES_ENABLED=false` 为默认的群聊只读模式：Bot 可观察 Telegram 交付的普通群文本以重建 reply 链，但群内命令、精确 @、回复 Bot、非文本消息和异常都不会产生任何 Bot 输出；私聊仍直接回答。只有未来显式把该开关设为 `true` 时，Bot 命令、精确 @ 当前 Bot username 或直接回复当前 Bot ID 的消息才会调用客服 Agent。启用群回复后，Bot 身份来自 `getMe` 并在进程内缓存；查询失败时群聊回答失败关闭，后续消息自动重试，不会退化为回复所有群消息。
 
-Bot 同时订阅 `my_chat_member`，把加群、退群和被移除状态写入 `telegram_group_registry`；任何新收到的 `group` / `supergroup` 文本也会幂等写入 `telegram_group_messages`，保存作者 ID、Reply 关系、发送时间、编辑后的正文和处理状态。原始正文只保存在本地 PostgreSQL，默认保留 30 天，可用 `TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS` 调整。由于 Telegram Bot API 不提供全量群历史和删除事件，升级前历史消息不能自动补拉，删除仍需后台确认或通过定期导出对账。
+Bot 同时订阅 `my_chat_member`，把加群、退群和被移除状态写入 `telegram_group_registry`；任何新收到的 `group` / `supergroup` 文本也会幂等写入 `telegram_group_messages`，保存作者 ID、Reply 关系、发送时间、编辑后的正文和处理状态，并刷新该群唯一的 `telegram_knowledge_curation_jobs` 任务。原始正文只保存在本地 PostgreSQL，默认保留 30 天，可用 `TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS` 调整。由于 Telegram Bot API 不提供全量群历史和删除事件，升级前历史消息不能自动补拉，删除仍需通过知识候选治理或定期导出对账。
 
-后台整理会为链、代币、交易等省略式问题继承 XXYY 官方答疑群的产品上下文，但不会把普通闲聊强制改写为产品知识。只有创建出候选或确认是重复候选时才把本批消息标记为已处理；零产出的消息保留为待整理并返回边界过滤、问答配对、作者验证和 Curator 失败统计。管理员可从群聊页面显式重新整理已处理消息，候选写入仍保持幂等。
+独立 Worker 默认在最后一条群消息后等待 30 秒，以便合并连续对话；随后为链、代币、交易等省略式问题继承 XXYY 官方答疑群的产品上下文，但不会把普通闲聊强制改写为产品知识。任务使用数据库租约领取，异常最多重试三次，新消息会重新排队。只有创建出候选、确认是重复项或完成有效作者线程判断时才把本批消息标记为已处理；缺少可验证管理员答案的消息会保留，等待后续消息重新触发。候选写入保持幂等。
 
-候选保持 `pending` 时，具备 `candidate:review` 权限的管理员可以按需请求 AI 优化建议。模型输入仅包含已脱敏候选、Telegram 来源证据和冲突摘要；Prompt 将这些内容声明为不可信证据，并禁止增加来源中不存在的能力、数字、URL、步骤、链或资产范围。服务端还会拒绝新出现的数字和 URL。建议返回 `suggestion`、`needs_clarification` 或 `no_change`，并携带缺失信息、风险和理由。结果不自动持久化；只有管理员应用到编辑框并保存后，才由既有 Revision 与治理审计记录最终修改。
+候选保持 `pending` 时，“标准答案”输入框下向具备 `candidate:review` 权限的管理员提供“AI 优化答案”。模型使用输入框中尚未保存的当前问题与答案，并结合已脱敏 Telegram 来源证据和冲突摘要；Prompt 将这些内容声明为不可信证据，并禁止增加来源中不存在的能力、数字、URL、步骤、链或资产范围。服务端还会拒绝新出现的数字和 URL。建议返回 `suggestion`、`needs_clarification` 或 `no_change`，并携带缺失信息、风险和理由。结果只在答案输入框下方预览；只有管理员应用到标准答案并保存后，才由既有 Revision 与治理审计记录最终修改。
 
-受保护管理后台的“Telegram 群聊”页面显示群状态、待整理数量和最近 200 条本地消息。管理员点击“整理待处理消息”后：
+受保护管理后台的“Telegram 群聊”页面只显示群状态、自动整理任务状态和待识别数量，不展示原始消息，也不提供人工整理按钮。管理员的工作入口统一为“知识候选”：
 
-1. 读取该群最近最多 2000 条本地消息，合并同一作者的连续发言。
+1. Worker 读取该群最近最多 2000 条本地消息，合并同一作者的连续发言。
 2. 调用 `getChatAdministrators` 或时间有效的可信作者名册验证答案作者。
 3. 识别显式 Reply，以及紧邻用户问题的管理员普通回答；问答间隔没有时间上限，但不跨越其他作者发言猜测。
 4. 执行脱敏、边界、标准化、重复和冲突检查。
 5. 创建带 `manual_review_required` 的 `pending` 候选，并标记本批消息已整理。
+6. 管理员在候选详情中修改标准问答、使用 AI 优化答案，并选择批准或拒绝。
 
 Bot、匿名管理员、`sender_chat` 和无法验证作者的普通发言不会成为知识答案。Bot 必须能看到普通群消息；需要关闭 BotFather Privacy Mode，或把 Bot 设为有相应读取能力的群管理员。
 

@@ -36,7 +36,6 @@ import type {
   SupportTicketStatus,
   TelegramImportResult,
   TelegramGroupRegistryEntry,
-  TelegramGroupMessageRecord,
   TrustedAuthor,
 } from './admin-types.js';
 
@@ -189,9 +188,7 @@ export function AdminApp(): ReactElement {
           {activeTab === 'imports' ? (
             <TelegramImportPanel permissions={permissions} token={token} />
           ) : undefined}
-          {activeTab === 'groups' ? (
-            <TelegramGroupsPanel permissions={permissions} token={token} />
-          ) : undefined}
+          {activeTab === 'groups' ? <TelegramGroupsPanel token={token} /> : undefined}
           {activeTab === 'graph' ? (
             <KnowledgeGraphPanel permissions={permissions} token={token} />
           ) : undefined}
@@ -1685,23 +1682,13 @@ function MyAccountPanel({ token }: { token: string }): ReactElement {
   );
 }
 
-function TelegramGroupsPanel({
-  permissions,
-  token,
-}: {
-  permissions: ReadonlySet<AdminPermission>;
-  token: string;
-}): ReactElement {
+function TelegramGroupsPanel({ token }: { token: string }): ReactElement {
   const [status, setStatus] = useState<TelegramGroupRegistryEntry['membershipStatus'] | ''>(
     'active',
   );
   const [groups, setGroups] = useState<TelegramGroupRegistryEntry[]>([]);
-  const [messages, setMessages] = useState<TelegramGroupMessageRecord[]>([]);
-  const [selectedId, setSelectedId] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: 'error' | 'success'; text: string }>();
-  const selected = groups.find((group) => group.chatId === selectedId);
-
   const load = useCallback(async (): Promise<void> => {
     setBusy(true);
     try {
@@ -1711,11 +1698,6 @@ function TelegramGroupsPanel({
         `/telegram-groups${query}`,
       );
       setGroups(result.groups);
-      setSelectedId((current) =>
-        result.groups.some((group) => group.chatId === current)
-          ? current
-          : (result.groups[0]?.chatId ?? ''),
-      );
     } catch (loadError) {
       setNotice({ kind: 'error', text: errorMessage(loadError) });
     } finally {
@@ -1723,72 +1705,7 @@ function TelegramGroupsPanel({
     }
   }, [status, token]);
 
-  const loadMessages = useCallback(async (): Promise<void> => {
-    if (selectedId.length === 0) {
-      setMessages([]);
-      return;
-    }
-    try {
-      const result = await knowledgeAdminRequest<{ messages: TelegramGroupMessageRecord[] }>(
-        token,
-        `/telegram-groups/${encodeURIComponent(selectedId)}/messages?status=all&limit=200`,
-      );
-      setMessages(result.messages);
-    } catch (loadError) {
-      setNotice({ kind: 'error', text: errorMessage(loadError) });
-    }
-  }, [selectedId, token]);
-
-  const processInbox = async (reprocess = false): Promise<void> => {
-    if (selectedId.length === 0) return;
-    setBusy(true);
-    setNotice(undefined);
-    try {
-      const result = await knowledgeAdminRequest<{
-        agentFailedThreadCount: number;
-        candidateCount: number;
-        createdCount: number;
-        duplicateCount: number;
-        processedMessageCount: number;
-        requeuedMessageCount: number;
-        retainedMessageCount: number;
-        skippedBoundaryCount: number;
-        skippedMissingReplyCount: number;
-        unverifiedAuthorMessageCount: number;
-      }>(
-        token,
-        `/telegram-groups/${encodeURIComponent(selectedId)}/${reprocess ? 'reprocess' : 'process'}`,
-        {
-          method: 'POST',
-        },
-      );
-      const diagnostics = [
-        result.skippedBoundaryCount > 0 ? `边界过滤 ${result.skippedBoundaryCount}` : '',
-        result.skippedMissingReplyCount > 0
-          ? `缺少问答配对 ${result.skippedMissingReplyCount}`
-          : '',
-        result.unverifiedAuthorMessageCount > 0
-          ? `未验证作者 ${result.unverifiedAuthorMessageCount}`
-          : '',
-        result.agentFailedThreadCount > 0 ? `模型整理失败 ${result.agentFailedThreadCount}` : '',
-      ].filter((value) => value.length > 0);
-      setNotice({
-        kind: result.createdCount > 0 || result.duplicateCount > 0 ? 'success' : 'error',
-        text:
-          `已扫描消息，生成 ${result.createdCount} 个待审批候选，识别 ${result.duplicateCount} 个重复，` +
-          `标记已整理 ${result.processedMessageCount} 条，保留待重试 ${result.retainedMessageCount} 条。` +
-          (diagnostics.length === 0 ? '' : ` 原因：${diagnostics.join('、')}。`),
-      });
-      await Promise.all([load(), loadMessages()]);
-    } catch (processError) {
-      setNotice({ kind: 'error', text: errorMessage(processError) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
   useEffect(() => void load(), [load]);
-  useEffect(() => void loadMessages(), [loadMessages]);
 
   return (
     <div className="admin-stack">
@@ -1796,8 +1713,8 @@ function TelegramGroupsPanel({
         <div>
           <h2>Bot 群聊注册表</h2>
           <p>
-            Telegram Update
-            实时写入本地收件箱，但不会实时生成或发布知识。选择群聊后由管理员统一整理，生成的候选必须人工审批。
+            Telegram Update 会实时写入本地审计缓冲，并由独立 Worker 自动清洗和识别知识候选；Bot
+            在群内保持静默。管理员只需前往“知识候选”审批或拒绝，候选不会自动发布。
           </p>
         </div>
         <button
@@ -1848,17 +1765,14 @@ function TelegramGroupsPanel({
                   <th>类型</th>
                   <th>首次发现</th>
                   <th>最近消息</th>
-                  <th>待整理</th>
+                  <th>自动识别</th>
+                  <th>待识别消息</th>
                   <th>依据</th>
                 </tr>
               </thead>
               <tbody>
                 {groups.map((group) => (
-                  <tr
-                    className={group.chatId === selectedId ? 'admin-table-selected' : undefined}
-                    key={group.chatId}
-                    onClick={() => setSelectedId(group.chatId)}
-                  >
+                  <tr key={group.chatId}>
                     <td>
                       <StatusBadge status={group.membershipStatus} />
                     </td>
@@ -1873,6 +1787,18 @@ function TelegramGroupsPanel({
                         ? '尚无消息'
                         : formatDate(group.lastMessageAt)}
                     </td>
+                    <td>
+                      {group.curationJob === undefined ? (
+                        '等待消息'
+                      ) : (
+                        <>
+                          <StatusBadge status={group.curationJob.status} />
+                          {group.curationJob.errorCode === undefined ? undefined : (
+                            <small>{group.curationJob.errorCode}</small>
+                          )}
+                        </>
+                      )}
+                    </td>
                     <td>{group.unprocessedMessageCount ?? 0}</td>
                     <td>{group.observationSource}</td>
                   </tr>
@@ -1881,91 +1807,6 @@ function TelegramGroupsPanel({
             </table>
           </div>
         ) : undefined}
-      </section>
-      <section className="admin-panel">
-        <div className="admin-panel-header">
-          <div>
-            <h2>本地群聊收件箱</h2>
-            <span>
-              {selected?.title ?? selected?.chatId ?? '未选择群聊'} · 最近 {messages.length} 条
-            </span>
-          </div>
-          <div className="admin-actions">
-            <button
-              className="admin-secondary-button"
-              disabled={busy || selectedId.length === 0}
-              onClick={() => void loadMessages()}
-              type="button"
-            >
-              刷新消息
-            </button>
-            <button
-              className="admin-secondary-button"
-              disabled={
-                busy ||
-                selectedId.length === 0 ||
-                !permissions.has('import:telegram') ||
-                !messages.some((message) => message.processedAt !== undefined)
-              }
-              onClick={() => void processInbox(true)}
-              type="button"
-            >
-              重新整理已处理消息
-            </button>
-            <button
-              className="admin-primary-button"
-              disabled={
-                busy ||
-                selectedId.length === 0 ||
-                !permissions.has('import:telegram') ||
-                (selected?.unprocessedMessageCount ?? 0) === 0
-              }
-              onClick={() => void processInbox(false)}
-              type="button"
-            >
-              {busy ? '正在整理…' : '整理待处理消息'}
-            </button>
-          </div>
-        </div>
-        <div className="admin-security-note">
-          原始正文只保存在本地 PostgreSQL，不直接进入向量库；整理时会过滤
-          Bot/匿名来源、合并连续发言并执行脱敏、边界、重复和冲突检查。
-        </div>
-        {messages.length === 0 ? (
-          <div className="admin-empty">该群尚无已沉淀的文本消息。</div>
-        ) : (
-          <div className="publication-table-wrap">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>状态</th>
-                  <th>时间</th>
-                  <th>作者</th>
-                  <th>消息</th>
-                  <th>关联</th>
-                </tr>
-              </thead>
-              <tbody>
-                {messages.map((message) => (
-                  <tr key={`${message.chatId}:${message.messageId}`}>
-                    <td>{message.processedAt === undefined ? '待整理' : '已整理'}</td>
-                    <td>{formatDate(message.sentAt)}</td>
-                    <td>{message.authorUserId ?? message.senderChatId ?? '匿名'}</td>
-                    <td>
-                      <strong>{message.text}</strong>
-                      <small>Message {message.messageId}</small>
-                    </td>
-                    <td>
-                      {message.replyToMessageId === undefined
-                        ? '普通发言'
-                        : `Reply ${message.replyToMessageId}`}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </section>
     </div>
   );
@@ -2371,6 +2212,7 @@ function CandidateDetailPanel({
       const result = await knowledgeAdminRequest<{
         suggestion: KnowledgeCandidateImprovementSuggestion;
       }>(token, `/candidates/${encodeURIComponent(candidate.id)}/suggestion`, {
+        body: { canonicalAnswer: answer, question },
         method: 'POST',
       });
       setSuggestion(result.suggestion);
@@ -2383,10 +2225,7 @@ function CandidateDetailPanel({
 
   const applySuggestion = (): void => {
     if (suggestion === undefined) return;
-    setQuestion(suggestion.question);
     setAnswer(suggestion.canonicalAnswer);
-    setTitle(suggestion.proposedTitle);
-    setModule(suggestion.proposedModule);
     setReason(`应用 AI 优化建议（${suggestion.promptVersion} / ${suggestion.model}）`);
   };
 
@@ -2458,15 +2297,56 @@ function CandidateDetailPanel({
               value={question}
             />
           </label>
-          <label className="span-2">
-            标准答案
-            <textarea
-              disabled={!canReview}
-              onChange={(event) => setAnswer(event.target.value)}
-              rows={6}
-              value={answer}
-            />
-          </label>
+          <div className="span-2 candidate-answer-editor">
+            <label>
+              标准答案
+              <textarea
+                disabled={!canReview}
+                onChange={(event) => {
+                  setAnswer(event.target.value);
+                  setSuggestion(undefined);
+                }}
+                rows={6}
+                value={answer}
+              />
+            </label>
+            {canReview ? (
+              <div className="candidate-answer-ai">
+                <div className="admin-actions">
+                  <button
+                    className="admin-secondary-button"
+                    disabled={actionBusy || answer.trim().length === 0}
+                    onClick={() => void generateSuggestion()}
+                    type="button"
+                  >
+                    {actionBusy ? '正在优化…' : 'AI 优化答案'}
+                  </button>
+                </div>
+                {suggestion === undefined ? undefined : (
+                  <div className="candidate-answer-suggestion">
+                    <div className="comparison-label">
+                      AI 建议 · {suggestionStatusLabel(suggestion.status)}
+                    </div>
+                    <p>{suggestion.canonicalAnswer}</p>
+                    <div className="admin-security-note">{suggestion.rationale}</div>
+                    {suggestion.missingInformation.length === 0 ? undefined : (
+                      <div className="admin-security-note">
+                        仍需补充：{suggestion.missingInformation.join('；')}
+                      </div>
+                    )}
+                    <button
+                      className="admin-primary-button"
+                      disabled={actionBusy || suggestion.status === 'no_change'}
+                      onClick={applySuggestion}
+                      type="button"
+                    >
+                      应用到标准答案
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : undefined}
+          </div>
           <label>
             标题
             <input
@@ -2515,72 +2395,6 @@ function CandidateDetailPanel({
           </div>
         ) : undefined}
       </section>
-
-      {canReview ? (
-        <section className="admin-panel">
-          <SectionHeading
-            description="AI 只根据候选原文、Telegram 证据和冲突资料生成建议，不会自动修改、批准或发布。应用后仍需人工检查并保存 Revision。"
-            title="AI 优化建议"
-          />
-          <div className="admin-actions">
-            <button
-              className="admin-secondary-button"
-              disabled={actionBusy}
-              onClick={() => void generateSuggestion()}
-              type="button"
-            >
-              {actionBusy
-                ? '正在生成…'
-                : suggestion === undefined
-                  ? '生成 AI 建议'
-                  : '重新生成建议'}
-            </button>
-            {suggestion === undefined ? undefined : (
-              <button
-                className="admin-primary-button"
-                disabled={actionBusy || suggestion.status === 'no_change'}
-                onClick={applySuggestion}
-                type="button"
-              >
-                应用到编辑框
-              </button>
-            )}
-          </div>
-          {suggestion === undefined ? (
-            <div className="admin-empty compact">尚未生成建议。模型调用只在管理员点击后发生。</div>
-          ) : (
-            <div className="detail-stack">
-              <div className="candidate-facts">
-                <Fact label="建议状态" value={suggestionStatusLabel(suggestion.status)} />
-                <Fact label="模型" value={suggestion.model} />
-                <Fact label="Prompt" value={suggestion.promptVersion} />
-              </div>
-              <div className="comparison-grid">
-                <article className="comparison-card duplicate">
-                  <div className="comparison-label">当前候选</div>
-                  <strong>{candidate.question}</strong>
-                  <p>{candidate.canonicalAnswer}</p>
-                </article>
-                <article className="comparison-card duplicate">
-                  <div className="comparison-label">AI 建议</div>
-                  <strong>{suggestion.question}</strong>
-                  <p>{suggestion.canonicalAnswer}</p>
-                  <small>
-                    {suggestion.proposedTitle} · {suggestion.proposedModule}
-                  </small>
-                </article>
-              </div>
-              <div className="admin-security-note">建议理由：{suggestion.rationale}</div>
-              <TagList emptyLabel="未识别到额外风险" items={suggestion.riskFlags} tone="risk" />
-              {suggestion.missingInformation.length === 0 ? undefined : (
-                <div className="admin-security-note">
-                  仍需管理员补充：{suggestion.missingInformation.join('；')}
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-      ) : undefined}
 
       <section className="admin-panel">
         <SectionHeading

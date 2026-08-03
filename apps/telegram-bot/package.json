@@ -11,6 +11,7 @@
     "@xxyy/shared": "workspace:*"
   },
   "scripts": {
+    "curation-worker": "tsx src/curation-worker.ts",
     "start": "tsx src/index.ts",
     "test": "vitest run src",
     "typecheck": "tsc --noEmit -p tsconfig.json"

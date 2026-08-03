@@ -41,6 +41,7 @@ import { migrateSupportOperations } from './support-operations.js';
 import { createKnowledgeAliasQueryTokens, matchKnowledgeAliases } from './knowledge-aliases.js';
 import { migrateKnowledgeGraph, replaceChunkKnowledgeGraph } from './knowledge-graph.js';
 import { migrateQualityEvaluationJobs } from './quality-evaluation-jobs.js';
+import { migrateTelegramCurationJobs } from './telegram-curation-jobs.js';
 
 export interface PgClientLike {
   connect?(): Promise<PgTransactionClientLike>;
@@ -697,6 +698,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
       await migrateSupportOperations(options.client);
       await migrateKnowledgeGraph(options.client);
       await migrateQualityEvaluationJobs(options.client);
+      await migrateTelegramCurationJobs(options.client);
     },
 
     async recordFeedback(input: RecordFeedbackInput): Promise<void> {

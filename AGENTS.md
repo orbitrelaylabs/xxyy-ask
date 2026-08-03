@@ -57,7 +57,7 @@
 - `apps/chain-operations-cli`：与客服运行面隔离的 Provider/worker 运维入口；还提供只有固定 manifest、canonical readiness attestation 与 Provider/budget lineage 全部有效时才启动的内部 chain-analysis stdio MCP composition root。
 - `apps/cli`：`rag:ingest`、`rag:sync:x`、`rag:migrate`、`rag:stats`、`rag:evaluate`、`rag:ask`。
 - `apps/api`：HTTP API 和 Web UI 服务入口。
-- `apps/telegram-bot`：Telegram Bot long polling 入口；群消息只实时写入本地 PostgreSQL Inbox，群内保持静默，管理员在后台整理并审批后才会进入发布队列，Bot 不执行 pgvector 发布。
+- `apps/telegram-bot`：Telegram Bot long polling 与独立群知识整理 Worker；群消息实时写入本地 PostgreSQL 审计缓冲并入持久化队列，群内保持静默，Worker 自动生成待审候选，管理员批准后才进入发布队列，Bot 和整理 Worker 都不执行 pgvector 发布。
 - `apps/web`：静态聊天 UI。
 - `scripts/rag-refresh.mjs`：供外部 scheduler 调用的固定知识刷新 Job；提供 dry-run、同工作区锁和脱敏回执，并在最后自动对账、重试和执行群聊知识发布，不嵌入 API/Telegram 进程。
 - `skills/xxyy-product-support`：项目级 XXYY 产品支持 Skill；只依赖同名只读 MCP，不扩大客服边界。
@@ -119,6 +119,7 @@ TRUST_PROXY=false
 - `pnpm chain:control:migrate` 与 `pnpm chain:provision:*`：只用于隔离的链上控制面 provisioning；不自动加载 `.env`，不接入客服或 Agent。
 - `NODE_ENV=production pnpm run app:dev`：生产模式跳过本地 Docker，默认不刷新知识库；可加 `--sync` 或 `--full-sync` 显式更新。
 - `pnpm run telegram:dev`：启动 Telegram Bot long polling。
+- `pnpm telegram:curation:worker`：启动群聊知识自动清洗 Worker；消费持久化队列，只生成待人工审批的候选。
 - `pnpm check`：Web build、format check、typecheck、tests 和 deterministic golden QA。
 
 API 保留的公开服务面：

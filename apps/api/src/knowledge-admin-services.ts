@@ -14,12 +14,13 @@ import {
   createPgSupportOperationsStore,
   createPgTelegramGroupRegistryStore,
   createPgTelegramGroupMessageStore,
-  createTelegramInboxKnowledgeExport,
+  createPgTelegramCurationJobStore,
   createPgPool,
   createPgTrustedAuthorStore,
   fetchTelegramCurrentAdministratorIds,
   InvalidKnowledgeCandidateStateError,
   readTelegramKnowledgeExport,
+  processTelegramKnowledgeInbox,
   VectorStoreConfigurationError,
 } from '@xxyy/rag-core';
 import type { RagConfig } from '@xxyy/rag-core';
@@ -59,6 +60,7 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
     const supportOperations = createPgSupportOperationsStore({ client: pool });
     const telegramGroups = createPgTelegramGroupRegistryStore({ client: pool });
     const telegramMessages = createPgTelegramGroupMessageStore({ client: pool });
+    const telegramCurationJobs = createPgTelegramCurationJobStore({ client: pool });
     const trustedAuthorStore = createPgTrustedAuthorStore({ client: pool });
     const curatorModel =
       options.config.openAiApiKey === undefined || options.config.openAiModel === undefined
@@ -148,119 +150,24 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
           throw new Error('Candidate AI suggestions require OPENAI_API_KEY and OPENAI_MODEL.');
         }
         return candidateSuggestionProvider.suggest({
-          candidate: detail.candidate,
+          candidate: {
+            ...detail.candidate,
+            canonicalAnswer: input.canonicalAnswer,
+            question: input.question,
+          },
           conflicts: detail.conflicts,
         });
       },
       telegramGroups,
+      telegramCurationJobs,
       telegramMessages,
       importTelegram,
-      async processTelegramInbox(input) {
-        let requeuedMessageCount = 0;
-        if (input.reprocess === true) {
-          const processedMessages = await telegramMessages.list({
-            chatId: input.chatId,
-            limit: 2_000,
-            processingStatus: 'processed',
-          });
-          requeuedMessageCount = await telegramMessages.markUnprocessed({
-            chatId: input.chatId,
-            messageIds: processedMessages.map((message) => message.messageId),
-          });
-        }
-        const unprocessedMessages = await telegramMessages.list({
-          chatId: input.chatId,
-          limit: 2_000,
-          processingStatus: 'unprocessed',
-        });
-        const unprocessedIds = unprocessedMessages.map((message) => message.messageId);
-        if (unprocessedIds.length === 0) {
-          return {
-            agentFailedThreadCount: 0,
-            candidateCount: 0,
-            createdCount: 0,
-            duplicateCount: 0,
-            processedMessageCount: 0,
-            requeuedMessageCount,
-            retainedMessageCount: 0,
-            skippedBoundaryCount: 0,
-            skippedMissingReplyCount: 0,
-            unverifiedAuthorMessageCount: 0,
-          };
-        }
-        const messagesById = new Map(
-          unprocessedMessages.map((message) => [message.messageId, message]),
-        );
-        let replyIds = unprocessedMessages.flatMap((message) =>
-          message.replyToMessageId === undefined ? [] : [message.replyToMessageId],
-        );
-        for (let depth = 0; depth < 8 && replyIds.length > 0; depth += 1) {
-          const missingReplyIds = [
-            ...new Set(replyIds.filter((messageId) => !messagesById.has(messageId))),
-          ];
-          if (missingReplyIds.length === 0) break;
-          const replyMessages = await telegramMessages.listByIds({
-            chatId: input.chatId,
-            messageIds: missingReplyIds,
-          });
-          for (const message of replyMessages) {
-            messagesById.set(message.messageId, message);
-          }
-          replyIds = replyMessages.flatMap((message) =>
-            message.replyToMessageId === undefined ? [] : [message.replyToMessageId],
-          );
-        }
-        const inboxExport = createTelegramInboxKnowledgeExport({
-          chatId: input.chatId,
-          messages: [...messagesById.values()],
-        });
-        if (inboxExport.rawExport.messages.length === 0) {
-          const processedMessageCount = await telegramMessages.markProcessed({
-            chatId: input.chatId,
-            messageIds: unprocessedIds,
-            processedAt: new Date().toISOString(),
-          });
-          return {
-            agentFailedThreadCount: 0,
-            candidateCount: 0,
-            createdCount: 0,
-            duplicateCount: 0,
-            processedMessageCount,
-            requeuedMessageCount,
-            retainedMessageCount: 0,
-            skippedBoundaryCount: 0,
-            skippedMissingReplyCount: 0,
-            unverifiedAuthorMessageCount: 0,
-          };
-        }
-        const result = await importTelegram({
-          curationMode: 'auto',
-          manualReviewRequired: true,
-          rawExport: inboxExport.rawExport,
-          runAutomation: false,
-          sourceChannel: 'telegram',
-        });
-        const shouldMarkProcessed = result.created.length > 0 || result.duplicateCount > 0;
-        const processedMessageCount = shouldMarkProcessed
-          ? await telegramMessages.markProcessed({
-              chatId: input.chatId,
-              messageIds: unprocessedIds,
-              processedAt: new Date().toISOString(),
-            })
-          : 0;
-        return {
-          agentFailedThreadCount: result.agentRunStats.failedThreadCount,
-          candidateCount: result.candidateCount,
-          createdCount: result.created.length,
-          duplicateCount: result.duplicateCount,
-          processedMessageCount,
-          requeuedMessageCount,
-          retainedMessageCount: shouldMarkProcessed ? 0 : unprocessedIds.length,
-          skippedBoundaryCount: result.skippedBoundaryCount,
-          skippedMissingReplyCount: result.skippedMissingReplyCount,
-          unverifiedAuthorMessageCount: result.unverifiedAuthorMessageCount,
-        };
-      },
+      processTelegramInbox: (input) =>
+        processTelegramKnowledgeInbox({
+          ...input,
+          importTelegram,
+          telegramMessages,
+        }),
     };
     return Promise.resolve(cached);
   };

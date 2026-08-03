@@ -138,6 +138,34 @@ services:
     volumes:
       - './.rag/knowledge-refresh:/app/.rag/knowledge-refresh:ro'
 
+  telegram-curation-worker:
+    <<: *app-base
+    command: ['pnpm', 'run', 'telegram:curation:worker']
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:-}
+      NODE_ENV: production
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env}
+      OPENAI_BASE_URL: ${COMPOSE_OPENAI_BASE_URL:-${OPENAI_BASE_URL}}
+      OPENAI_MODEL: ${OPENAI_MODEL:?Set OPENAI_MODEL in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      HTTPS_PROXY: ${TELEGRAM_HTTPS_PROXY:-}
+      HTTP_PROXY: ${TELEGRAM_HTTP_PROXY:-}
+      NODE_USE_ENV_PROXY: ${TELEGRAM_NODE_USE_ENV_PROXY:-}
+      NO_PROXY: ${TELEGRAM_NO_PROXY:-postgres,localhost,127.0.0.1}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in .env}
+      TELEGRAM_CURATION_DEBOUNCE_SECONDS: ${TELEGRAM_CURATION_DEBOUNCE_SECONDS:-30}
+      TELEGRAM_CURATION_WORKER_POLL_MS: ${TELEGRAM_CURATION_WORKER_POLL_MS:-1000}
+      TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS: ${TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS:-30}
+    depends_on:
+      knowledge-init:
+        condition: service_completed_successfully
+
   quality-worker:
     <<: *app-base
     command: ['pnpm', 'rag:quality:evaluation:worker']

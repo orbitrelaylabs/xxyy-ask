@@ -450,6 +450,43 @@ body:has(.admin-login-page) {
   grid-column: 1 / -1;
 }
 
+.candidate-answer-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.candidate-answer-ai {
+  border: 1px solid #dce5e2;
+  border-radius: 9px;
+  background: #f8fbfa;
+  padding: 9px 10px;
+}
+
+.candidate-answer-ai .admin-actions {
+  justify-content: flex-start;
+  margin-top: 0;
+}
+
+.candidate-answer-suggestion {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #dce5e2;
+}
+
+.candidate-answer-suggestion p {
+  margin: 0;
+  color: #263630;
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.candidate-answer-suggestion .admin-primary-button {
+  justify-self: start;
+}
+
 .admin-shell input,
 .admin-shell select,
 .admin-shell textarea,

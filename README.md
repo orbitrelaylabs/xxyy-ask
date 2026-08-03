@@ -123,6 +123,8 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_API_BASE_URL=
 TELEGRAM_GROUP_RESPONSES_ENABLED=false
 TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS=30
+TELEGRAM_CURATION_DEBOUNCE_SECONDS=30
+TELEGRAM_CURATION_WORKER_POLL_MS=1000
 ```
 
 数据库默认从 `POSTGRES_*` 组装连接串；使用托管数据库时可以配置 `DATABASE_URL` 覆盖。`OPENAI_*` 配置 Chat/Planner；`EMBEDDING_API_KEY` 和 `EMBEDDING_BASE_URL` 可把向量请求发送到独立的 OpenAI-compatible 服务，未配置时回退使用 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。`pnpm run app:up` 会把 `ONCHAIN_RPC_CONFIG_JSON` 和 `ONCHAIN_ALLOW_INSECURE_LOCALHOST` 显式映射给 API 与 Telegram；未配置时产品客服仍可用，但公开交易查询会返回配置提示。当 `OPENAI_BASE_URL` 指向宿主机上的本地服务时，设置 `COMPOSE_OPENAI_BASE_URL=http://host.docker.internal:<端口>/v1`，让容器访问宿主机，同时保留 `app:dev` 使用的 `localhost` 地址。OpenAI-compatible 请求默认 30 秒超时、重试 1 次。默认 embedding 维度是 `1536`，匹配 `text-embedding-3-small`；更换 embedding 模型和维度时需要同步调整 `EMBEDDING_DIMENSION`，备份数据库后显式运行 `pnpm rag:ingest -- --rebuild-embedding-schema`。`.env.example` 会列出当前代码支持的环境变量。
@@ -235,6 +237,7 @@ pnpm run app:dev -- --full-sync  # 启动前全量同步官网与 X / Twitter �
 pnpm run api:dev                 # 只启动 API + Web 服务入口
 pnpm run web:dev                 # 只启动 Vite Web
 pnpm run telegram:dev            # 启动 Telegram Bot
+pnpm telegram:curation:worker    # 启动群聊知识自动整理 Worker
 pnpm product:mcp:dev             # 启动只读产品知识 stdio MCP server
 pnpm onchain:mcp:dev             # 从根目录 .env 启动通用六链查询 MCP
 pnpm onchain:query -- help       # 内部 cli/admin 通过 Tool → Skill → MCP 查询
@@ -312,11 +315,11 @@ pnpm chain:mcp:serve
 - `pnpm rag:evaluate -- --failures-out .rag/eval-failures.jsonl` 把失败项写成已脱敏、必须人工审核的 JSONL，不会直接修改 golden QA。
 - `pnpm rag:ask` 从命令行调用客服 Agent。
 - `pnpm rag:knowledge:author:trust/list` 维护按群和有效期生效的可信作者名册。实时群回复默认用 Telegram Bot API 自动识别当前管理员；历史导出只有当前角色却无法证明历史角色时会失败关闭，不会伪装成历史已验证。
-- `pnpm rag:knowledge:import:telegram` 用于受控导入 Telegram Desktop JSON；日常群聊由 Bot 实时写入本地 Inbox。管理员在 `/admin` 选择群并点击整理后，系统合并连续管理员消息、重建 reply 关系并执行脱敏、边界、去重、冲突与质量检查，生成必须人工审核的 `pending` 候选。
+- `pnpm rag:knowledge:import:telegram` 用于受控导入 Telegram Desktop JSON；日常群聊由 Bot 实时写入本地审计缓冲并入队，`telegram-curation-worker` 自动合并连续管理员消息、重建 reply 关系并执行脱敏、边界、去重、冲突与质量检查，生成必须人工审核的 `pending` 候选。
 - `pnpm rag:knowledge:automation:work` 对账异常遗留候选、幂等补建发布任务、自动重试少于三次的失败任务并执行队列。正式发布仍必须通过边界、检索命中、deterministic golden QA、embedding 和事务 ingest 门禁。
 - `pnpm rag:knowledge:list/history` 用于只读审计；revise/approve/reject/publish 保留为有认证和审计的紧急恢复命令，不属于日常自动化路径。
 - 首次打开 `/admin` 且数据库没有管理员时，页面会进入一次性初始化流程；首个账号固定为 `admin` 角色，后续用户、角色和启停在“管理员用户”页面维护。所有角色都可以在“我的账号”验证当前密码后修改本人密码；当前会话保留，其他会话撤销。
-- 管理后台在 `GET /admin`，用于查看 Telegram Inbox、整理消息、审核候选、管理发布任务和审计。Telegram 候选必须人工批准；批准后自动创建发布任务，再由独立 Worker 执行入库门禁。完整流程见 [知识采集、审批与发布](docs/knowledge-evolution.md)。
+- 管理后台在 `GET /admin`，用于查看 Telegram 群与自动整理状态、审核候选、管理发布任务和审计。Telegram 原始消息不作为日常后台页面展示；候选必须人工批准，批准后自动创建发布任务，再由独立发布 Worker 执行入库门禁。完整流程见 [知识采集、审批与发布](docs/knowledge-evolution.md)。
 
 检索质量：
 
@@ -364,9 +367,9 @@ pnpm run telegram:dev
 
 未来需要恢复群内客服回答时才显式设置 `TELEGRAM_GROUP_RESPONSES_ENABLED=true`；启用后，group/supergroup 中只有 Bot 命令、精确 `@BotUsername` 或直接回复当前 Bot 的消息才触发客服回答。Bot 通过 `getMe` 获取并缓存自身 ID/username；身份暂不可用时群聊回答失败关闭并在后续消息重试，不会退化为回复所有群消息。
 
-Bot 通过实时 Update 将 group/supergroup 文本写入本地 PostgreSQL 收件箱，但不会在 Telegram update 内生成或发布知识。后台“Telegram 群聊”页面可以查看待整理数量和最近消息；管理员点击“整理待处理消息”后，系统才会合并同一作者的连续发言，识别管理员显式 Reply 与紧邻普通回答，并执行作者验证、脱敏、产品边界、质量、去重和冲突检查。官方答疑群中的链、代币、交易等省略式产品问题会继承 XXYY 上下文，但无关闲聊仍会过滤。问答配对不设置时间间隔上限，但非 Reply 不跨越其他作者消息猜测。生成的 Telegram 候选带 `manual_review_required` 并保持 `pending`，必须在“知识候选”页面人工编辑、批准或拒绝；批准后自动创建发布任务，再由隔离 Worker 执行正式发布门禁。如果一次整理既没有创建候选也没有识别到重复项，消息会保留为待整理并展示过滤统计；管理员也可以显式重新整理已经处理的消息。原始消息只保存在本地数据库，默认保留 30 天，可用 `TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS` 调整。Bot、匿名 `sender_chat` 内容不会进入候选。要采集普通群消息，需要关闭 BotFather Privacy Mode，或把 Bot 设为群管理员，并授予读取消息及查询管理员列表所需权限。
+Bot 通过实时 Update 将 group/supergroup 文本写入本地 PostgreSQL 审计缓冲，并为对应群创建可合并的持久化整理任务；不会在 Telegram update 内调用模型或发布知识。独立 `telegram-curation-worker` 默认等待 30 秒合并连续消息，再识别管理员显式 Reply 与紧邻普通回答，并执行作者验证、脱敏、产品边界、质量、去重和冲突检查。官方答疑群中的链、代币、交易等省略式产品问题会继承 XXYY 上下文，但无关闲聊仍会过滤。问答配对不设置时间间隔上限，但非 Reply 不跨越其他作者消息猜测。生成的 Telegram 候选带 `manual_review_required` 并保持 `pending`，必须在“知识候选”页面人工编辑、AI 优化、批准或拒绝；批准后自动创建发布任务，再由隔离发布 Worker 执行正式发布门禁。后台“Telegram 群聊”页面只展示群状态、任务状态和待识别数量，不展示原始消息，也不需要人工点击整理。原始消息只保存在本地数据库，默认保留 30 天，可用 `TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS` 调整。Bot、匿名 `sender_chat` 内容不会进入候选。要采集普通群消息，需要关闭 BotFather Privacy Mode，或把 Bot 设为群管理员，并授予读取消息及查询管理员列表所需权限。
 
-Pending 候选详情支持管理员按需生成 AI 优化建议。建议模型只能读取已脱敏的候选、Telegram 原始证据和已发现的正式知识冲突，输出规范问题、答案、标题、模块、缺失信息与风险提示；代码会拒绝证据中不存在的新数字和 URL。建议只在页面预览，不自动写库、批准或发布；管理员选择“应用到编辑框”并保存后才通过现有不可变 Revision 记录落库。
+Pending 候选的“标准答案”输入框下提供“AI 优化答案”按钮。建议模型基于输入框中尚未保存的当前问题与答案，并结合已脱敏 Telegram 证据和已发现的正式知识冲突，输出答案建议、缺失信息与风险提示；代码会拒绝证据中不存在的新数字和 URL。建议只在输入框下方预览，不自动写库、批准或发布；管理员选择“应用到标准答案”并保存后才通过现有不可变 Revision 记录落库。
 
 Bot 同时订阅 `edited_message`：编辑后的正文会覆盖本地收件箱记录并重新标记为待整理。Telegram Bot API 不提供通用删除事件，因此删除消息目前不能自动同步；已生成的错误候选需要管理员在后台拒绝，已经发布的错误知识需要走受审计的修订或撤回流程。
 

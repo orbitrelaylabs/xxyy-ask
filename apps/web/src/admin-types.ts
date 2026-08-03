@@ -125,6 +125,12 @@ export interface TelegramGroupRegistryEntry {
   leftAt?: string;
   title?: string;
   unprocessedMessageCount?: number;
+  curationJob?: {
+    attemptCount: number;
+    status: 'failed' | 'queued' | 'running' | 'succeeded';
+    updatedAt: string;
+    errorCode?: string;
+  };
 }
 
 export interface TelegramGroupMessageRecord {

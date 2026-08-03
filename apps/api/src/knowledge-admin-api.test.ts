@@ -16,6 +16,7 @@ import type {
   PgSupportOperationsStore,
   PgTelegramGroupMessageStore,
   PgTelegramGroupRegistryStore,
+  PgTelegramCurationJobStore,
 } from '@xxyy/rag-core';
 
 import { handleKnowledgeAdminApi, type KnowledgeAdminServices } from './knowledge-admin-api.js';
@@ -371,6 +372,17 @@ describe('handleKnowledgeAdminApi', () => {
         Promise.resolve(
           knowledgeAdminServices({
             telegramGroups: telegramGroupStore({ list }),
+            telegramCurationJobs: telegramCurationJobStore({
+              get: () =>
+                Promise.resolve({
+                  attemptCount: 0,
+                  availableAt: '2026-07-31T02:00:30.000Z',
+                  chatId: '-100123',
+                  status: 'queued',
+                  triggerMessageId: '10',
+                  updatedAt: '2026-07-31T02:00:00.000Z',
+                }),
+            }),
             telegramMessages: telegramMessageStore({ countUnprocessed }),
           }),
         ),
@@ -381,7 +393,14 @@ describe('handleKnowledgeAdminApi', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json).toMatchObject({
-      groups: [{ chatId: '-100123', title: 'XXYY Support', unprocessedMessageCount: 7 }],
+      groups: [
+        {
+          chatId: '-100123',
+          curationJob: { status: 'queued' },
+          title: 'XXYY Support',
+          unprocessedMessageCount: 7,
+        },
+      ],
     });
     expect(JSON.stringify(response.json)).not.toContain('messageText');
     expect(list).toHaveBeenCalledWith({ limit: 20, membershipStatus: 'active' });
@@ -474,6 +493,10 @@ describe('handleKnowledgeAdminApi', () => {
     const services = knowledgeAdminServices({ suggestCandidate });
     const reviewerResponse = await callAdmin({
       authenticator: authenticator('reviewer'),
+      body: {
+        canonicalAnswer: '不行，用 BNB 的。',
+        question: '关于 XXYY，BSC 的可以用 USDT 交易吗？',
+      },
       getServices: () => Promise.resolve(services),
       method: 'POST',
       token: TOKEN,
@@ -481,6 +504,10 @@ describe('handleKnowledgeAdminApi', () => {
     });
     const viewerResponse = await callAdmin({
       authenticator: authenticator('viewer'),
+      body: {
+        canonicalAnswer: '不行，用 BNB 的。',
+        question: '关于 XXYY，BSC 的可以用 USDT 交易吗？',
+      },
       getServices: () => Promise.resolve(services),
       method: 'POST',
       token: TOKEN,
@@ -493,7 +520,11 @@ describe('handleKnowledgeAdminApi', () => {
     });
     expect(viewerResponse.statusCode).toBe(403);
     expect(suggestCandidate).toHaveBeenCalledTimes(1);
-    expect(suggestCandidate).toHaveBeenCalledWith({ id: 'candidate-1' });
+    expect(suggestCandidate).toHaveBeenCalledWith({
+      canonicalAnswer: '不行，用 BNB 的。',
+      id: 'candidate-1',
+      question: '关于 XXYY，BSC 的可以用 USDT 交易吗？',
+    });
   });
 
   it('exposes the support queue to viewers and restricts ticket updates to reviewers', async () => {
@@ -1186,7 +1217,22 @@ function knowledgeAdminServices(
     supportOperations: supportOperationsStore(),
     suggestCandidate: () => Promise.reject(new Error('not used')),
     telegramGroups: telegramGroupStore(),
+    telegramCurationJobs: telegramCurationJobStore(),
     telegramMessages: telegramMessageStore(),
+    ...overrides,
+  };
+}
+
+function telegramCurationJobStore(
+  overrides: Partial<PgTelegramCurationJobStore> = {},
+): PgTelegramCurationJobStore {
+  return {
+    claimNext: () => Promise.resolve(undefined),
+    complete: () => Promise.resolve(false),
+    fail: () => Promise.resolve(false),
+    get: () => Promise.resolve(undefined),
+    migrate: () => Promise.resolve(),
+    request: () => Promise.resolve(),
     ...overrides,
   };
 }

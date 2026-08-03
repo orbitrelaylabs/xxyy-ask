@@ -32,6 +32,7 @@ import type {
   PgSupportOperationsStore,
   PgTelegramGroupMessageStore,
   PgTelegramGroupRegistryStore,
+  PgTelegramCurationJobStore,
   SupportTicketPriority,
   SupportTicketStatus,
 } from '@xxyy/rag-core';
@@ -53,6 +54,7 @@ export interface KnowledgeAdminServices {
   qualityEvaluations: PgQualityEvaluationJobStore;
   supportOperations: PgSupportOperationsStore;
   telegramGroups: PgTelegramGroupRegistryStore;
+  telegramCurationJobs: PgTelegramCurationJobStore;
   telegramMessages: PgTelegramGroupMessageStore;
   importTelegram(input: {
     curationMode: KnowledgeCurationMode;
@@ -71,7 +73,9 @@ export interface KnowledgeAdminServices {
     unverifiedAuthorMessageCount: number;
   }>;
   suggestCandidate(input: {
+    canonicalAnswer: string;
     id: string;
+    question: string;
   }): Promise<KnowledgeCandidateImprovementSuggestion | undefined>;
 }
 
@@ -84,6 +88,12 @@ export interface HandleKnowledgeAdminApiOptions {
 }
 
 const candidateStatusSchema = z.enum(['approved', 'pending', 'published', 'rejected']);
+const candidateSuggestionSchema = z
+  .object({
+    canonicalAnswer: z.string().trim().min(1).max(4_000),
+    question: z.string().trim().min(1).max(2_000),
+  })
+  .strict();
 const adminRoleSchema = z.enum(['admin', 'publisher', 'reviewer', 'viewer']);
 const adminUserStatusSchema = z.enum(['active', 'disabled']);
 const adminLoginSchema = z
@@ -457,13 +467,20 @@ async function routeKnowledgeAdminRequest(
         limit: parseLimit(options.requestUrl.searchParams.get('limit')),
         ...(membershipStatus === undefined ? {} : { membershipStatus }),
       });
-      const withInboxCounts = await Promise.all(
-        groups.map(async (group) => ({
-          ...group,
-          unprocessedMessageCount: await services.telegramMessages.countUnprocessed(group.chatId),
-        })),
+      const withCurationStatus = await Promise.all(
+        groups.map(async (group) => {
+          const [curationJob, unprocessedMessageCount] = await Promise.all([
+            services.telegramCurationJobs.get(group.chatId),
+            services.telegramMessages.countUnprocessed(group.chatId),
+          ]);
+          return {
+            ...group,
+            ...(curationJob === undefined ? {} : { curationJob }),
+            unprocessedMessageCount,
+          };
+        }),
       );
-      sendJson(options.response, 200, { groups: withInboxCounts });
+      sendJson(options.response, 200, { groups: withCurationStatus });
       return;
     }
     const chatId = requiredPathSegment(segments[1], 'Telegram chat id');
@@ -637,7 +654,14 @@ async function routeCandidateRequest(
   if (segments.length === 2 && segments[1] === 'suggestion') {
     requirePermission(principal, 'candidate:review');
     requireMethod(method, 'POST');
-    const suggestion = await services.suggestCandidate({ id: candidateId });
+    const payload = candidateSuggestionSchema.parse(
+      await readJsonBody(options.request, options.maxBodyBytes),
+    );
+    const suggestion = await services.suggestCandidate({
+      canonicalAnswer: payload.canonicalAnswer,
+      id: candidateId,
+      question: payload.question,
+    });
     if (suggestion === undefined) {
       sendNotFound(options.response, 'Knowledge candidate was not found.');
       return;

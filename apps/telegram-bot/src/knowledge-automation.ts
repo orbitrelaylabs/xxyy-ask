@@ -7,13 +7,16 @@ import {
   createPgTelegramGroupMessageStore,
   createPgKnowledgeMatchInspector,
   createPgKnowledgePublicationJobStore,
+  createPgTelegramCurationJobStore,
   createPgTelegramKnowledgeLearningSettingsStore,
   createPgPool,
   createPgTrustedAuthorStore,
   fetchTelegramCurrentAdministratorIds,
   normalizeTelegramUserId,
+  processTelegramKnowledgeInbox,
   UnverifiedTelegramKnowledgeAuthorError,
   type RagConfig,
+  type TelegramInboxProcessingResult,
 } from '@xxyy/rag-core';
 
 import type { TelegramKnowledgeAutomation, TelegramMessage } from './bot.js';
@@ -22,8 +25,10 @@ import type { TelegramGroupMessageArchive, TelegramGroupRegistry } from './bot.j
 export interface TelegramKnowledgeAutomationRuntime {
   automation: TelegramKnowledgeAutomation;
   close(): Promise<void>;
+  curationJobs: ReturnType<typeof createPgTelegramCurationJobStore>;
   groupMessageArchive: TelegramGroupMessageArchive;
   groupRegistry: TelegramGroupRegistry;
+  processInbox(chatId: string): Promise<TelegramInboxProcessingResult>;
 }
 
 const TELEGRAM_ADMIN_CACHE_TTL_MS = 5 * 60 * 1_000;
@@ -32,6 +37,7 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
   botToken: string;
   config: RagConfig;
   contextMessageLimit: number;
+  curationDebounceSeconds?: number;
   defaultEnabled: boolean;
   messageRetentionDays?: number;
   now?: () => Date;
@@ -44,6 +50,7 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
   const learningSettingsStore = createPgTelegramKnowledgeLearningSettingsStore({ client: pool });
   const groupRegistry = createPgTelegramGroupRegistryStore({ client: pool });
   const groupMessageStore = createPgTelegramGroupMessageStore({ client: pool });
+  const curationJobs = createPgTelegramCurationJobStore({ client: pool });
   const curatorModel =
     options.config.openAiApiKey === undefined || options.config.openAiModel === undefined
       ? undefined
@@ -69,6 +76,13 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
   const groupMessageArchive: TelegramGroupMessageArchive = {
     async capture(input) {
       await groupMessageStore.capture(input);
+      await curationJobs.request({
+        chatId: input.chatId,
+        triggerMessageId: input.messageId,
+        ...(options.curationDebounceSeconds === undefined
+          ? {}
+          : { debounceSeconds: options.curationDebounceSeconds }),
+      });
       const checkedAt = now().getTime();
       if (checkedAt - lastMessagePurgeAt < 24 * 60 * 60 * 1_000) return;
       lastMessagePurgeAt = checkedAt;
@@ -291,8 +305,29 @@ export function createTelegramKnowledgeAutomationRuntime(options: {
         };
       },
     },
+    curationJobs,
     groupMessageArchive,
     groupRegistry,
+    async processInbox(chatId) {
+      return processTelegramKnowledgeInbox({
+        chatId,
+        telegramMessages: groupMessageStore,
+        importTelegram: async (input) => {
+          const checkedAt = now();
+          const administratorSnapshot = await readAdministratorSnapshot(chatId, checkedAt);
+          return governance.importTelegram({
+            ...input,
+            runId: `telegram_inbox_${chatId}_${checkedAt.getTime()}`,
+            ...(administratorSnapshot === undefined
+              ? {}
+              : {
+                  currentAdministratorUserIds: administratorSnapshot.ids,
+                  currentAdministratorVerifiedAt: administratorSnapshot.verifiedAt,
+                }),
+          });
+        },
+      });
+    },
     close() {
       return pool.end();
     },

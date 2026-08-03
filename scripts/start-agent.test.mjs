@@ -276,16 +276,23 @@ describe('root package scripts', () => {
 
     expect(packageJson.scripts['app:dev']).toBe('node scripts/start-agent.mjs');
     expect(packageJson.scripts['app:up']).toBe('docker compose up --detach --build');
-    expect(packageJson.scripts['app:stop']).toBe('docker compose stop api telegram');
+    expect(packageJson.scripts['app:stop']).toBe(
+      'docker compose stop api telegram telegram-curation-worker',
+    );
     expect(packageJson.scripts['app:status']).toBe('docker compose ps');
-    expect(packageJson.scripts['app:restart']).toBe('docker compose restart api telegram');
+    expect(packageJson.scripts['app:restart']).toBe(
+      'docker compose restart api telegram telegram-curation-worker',
+    );
     expect(packageJson.scripts['app:logs']).toBe(
-      'docker compose logs --follow --tail=200 api telegram',
+      'docker compose logs --follow --tail=200 api telegram telegram-curation-worker',
     );
     expect(packageJson.scripts['app:down']).toBe('docker compose down');
     expect(packageJson.scripts['api:dev']).toBe('pnpm --filter @xxyy/api start');
     expect(packageJson.scripts['web:dev']).toBe('pnpm --filter @xxyy/web dev');
     expect(packageJson.scripts['telegram:dev']).toBe('pnpm --filter @xxyy/telegram-bot start');
+    expect(packageJson.scripts['telegram:curation:worker']).toBe(
+      'pnpm --filter @xxyy/telegram-bot curation-worker',
+    );
     expect(packageJson.scripts['product:mcp:dev']).toBe('pnpm --filter @xxyy/product-qa-mcp start');
     expect(packageJson.scripts['chain:mcp:serve']).toBe(
       'pnpm --filter @xxyy/chain-operations-cli mcp',
