@@ -68,12 +68,11 @@ canonical 声明通过启动时 `XXYY_CANONICAL_POOL_CONFIG_JSON={"entries":[...
 
 截图不是判定来源，但它是诊断成功后的正式用户可见交付物。只有结构化 API 已精确核对完整 transaction ID、完整 maker 和唯一池后，隔离 Chrome 提供器才打开固定 XXYY pair URL，并用 maker 后六位、买卖方向、成交时间、Token/原生币/USD 数量共同为候选行评分；多个候选无法唯一定位时失败关闭，不圈选可能错误的行。生成成功时 MCP 将截图标记为 `required` image attachment；Web 必须内联展示，Telegram 必须发送图片，即使用户的问题中没有“截图”关键词。
 
-截图默认关闭。启用时必须同时配置：
+截图默认关闭。启用时配置 Chrome 和一个隔离目录：
 
 ```bash
 XXYY_SCREENSHOT_CHROME_EXECUTABLE=/absolute/path/to/chrome
 XXYY_SCREENSHOT_DIRECTORY=/isolated/xxyy-evidence
-XXYY_SCREENSHOT_PUBLIC_BASE_URL=https://support.example/xxyy-evidence/
 ```
 
 API 只从该目录公开名称为 64 位小写 SHA-256 加 `.png` 的文件。Chrome 启动失败、页面未显示已验证成交、配置缺失或保存失败都只会返回截图 unavailable，不覆盖结构化结论。容器部署需要显式安装/挂载 Chrome 和独立目录。
@@ -88,4 +87,4 @@ XXYY_BROWSER_PROFILE_DIRECTORY=/isolated/xxyy-browser-profile
 
 Chrome/Chromium 会从固定系统路径自动发现；非标准安装可复用 `XXYY_SCREENSHOT_CHROME_EXECUTABLE` 指定。Solscan 会阻止全新无状态 headless 会话，因此首次启用前需用同一 Profile 正常打开 Solscan、完成站点验证并关闭该 Chrome，再启动 API/Telegram。不得指向个人日常 Chrome Profile；Profile 目录属于运行时状态，不得提交仓库。页面验证过期或 Cloudflare 再次拦截时返回浏览器证据不可用，不回退到未知 endpoint。
 
-截图交付仍需前述截图目录与公开 URL；Telegram 还需要已有的 `TELEGRAM_PUBLIC_BASE_URL` 能解析相对附件地址。canonical pool 声明和小池阈值均为可选策略配置，不是浏览器访问的前提。
+Web 通过同源 `/xxyy-evidence/<hash>.png` 渲染图片；Telegram 从截图目录读取 PNG 并直接上传，不要求截图公网 URL。canonical pool 声明和小池阈值均为可选策略配置，不是浏览器访问的前提。

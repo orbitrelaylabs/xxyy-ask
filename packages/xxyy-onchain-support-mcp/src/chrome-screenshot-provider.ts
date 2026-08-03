@@ -12,7 +12,6 @@ const MAX_SCREENSHOT_BYTES = 10 * 1_048_576;
 export interface CreateChromeXxyyScreenshotProviderOptions {
   artifactDirectory: string;
   chromeExecutable: string;
-  publicBaseUrl: string;
   timeoutMs?: number;
 }
 
@@ -21,10 +20,6 @@ export function createChromeXxyyScreenshotProvider(
 ): XxyyScreenshotEvidenceProvider {
   const artifactDirectory = path.resolve(nonEmpty(options.artifactDirectory, 'artifactDirectory'));
   const chromeExecutable = path.resolve(nonEmpty(options.chromeExecutable, 'chromeExecutable'));
-  const publicBaseUrl = new URL(nonEmpty(options.publicBaseUrl, 'publicBaseUrl'));
-  if (publicBaseUrl.protocol !== 'https:' && publicBaseUrl.hostname !== 'localhost') {
-    throw new TypeError('XXYY screenshot publicBaseUrl must use HTTPS or localhost.');
-  }
   const timeoutMs = positiveInteger(options.timeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS, 'timeoutMs');
 
   return {
@@ -100,7 +95,7 @@ export function createChromeXxyyScreenshotProvider(
             sourceUrl,
             title: 'XXYY verified trade-row evidence',
             transactionId: input.transactionId,
-            url: new URL(filename, ensureTrailingSlash(publicBaseUrl)).href,
+            url: `/xxyy-evidence/${filename}`,
           });
         } finally {
           cdp.close();
@@ -399,12 +394,6 @@ function recordString(value: Record<string, unknown>, key: string): string {
   const item = value[key];
   if (typeof item !== 'string') throw new Error(`CDP response omitted ${key}.`);
   return item;
-}
-
-function ensureTrailingSlash(url: URL): URL {
-  const copy = new URL(url);
-  if (!copy.pathname.endsWith('/')) copy.pathname += '/';
-  return copy;
 }
 
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {

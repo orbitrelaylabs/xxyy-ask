@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import {
   knowledgeSourceCatalog,
   type ChatRequest,
@@ -20,6 +22,7 @@ export interface TelegramBotConfig {
   pollErrorRetryMs: number;
   pollTimeoutSeconds: number;
   publicBaseUrl?: string;
+  screenshotDirectory?: string;
   updatesLimit: number;
 }
 
@@ -105,7 +108,13 @@ export interface TelegramSendMessageDraftInput {
 export interface TelegramSendPhotoInput {
   caption?: string;
   chatId: number;
-  photo: string;
+  photo:
+    | string
+    | {
+        filePath: string;
+        filename: string;
+        mediaType: 'image/jpeg' | 'image/png';
+      };
   replyToMessageId?: number;
 }
 
@@ -218,6 +227,7 @@ export type TelegramBotEnv = Record<string, string | undefined> &
       | 'TELEGRAM_AUTO_LEARNING_CONTEXT_MESSAGES'
       | 'TELEGRAM_AUTO_LEARNING_ENABLED'
       | 'TELEGRAM_GROUP_RESPONSES_ENABLED'
+      | 'XXYY_SCREENSHOT_DIRECTORY'
       | 'TELEGRAM_POLL_ERROR_RETRY_MS'
       | 'TELEGRAM_POLL_TIMEOUT_SECONDS'
       | 'TELEGRAM_PUBLIC_BASE_URL'
@@ -264,6 +274,7 @@ export function loadTelegramBotConfig(env: TelegramBotEnv): TelegramBotConfig {
   }
 
   const publicBaseUrl = normalizeOptionalString(env.TELEGRAM_PUBLIC_BASE_URL);
+  const screenshotDirectory = normalizeOptionalString(env.XXYY_SCREENSHOT_DIRECTORY);
 
   return {
     autoLearningContextMessages: parseBoundedPositiveInteger(
@@ -292,6 +303,7 @@ export function loadTelegramBotConfig(env: TelegramBotEnv): TelegramBotConfig {
       DEFAULT_POLL_TIMEOUT_SECONDS,
     ),
     ...(publicBaseUrl === undefined ? {} : { publicBaseUrl }),
+    ...(screenshotDirectory === undefined ? {} : { screenshotDirectory }),
     updatesLimit: parsePositiveInteger(env.TELEGRAM_UPDATES_LIMIT, DEFAULT_UPDATES_LIMIT),
   };
 }
@@ -888,13 +900,14 @@ async function sendChatResponse(
   chatId: number,
   response: ChatResponse,
   question: string,
-  config: Pick<TelegramBotConfig, 'publicBaseUrl'>,
+  config: Pick<TelegramBotConfig, 'publicBaseUrl' | 'screenshotDirectory'>,
   replyToMessageId?: number,
 ): Promise<void> {
   const attachments = userVisibleAttachments(question, response.attachments);
   const attachmentLines = attachmentFallbackLines(
     attachments,
     config.publicBaseUrl,
+    config.screenshotDirectory,
     api.sendVideo !== undefined,
   );
   const htmlMessage = formatTelegramChatResponse(response, attachmentLines);
@@ -936,7 +949,12 @@ async function sendChatResponse(
     if (!isTelegramPhotoMediaType(attachment.mediaType)) {
       continue;
     }
-    const photo = resolveTelegramAttachmentUrl(attachment.url, config.publicBaseUrl);
+    const photo = resolveTelegramPhotoAttachment(
+      attachment.url,
+      attachment.mediaType,
+      config.publicBaseUrl,
+      config.screenshotDirectory,
+    );
     if (photo === undefined) {
       continue;
     }
@@ -1292,12 +1310,19 @@ function formatTelegramRefreshTime(value: string, timeZone: string): string {
 function attachmentFallbackLines(
   attachments: ChatResponse['attachments'],
   publicBaseUrl: string | undefined,
+  screenshotDirectory: string | undefined,
   canSendVideo: boolean,
 ): string[] {
   return (attachments ?? []).flatMap((attachment) => {
     const url = resolveTelegramAttachmentUrl(attachment.url, publicBaseUrl);
     if (attachment.kind === 'image') {
-      return url === undefined || !isTelegramPhotoMediaType(attachment.mediaType)
+      const photo = resolveTelegramPhotoAttachment(
+        attachment.url,
+        attachment.mediaType,
+        publicBaseUrl,
+        screenshotDirectory,
+      );
+      return photo === undefined || !isTelegramPhotoMediaType(attachment.mediaType)
         ? [`附件：${attachment.title} ${url ?? attachment.url}`]
         : [];
     }
@@ -1306,6 +1331,23 @@ function attachmentFallbackLines(
     }
     return [`视频：${attachment.title} ${url ?? attachment.url}`];
   });
+}
+
+function resolveTelegramPhotoAttachment(
+  url: string,
+  mediaType: string,
+  publicBaseUrl: string | undefined,
+  screenshotDirectory: string | undefined,
+): TelegramSendPhotoInput['photo'] | undefined {
+  const match = url.match(/^\/xxyy-evidence\/([0-9a-f]{64}\.png)$/u);
+  if (match?.[1] !== undefined && screenshotDirectory !== undefined && mediaType === 'image/png') {
+    return {
+      filePath: path.join(path.resolve(screenshotDirectory), match[1]),
+      filename: match[1],
+      mediaType: 'image/png',
+    };
+  }
+  return resolveTelegramAttachmentUrl(url, publicBaseUrl);
 }
 
 function isTelegramPhotoMediaType(mediaType: string): boolean {

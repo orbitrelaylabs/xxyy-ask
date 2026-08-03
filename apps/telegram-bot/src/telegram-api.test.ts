@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { createTelegramApiClient } from './telegram-api.js';
@@ -233,5 +237,45 @@ describe('createTelegramApiClient', () => {
       method: 'sendMessage',
       name: 'TelegramApiError',
     } satisfies Partial<TelegramApiError>);
+  });
+
+  it('uploads a local XXYY screenshot as multipart photo data', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'xxyy-telegram-photo-'));
+    const filename = `${'a'.repeat(64)}.png`;
+    const filePath = path.join(directory, filename);
+    await writeFile(filePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const fetch = vi.fn(() => Promise.resolve(createJsonResponse({ ok: true, result: true })));
+    try {
+      const api = createTelegramApiClient({
+        apiBaseUrl: 'https://telegram.test',
+        botToken: '123:abc',
+        fetch,
+      });
+      await api.sendPhoto({
+        caption: 'XXYY 成交查证截图',
+        chatId: 123,
+        photo: { filePath, filename, mediaType: 'image/png' },
+        replyToMessageId: 7,
+      });
+
+      const calls = fetch.mock.calls as unknown as Array<
+        [string, { body: FormData | string; headers?: Record<string, string>; method: 'POST' }]
+      >;
+      const request = calls[0]?.[1];
+      expect(calls[0]?.[0]).toBe('https://telegram.test/bot123:abc/sendPhoto');
+      expect(request?.headers).toBeUndefined();
+      expect(request?.method).toBe('POST');
+      expect(request?.body).toBeInstanceOf(FormData);
+      const form = request?.body as FormData;
+      expect(form.get('chat_id')).toBe('123');
+      expect(form.get('caption')).toBe('XXYY 成交查证截图');
+      expect(form.get('reply_parameters')).toBe('{"message_id":7}');
+      const photo = form.get('photo');
+      expect(photo).toBeInstanceOf(Blob);
+      expect((photo as File).name).toBe(filename);
+      expect((photo as Blob).type).toBe('image/png');
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 });

@@ -85,7 +85,7 @@ describe('formatXxyyTransactionDiagnosis', () => {
           sourceUrl: `https://www.xxyy.io/sol/${pairAddress}`,
           title: 'Verified XXYY trade row',
           transactionId,
-          url: 'https://evidence.example.invalid/xxyy-trade.png',
+          url: `/xxyy-evidence/${'a'.repeat(64)}.png`,
         },
         status: 'ready',
       },
@@ -149,7 +149,7 @@ describe('formatXxyyTransactionDiagnosis', () => {
       expect.objectContaining({
         delivery: 'required',
         kind: 'image',
-        url: 'https://evidence.example.invalid/xxyy-trade.png',
+        url: `/xxyy-evidence/${'a'.repeat(64)}.png`,
       }),
     ]);
     expect(response.answer).toContain('实际池流动性：$100');

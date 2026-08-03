@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+
 import type {
   TelegramApi,
   TelegramBotIdentity,
@@ -20,8 +22,8 @@ export interface CreateTelegramApiClientOptions {
 type TelegramFetch = (
   input: string,
   init: {
-    body: string;
-    headers: Record<string, string>;
+    body: FormData | string;
+    headers?: Record<string, string>;
     method: 'POST';
   },
 ) => Promise<{
@@ -94,6 +96,11 @@ export function createTelegramApiClient(options: CreateTelegramApiClientOptions)
     },
 
     sendPhoto(input) {
+      if (typeof input.photo !== 'string') {
+        return callTelegramPhotoUpload(fetchImpl, apiBaseUrl, options.botToken, input).then(
+          () => undefined,
+        );
+      }
       return callTelegramMethod(fetchImpl, apiBaseUrl, options.botToken, 'sendPhoto', {
         ...(input.caption === undefined ? {} : { caption: input.caption }),
         chat_id: input.chatId,
@@ -121,6 +128,57 @@ export function createTelegramApiClient(options: CreateTelegramApiClientOptions)
       }).then(() => undefined);
     },
   } satisfies TelegramApi;
+}
+
+async function callTelegramPhotoUpload(
+  fetchImpl: TelegramFetch,
+  apiBaseUrl: string,
+  botToken: string,
+  input: TelegramSendPhotoInput,
+): Promise<unknown> {
+  if (typeof input.photo === 'string') {
+    throw new TypeError('Telegram photo upload requires a local file descriptor.');
+  }
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(input.photo.filePath);
+  } catch {
+    throw new TelegramApiError('sendPhoto', 'Local screenshot file could not be read.');
+  }
+  if (bytes.byteLength === 0 || bytes.byteLength > 10_000_000) {
+    throw new TelegramApiError('sendPhoto', 'Local screenshot file size is invalid.');
+  }
+  const form = new FormData();
+  form.set('chat_id', String(input.chatId));
+  if (input.caption !== undefined) form.set('caption', input.caption);
+  if (input.replyToMessageId !== undefined) {
+    form.set('reply_parameters', JSON.stringify({ message_id: input.replyToMessageId }));
+  }
+  form.set(
+    'photo',
+    new Blob([new Uint8Array(bytes)], { type: input.photo.mediaType }),
+    input.photo.filename,
+  );
+  return await callTelegramMultipartMethod(fetchImpl, apiBaseUrl, botToken, 'sendPhoto', form);
+}
+
+async function callTelegramMultipartMethod(
+  fetchImpl: TelegramFetch,
+  apiBaseUrl: string,
+  botToken: string,
+  method: 'sendPhoto',
+  body: FormData,
+): Promise<unknown> {
+  let response: Awaited<ReturnType<TelegramFetch>>;
+  try {
+    response = await fetchImpl(`${apiBaseUrl}/bot${botToken}/${method}`, {
+      body,
+      method: 'POST',
+    });
+  } catch {
+    throw new TelegramApiError(method, 'Transport request failed.');
+  }
+  return await readTelegramMethodResponse(method, response);
 }
 
 async function callTelegramMethod(
@@ -156,6 +214,13 @@ async function callTelegramMethod(
   } catch {
     throw new TelegramApiError(method, 'Transport request failed.');
   }
+  return await readTelegramMethodResponse(method, response);
+}
+
+async function readTelegramMethodResponse(
+  method: TelegramApiError['method'],
+  response: Awaited<ReturnType<TelegramFetch>>,
+): Promise<unknown> {
   let rawBody: unknown;
   try {
     rawBody = await response.json();

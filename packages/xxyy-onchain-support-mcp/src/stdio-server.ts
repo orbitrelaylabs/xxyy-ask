@@ -69,8 +69,7 @@ process.once('SIGTERM', () => void shutdown().finally(() => process.exit(0)));
 function optionalScreenshotProvider(env: NodeJS.ProcessEnv) {
   const chromeExecutable = env.XXYY_SCREENSHOT_CHROME_EXECUTABLE?.trim();
   const artifactDirectory = env.XXYY_SCREENSHOT_DIRECTORY?.trim();
-  const publicBaseUrl = env.XXYY_SCREENSHOT_PUBLIC_BASE_URL?.trim();
-  const values = [chromeExecutable, artifactDirectory, publicBaseUrl];
+  const values = [chromeExecutable, artifactDirectory];
   if (values.every((value) => value === undefined || value.length === 0)) return undefined;
   if (values.some((value) => value === undefined || value.length === 0)) {
     throw new TypeError('XXYY screenshot configuration must be provided as one complete set.');
@@ -78,6 +77,5 @@ function optionalScreenshotProvider(env: NodeJS.ProcessEnv) {
   return createChromeXxyyScreenshotProvider({
     artifactDirectory: artifactDirectory!,
     chromeExecutable: chromeExecutable!,
-    publicBaseUrl: publicBaseUrl!,
   });
 }

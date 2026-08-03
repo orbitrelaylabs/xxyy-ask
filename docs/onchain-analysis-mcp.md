@@ -39,8 +39,9 @@ Chrome/Chromium 会从固定系统路径自动发现，也可以复用截图配�
 ```dotenv
 XXYY_SCREENSHOT_CHROME_EXECUTABLE=/absolute/path/to/chrome
 XXYY_SCREENSHOT_DIRECTORY=/absolute/path/to/evidence
-XXYY_SCREENSHOT_PUBLIC_BASE_URL=https://support.example/xxyy-evidence
 ```
+
+Web 使用同源 `/xxyy-evidence/<hash>.png` 显示截图；Telegram 直接上传目录中的 PNG 字节，因此不需要截图公网 URL。
 
 池子策略可选配置：
 

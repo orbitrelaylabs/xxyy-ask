@@ -214,7 +214,7 @@ describe('createXxyyTransactionDiagnosisService', () => {
           sourceUrl: `https://www.xxyy.io/sol/${input.pairAddress}`,
           title: 'Verified XXYY trade row',
           transactionId: input.transactionId,
-          url: 'https://evidence.example.invalid/xxyy-trade.png',
+          url: `/xxyy-evidence/${'a'.repeat(64)}.png`,
         }),
       },
     });

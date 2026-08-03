@@ -69,6 +69,8 @@ services:
       OPENAI_BASE_URL: ${COMPOSE_OPENAI_BASE_URL:-${OPENAI_BASE_URL}}
       OPENAI_MODEL: ${OPENAI_MODEL:?Set OPENAI_MODEL in .env}
       XXYY_BROWSER_PROFILE_DIRECTORY: ${COMPOSE_XXYY_BROWSER_PROFILE_DIRECTORY:-/var/lib/xxyy-browser-profile}
+      XXYY_SCREENSHOT_CHROME_EXECUTABLE: ${COMPOSE_XXYY_SCREENSHOT_CHROME_EXECUTABLE:-/usr/bin/chromium}
+      XXYY_SCREENSHOT_DIRECTORY: ${COMPOSE_XXYY_SCREENSHOT_DIRECTORY:-/var/lib/xxyy-evidence}
       XXYY_SMALL_POOL_MAX_LIQUIDITY_USD: ${XXYY_SMALL_POOL_MAX_LIQUIDITY_USD:-10000}
       XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM: ${XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM:-100000}
       XXYY_CANONICAL_POOL_CONFIG_JSON: ${XXYY_CANONICAL_POOL_CONFIG_JSON:-}
@@ -90,6 +92,7 @@ services:
     volumes:
       - './.rag/knowledge-refresh:/app/.rag/knowledge-refresh:ro'
       - xxyy_api_browser_profile:/var/lib/xxyy-browser-profile
+      - xxyy_api_evidence:/var/lib/xxyy-evidence
     healthcheck:
       test:
         [
@@ -121,6 +124,8 @@ services:
       OPENAI_BASE_URL: ${COMPOSE_OPENAI_BASE_URL:-${OPENAI_BASE_URL}}
       OPENAI_MODEL: ${OPENAI_MODEL:?Set OPENAI_MODEL in .env}
       XXYY_BROWSER_PROFILE_DIRECTORY: ${COMPOSE_XXYY_BROWSER_PROFILE_DIRECTORY:-/var/lib/xxyy-browser-profile}
+      XXYY_SCREENSHOT_CHROME_EXECUTABLE: ${COMPOSE_XXYY_SCREENSHOT_CHROME_EXECUTABLE:-/usr/bin/chromium}
+      XXYY_SCREENSHOT_DIRECTORY: ${COMPOSE_XXYY_SCREENSHOT_DIRECTORY:-/var/lib/xxyy-evidence}
       XXYY_SMALL_POOL_MAX_LIQUIDITY_USD: ${XXYY_SMALL_POOL_MAX_LIQUIDITY_USD:-10000}
       XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM: ${XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM:-100000}
       XXYY_CANONICAL_POOL_CONFIG_JSON: ${XXYY_CANONICAL_POOL_CONFIG_JSON:-}
@@ -143,6 +148,7 @@ services:
     volumes:
       - './.rag/knowledge-refresh:/app/.rag/knowledge-refresh:ro'
       - xxyy_telegram_browser_profile:/var/lib/xxyy-browser-profile
+      - xxyy_telegram_evidence:/var/lib/xxyy-evidence
 
   telegram-curation-worker:
     <<: *app-base
@@ -182,5 +188,7 @@ services:
 
 volumes:
   xxyy_api_browser_profile:
+  xxyy_api_evidence:
   xxyy_pgdata:
   xxyy_telegram_browser_profile:
+  xxyy_telegram_evidence:

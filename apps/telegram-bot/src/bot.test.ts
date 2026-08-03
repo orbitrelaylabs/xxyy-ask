@@ -1204,7 +1204,7 @@ describe('createTelegramBot', () => {
                   kind: 'image',
                   mediaType: 'image/png',
                   title: 'XXYY 成交查证截图',
-                  url: 'https://ask.example.com/xxyy-evidence/evidence.png',
+                  url: `/xxyy-evidence/${'a'.repeat(64)}.png`,
                 },
               ],
               intent: 'onchain_transaction',
@@ -1212,7 +1212,10 @@ describe('createTelegramBot', () => {
           ),
         ),
       },
-      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      config: loadTelegramBotConfig({
+        TELEGRAM_BOT_TOKEN: 'bot-token',
+        XXYY_SCREENSHOT_DIRECTORY: '/var/lib/xxyy-evidence',
+      }),
     });
 
     await bot.handleUpdate({
@@ -1228,7 +1231,11 @@ describe('createTelegramBot', () => {
     expect(sendPhoto).toHaveBeenCalledWith({
       caption: 'XXYY 成交查证截图',
       chatId: 123,
-      photo: 'https://ask.example.com/xxyy-evidence/evidence.png',
+      photo: {
+        filePath: `/var/lib/xxyy-evidence/${'a'.repeat(64)}.png`,
+        filename: `${'a'.repeat(64)}.png`,
+        mediaType: 'image/png',
+      },
       replyToMessageId: 1,
     });
   });

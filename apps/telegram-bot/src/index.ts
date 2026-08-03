@@ -50,7 +50,6 @@ type TelegramEnv = RagEnv &
       | 'XXYY_CANONICAL_POOL_CONFIG_JSON'
       | 'XXYY_SCREENSHOT_CHROME_EXECUTABLE'
       | 'XXYY_SCREENSHOT_DIRECTORY'
-      | 'XXYY_SCREENSHOT_PUBLIC_BASE_URL'
       | 'XXYY_BROWSER_PROFILE_DIRECTORY'
       | 'TELEGRAM_API_BASE_URL'
       | 'TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS',
@@ -183,8 +182,7 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
 function createOptionalScreenshotProvider(env: TelegramEnv) {
   const chromeExecutable = env.XXYY_SCREENSHOT_CHROME_EXECUTABLE?.trim();
   const artifactDirectory = env.XXYY_SCREENSHOT_DIRECTORY?.trim();
-  const publicBaseUrl = env.XXYY_SCREENSHOT_PUBLIC_BASE_URL?.trim();
-  const values = [chromeExecutable, artifactDirectory, publicBaseUrl];
+  const values = [chromeExecutable, artifactDirectory];
   if (values.every((value) => value === undefined || value.length === 0)) return undefined;
   if (values.some((value) => value === undefined || value.length === 0)) {
     throw new TypeError('XXYY screenshot configuration must be provided as one complete set.');
@@ -192,7 +190,6 @@ function createOptionalScreenshotProvider(env: TelegramEnv) {
   return createChromeXxyyScreenshotProvider({
     artifactDirectory: artifactDirectory!,
     chromeExecutable: chromeExecutable!,
-    publicBaseUrl: publicBaseUrl!,
   });
 }
 

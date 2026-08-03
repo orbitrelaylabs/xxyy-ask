@@ -40,7 +40,7 @@ export const xxyyScreenshotArtifactSchema = z
     sourceUrl: z.string().url(),
     title: z.string().trim().min(1).max(256),
     transactionId: z.string().trim().min(1).max(256),
-    url: z.string().url(),
+    url: z.string().regex(/^\/xxyy-evidence\/[0-9a-f]{64}\.png$/u),
   })
   .strict();
 

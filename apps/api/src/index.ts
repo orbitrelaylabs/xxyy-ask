@@ -94,7 +94,6 @@ type ApiEnv = RagEnv &
       | 'XXYY_CANONICAL_POOL_CONFIG_JSON'
       | 'XXYY_SCREENSHOT_CHROME_EXECUTABLE'
       | 'XXYY_SCREENSHOT_DIRECTORY'
-      | 'XXYY_SCREENSHOT_PUBLIC_BASE_URL'
       | 'XXYY_BROWSER_PROFILE_DIRECTORY'
       | 'KNOWLEDGE_ADMIN_MAX_BODY_BYTES'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_MAX'
@@ -1532,18 +1531,16 @@ function createOptionalXxyyScreenshotProvider(env: ApiEnv) {
   const values = [
     env.XXYY_SCREENSHOT_CHROME_EXECUTABLE?.trim(),
     env.XXYY_SCREENSHOT_DIRECTORY?.trim(),
-    env.XXYY_SCREENSHOT_PUBLIC_BASE_URL?.trim(),
   ];
   if (values.every((value) => value === undefined || value.length === 0)) return undefined;
   if (values.some((value) => value === undefined || value.length === 0)) {
     throw new TypeError(
-      'XXYY screenshot capture requires Chrome executable, artifact directory, and public base URL together.',
+      'XXYY screenshot capture requires Chrome executable and artifact directory together.',
     );
   }
   return createChromeXxyyScreenshotProvider({
     artifactDirectory: values[1]!,
     chromeExecutable: values[0]!,
-    publicBaseUrl: values[2]!,
   });
 }
 
