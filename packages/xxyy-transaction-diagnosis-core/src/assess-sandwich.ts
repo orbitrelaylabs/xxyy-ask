@@ -62,13 +62,15 @@ export function assessXxyySandwichPattern(input: unknown): XxyySandwichAssessmen
   } as const;
 
   if (structuralReasons.length > 0) {
-    const complete =
-      parsed.coverage.neighborhood === 'complete' && parsed.coverage.poolState === 'complete';
-    return result(complete ? 'unlikely' : 'insufficient_data', structuralReasons, {
-      back,
-      criteria,
-      front,
-    });
+    return result(
+      parsed.coverage.neighborhood === 'complete' ? 'unlikely' : 'insufficient_data',
+      structuralReasons,
+      {
+        back,
+        criteria,
+        front,
+      },
+    );
   }
 
   const victimLoss = parsed.calculation?.victimLossRaw;

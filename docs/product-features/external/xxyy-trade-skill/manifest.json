@@ -20,20 +20,6 @@
       "source_url": "https://github.com/Jimmy-Holiday/xxyy-trade-skill/blob/2cc0ff3d95583579f3e1b2b4a2c8429342bb0784/docs/README_ZH.md"
     },
     {
-      "bytes": 9909,
-      "output": "mcp-readme.md",
-      "path": "mcp/README.md",
-      "sha256": "03d93103eb0c47543217a98ba56cb8a87dea793cef130095bf4d853c560b7953",
-      "source_url": "https://github.com/Jimmy-Holiday/xxyy-trade-skill/blob/2cc0ff3d95583579f3e1b2b4a2c8429342bb0784/mcp/README.md"
-    },
-    {
-      "bytes": 9926,
-      "output": "mcp-readme-zh.md",
-      "path": "mcp/docs/README_ZH.md",
-      "sha256": "8fade961a222ef0c27c15d070764849fdebbb6318bc629ad26c3d6280f33919b",
-      "source_url": "https://github.com/Jimmy-Holiday/xxyy-trade-skill/blob/2cc0ff3d95583579f3e1b2b4a2c8429342bb0784/mcp/docs/README_ZH.md"
-    },
-    {
       "bytes": 71890,
       "output": "skill-reference.md",
       "path": "SKILL.md",

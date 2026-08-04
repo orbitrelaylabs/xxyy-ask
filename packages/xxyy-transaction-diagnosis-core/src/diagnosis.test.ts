@@ -88,6 +88,28 @@ describe('XXYY transaction diagnosis core', () => {
     });
   });
 
+  it('returns unlikely for a complete neighborhood that structurally contradicts a sandwich', () => {
+    expect(
+      assessXxyySandwichPattern({
+        coverage: {
+          actorAssetDeltas: 'missing',
+          neighborhood: 'complete',
+          poolState: 'missing',
+          sourceConflicts: 0,
+        },
+        observations: [
+          { ...observation('front', 10, 'first-actor', 'buy'), slot: '41' },
+          observation('target', 11, 'trader', 'buy'),
+          { ...observation('back', 12, 'second-actor', 'buy'), slot: '43' },
+        ],
+        targetTransactionId: 'target',
+      }),
+    ).toMatchObject({
+      reasonCodes: ['same_block_or_slot_missing', 'actor_mismatch', 'direction_mismatch'],
+      verdict: 'unlikely',
+    });
+  });
+
   it('fails closed on source conflict', () => {
     expect(
       assessXxyySandwichPattern({

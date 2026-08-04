@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
-import type { DiagnoseXxyyTransactionOutput } from '@xxyy/xxyy-onchain-support-mcp';
+import type { DiagnoseXxyyTransactionOutput } from '@xxyy/xxyy-transaction-diagnosis-runtime';
 
-import { formatXxyyTransactionDiagnosis } from './xxyy-transaction-diagnosis-tool.js';
+import {
+  extractEvmTokenAddresses,
+  formatXxyyTransactionDiagnosis,
+} from './xxyy-transaction-diagnosis-tool.js';
 
 describe('formatXxyyTransactionDiagnosis', () => {
+  it('uses token addresses extracted from partial Explorer evidence', () => {
+    const tokenAddress = `0x${'2'.repeat(40)}`;
+    expect(
+      extractEvmTokenAddresses({
+        analysis: {
+          evidence: [{ structuredData: { tokenAddresses: [tokenAddress] } }],
+          tokenTransfers: [],
+        },
+      } as never),
+    ).toEqual([tokenAddress]);
+  });
+
   it('marks a verified screenshot as required user-visible evidence', () => {
     const transactionId = '4'.repeat(88);
     const maker = '5'.repeat(44);

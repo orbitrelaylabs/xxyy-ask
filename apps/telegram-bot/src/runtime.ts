@@ -3,8 +3,10 @@ import {
   type AnswerQualityRolloutConfig,
   type AnswerQualityRolloutObserver,
 } from '@xxyy/agent-core';
-import type { ChainAnalysisMcpClient } from '@xxyy/chain-analysis-mcp';
-import type { XxyyOnchainSupportMcpClient } from '@xxyy/xxyy-onchain-support-mcp';
+import type {
+  PublicTransactionClient,
+  XxyyTransactionDiagnosisHandler,
+} from '@xxyy/xxyy-transaction-diagnosis-runtime';
 import { createOpenAiEmbeddingProvider } from '@xxyy/knowledge';
 import type {
   ChatHistoryMessage,
@@ -44,9 +46,9 @@ export function createTelegramChatRuntime(
   options: {
     answerQualityRollout?: AnswerQualityRolloutConfig;
     answerQualityRolloutObserver?: AnswerQualityRolloutObserver;
-    publicChainMcpClient?: ChainAnalysisMcpClient;
+    publicTransactionClient?: PublicTransactionClient;
     supportOperationsStore?: PgSupportOperationsStore;
-    xxyyOnchainMcpClient?: XxyyOnchainSupportMcpClient;
+    xxyyTransactionDiagnosis?: XxyyTransactionDiagnosisHandler;
   } = {},
 ): TelegramChatRuntime {
   let vectorPool: ReturnType<typeof createPgPool> | undefined;
@@ -91,23 +93,23 @@ export function createTelegramChatRuntime(
       channel: 'telegram',
       principal: 'service',
     },
-    ...(options.publicChainMcpClient === undefined
+    ...(options.publicTransactionClient === undefined
       ? {}
       : {
           publicChainCapabilityCaller: {
             channel: 'telegram' as const,
             principal: 'service' as const,
           },
-          publicChainMcpClient: options.publicChainMcpClient,
+          publicTransactionClient: options.publicTransactionClient,
         }),
-    ...(options.xxyyOnchainMcpClient === undefined
+    ...(options.xxyyTransactionDiagnosis === undefined
       ? {}
       : {
           xxyyDiagnosisCapabilityCaller: {
             channel: 'telegram' as const,
             principal: 'service' as const,
           },
-          xxyyOnchainMcpClient: options.xxyyOnchainMcpClient,
+          xxyyTransactionDiagnosis: options.xxyyTransactionDiagnosis,
         }),
     retriever,
     tracer,
@@ -138,8 +140,7 @@ export function createTelegramChatRuntime(
         pool?.end(),
         currentFeedbackPool?.end(),
         currentSupportPool?.end(),
-        options.publicChainMcpClient?.close(),
-        options.xxyyOnchainMcpClient?.close(),
+        options.publicTransactionClient?.close(),
       ]);
     },
     service: withLowEvidenceFeedback(

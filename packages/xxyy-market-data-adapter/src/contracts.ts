@@ -10,6 +10,11 @@ const decimalAmountSchema = z.string().regex(/^(?:0|[1-9]\d*)(?:\.\d+)?$/u);
 
 export const xxyyMarketTradeSchema = z
   .object({
+    blockNumber: z
+      .string()
+      .regex(/^(?:0|[1-9]\d*)$/u)
+      .optional(),
+    logIndex: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
     maker: identifierSchema,
     marketCapUsd: decimalAmountSchema.optional(),
     nativeAmount: decimalAmountSchema,

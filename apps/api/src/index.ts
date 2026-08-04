@@ -16,10 +16,9 @@ import {
   createChromeXxyyScreenshotProvider,
   createBrowserChainAnalysisClient,
   createConfiguredCanonicalPoolResolver,
-  createInMemoryXxyyOnchainSupportMcpClient,
   createXxyyTransactionDiagnosisService,
   resolveBrowserChromeExecutable,
-} from '@xxyy/xxyy-onchain-support-mcp';
+} from '@xxyy/xxyy-transaction-diagnosis-runtime';
 import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxyy/knowledge';
 import {
   createOpenAiAnswerProvider,
@@ -1455,25 +1454,22 @@ function createCachedChatServiceLoader(
         throw error;
       }
     });
-    const publicChainMcpClient = await createOptionalBrowserChainAnalysisClient(env);
-    const xxyyChainMcpClient = publicChainMcpClient;
+    const publicTransactionClient = await createOptionalBrowserChainAnalysisClient(env);
     const screenshotProvider = createOptionalXxyyScreenshotProvider(env);
     const canonicalPoolResolver =
       env.XXYY_CANONICAL_POOL_CONFIG_JSON?.trim() === undefined ||
       env.XXYY_CANONICAL_POOL_CONFIG_JSON.trim().length === 0
         ? undefined
         : createConfiguredCanonicalPoolResolver(env.XXYY_CANONICAL_POOL_CONFIG_JSON);
-    const xxyyOnchainMcpClient =
-      xxyyChainMcpClient === undefined
+    const xxyyTransactionDiagnosis =
+      publicTransactionClient === undefined
         ? undefined
-        : createInMemoryXxyyOnchainSupportMcpClient({
-            handler: createXxyyTransactionDiagnosisService({
-              chainAnalysis: xxyyChainMcpClient,
-              ...(canonicalPoolResolver === undefined ? {} : { canonicalPoolResolver }),
-              marketData: createXxyyMarketDataClient(),
-              poolPolicy: loadXxyyPoolPolicy(env),
-              ...(screenshotProvider === undefined ? {} : { screenshotProvider }),
-            }),
+        : createXxyyTransactionDiagnosisService({
+            chainAnalysis: publicTransactionClient,
+            ...(canonicalPoolResolver === undefined ? {} : { canonicalPoolResolver }),
+            marketData: createXxyyMarketDataClient(),
+            poolPolicy: loadXxyyPoolPolicy(env),
+            ...(screenshotProvider === undefined ? {} : { screenshotProvider }),
           });
     cachedService = createCustomerAgentChatService({
       answerQualityRollout: loadAnswerQualityRolloutConfig(env),
@@ -1484,23 +1480,23 @@ function createCachedChatServiceLoader(
         channel: 'web',
         principal: 'anonymous',
       },
-      ...(publicChainMcpClient === undefined
+      ...(publicTransactionClient === undefined
         ? {}
         : {
             publicChainCapabilityCaller: {
               channel: 'web' as const,
               principal: 'anonymous' as const,
             },
-            publicChainMcpClient,
+            publicTransactionClient,
           }),
-      ...(xxyyOnchainMcpClient === undefined
+      ...(xxyyTransactionDiagnosis === undefined
         ? {}
         : {
             xxyyDiagnosisCapabilityCaller: {
               channel: 'web' as const,
               principal: 'anonymous' as const,
             },
-            xxyyOnchainMcpClient,
+            xxyyTransactionDiagnosis,
           }),
       retriever,
       tracer,

@@ -30,6 +30,8 @@ describe('XXYY market data adapter', () => {
         code: 0,
         data: [
           {
+            blockNumber: 122,
+            logIndex: 99,
             maker: 'earlier-attacker',
             nativeAmount: '0.8',
             timestamp: 1_699_999_999_999,
@@ -39,6 +41,8 @@ describe('XXYY market data adapter', () => {
             usdAmount: '160',
           },
           {
+            blockNumber: 123,
+            logIndex: 7,
             maker: 'full-maker-address',
             nativeAmount: '1.25',
             timestamp: 1_700_000_000_000,
@@ -48,9 +52,11 @@ describe('XXYY market data adapter', () => {
             usdAmount: '200',
           },
           {
+            blockNumber: 124,
+            logIndex: 1,
             maker: 'suffix-collision-address',
             nativeAmount: '1',
-            timestamp: 1_700_000_000_001,
+            timestamp: 1_699_999_999_998,
             tokenAmount: '900',
             txHash: 'different-transaction-id',
             type: 'buy',
@@ -71,7 +77,12 @@ describe('XXYY market data adapter', () => {
     ).resolves.toMatchObject({
       matchedPair: { pairAddress: 'pool-1' },
       status: 'exact',
-      trade: { maker: 'full-maker-address', transactionId: 'exact-transaction-id' },
+      trade: {
+        blockNumber: '123',
+        logIndex: 7,
+        maker: 'full-maker-address',
+        transactionId: 'exact-transaction-id',
+      },
       contextTrades: [
         expect.objectContaining({
           maker: 'earlier-attacker',
@@ -89,6 +100,79 @@ describe('XXYY market data adapter', () => {
       String(url).includes('/api/data/trades/search'),
     );
     expect(JSON.parse(String(tradeRequest?.[1]?.body))).toMatchObject({ makerAddress: '' });
+    expect(tradeRequest?.[1]?.headers).toMatchObject({
+      'x-chain': 'sol',
+      'x-language': 'zh',
+      'x-version': '1',
+    });
+  });
+
+  it('widens a timestamp search only when the narrow response misses the target hash', async () => {
+    let tradeCalls = 0;
+    const fetchImpl = vi.fn<typeof fetch>(async (url) => {
+      if (String(url).includes('/search/v3')) {
+        return jsonResponse({
+          code: 0,
+          data: {
+            results: [
+              {
+                pairInfo: {
+                  address: 'pool-1',
+                  baseToken: 'token-1',
+                  chain: 'bsc',
+                  quoteToken: 'wrapped-bnb',
+                },
+              },
+            ],
+          },
+        });
+      }
+      tradeCalls += 1;
+      return jsonResponse({
+        code: 0,
+        data:
+          tradeCalls === 1
+            ? []
+            : [
+                {
+                  blockNumber: 113369791,
+                  logIndex: 406,
+                  maker: '0x0b8fdf1678755561d9ad14d5422fcdd0aedae378',
+                  nativeAmount: '0.494074594267978411',
+                  timestamp: 1_785_576_519_057,
+                  tokenAmount: '182276.429094995367852001',
+                  txHash: `0x${'1'.repeat(64)}`,
+                  type: 'buy',
+                  usdAmount: '289.2658527060733653',
+                },
+              ],
+      });
+    });
+    const client = createXxyyMarketDataClient({ fetchImpl });
+
+    await expect(
+      client.findTrade({
+        chain: 'eip155:56',
+        targetTokenAddresses: ['token-1'],
+        timestampMs: 1_785_576_519_000,
+        transactionId: `0x${'1'.repeat(64)}`,
+      }),
+    ).resolves.toMatchObject({
+      status: 'exact',
+      trade: { blockNumber: '113369791', logIndex: 406 },
+    });
+    expect(tradeCalls).toBe(2);
+    const tradeRequests = fetchImpl.mock.calls.filter(([url]) =>
+      String(url).includes('/api/data/trades/search'),
+    );
+    expect(JSON.parse(String(tradeRequests[0]?.[1]?.body))).toMatchObject({
+      timeEnd: 1_785_576_521_000,
+      timeStart: 1_785_576_517_000,
+    });
+    expect(JSON.parse(String(tradeRequests[1]?.[1]?.body))).toMatchObject({
+      timeEnd: 1_785_576_534_000,
+      timeStart: 1_785_576_504_000,
+    });
   });
 
   it('fails closed when the chain-derived actor conflicts with XXYY market data', async () => {

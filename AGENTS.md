@@ -17,11 +17,10 @@
 
 - 可以回答 XXYY 产品功能、配置步骤、权益说明和官方更新相关问题。
 - Web 与 Telegram 可以对用户提供的公开交易哈希/Explorer 链接执行浏览器基础查询与 XXYY 交易诊断。公开路径不提供 EVM call trace 或 archive MEV；被夹判断只基于浏览器交易事实和 XXYY 前后成交结构，证据不足时必须返回部分数据或数据不足，不能编造结论。
-- 已提供只读 `xxyy-product-support` MCP server 和同名 project Skill，以及浏览器驱动的 `xxyy-onchain-support` MCP / `xxyy-transaction-diagnosis` Skill。通用 `onchain-analysis` 与两个离线分析 Skills 只供隔离的内部 composition 使用，不是公开客服的数据源。
+- 已提供三个可独立接入的 project Skills：`xxyy-product-support`、`onchain-transaction-inspector` 和 `xxyy-transaction-diagnosis`。产品支持通过 HTTP API，交易查询通过自包含浏览器 JSON CLI 接入，不要求配套常驻服务。
 - 不直接查询用户账户、订单、钱包余额或私有交易记录。
 - 不提供投资建议。
 - 对边界问题必须返回边界回复，不要编造实时数据。
-- 未接线的链上生产准备采用 `single_owner`：一个受控人工 principal 承担 planner/publisher/reviewer/attestor，采集、Provider 和保留使用隔离 service account；自动 verifier 是补偿控制，不得描述为第二名人工审批人。
 
 ## 技术栈
 
@@ -29,7 +28,6 @@
 - pnpm workspace
 - Vitest
 - LangGraph JS
-- Model Context Protocol TypeScript SDK
 - Node `fetch`
 - Postgres + pgvector
 - OpenAI-compatible `/embeddings` 和 `/chat/completions`
@@ -39,33 +37,20 @@
 - `packages/shared`：共享类型和聊天契约。
 - `packages/knowledge`：产品文档加载、Markdown chunk、tokenize 和 OpenAI embedding provider。
 - `packages/rag-core`：意图分类、检索接口、pgvector store、LLM answer provider、边界回复和配置错误类型。
-- `packages/agent-core`：LangGraph 客服 Agent runtime、planner、tool registry、Capability Registry，以及 Product Skill → MCP 与公开三项 Chain Skill → MCP 的显式授权 bridge。
-- `packages/product-qa-mcp`：只读产品知识 MCP server/client、`search_product_docs` 契约、Skill Resource/Prompt 和 stdio 入口。
-- `packages/chain-analysis-mcp`：通用只读 `onchain-analysis` MCP server/client、`get_transaction` / `inspect_transaction` / `detect_sandwich`、Explorer 引用解析、Skill Resource/Prompt、输出投影与 readiness 时间窗门禁；自身不绑定 XXYY 产品。
+- `packages/agent-core`：LangGraph 客服 Agent runtime、planner、tool registry、Capability Registry，以及三个公开 Skill 的显式授权 bridge。
+- `packages/product-support-runtime`：产品知识检索的直接 runtime 与输入输出契约。
 - `packages/xxyy-transaction-diagnosis-core`：无网络依赖的 XXYY 池子匹配/小池与 Sandwich 四态投影；canonical 与流动性判断严格分离。
 - `packages/xxyy-market-data-adapter`：固定访问 `https://www.xxyy.io` 的只读成交/多池适配器；保留受限时间窗内的周边成交，完整哈希和完整 maker 冲突时失败关闭，不接受调用方 endpoint。
-- `packages/xxyy-onchain-support-mcp`：XXYY 专用 `diagnose_xxyy_transaction` MCP、Skill Resource/Prompt、通用 Chain MCP 组合与可选隔离 Chrome 截图提供器。
-- `packages/transaction-analysis-core`：无网络依赖的 EVM transaction snapshot 领域分析；由 Chain MCP composition 调用。
-- `packages/evm-data-adapter`：启动时 allowlist 的只读 EVM JSON-RPC 获取、归一化和 provider 协调；公开三项 Chain 能力共享其基础交易快照。
-- `packages/solana-data-adapter`：启动时 allowlist 的只读 Solana `getTransaction` 获取、余额变化归一化和多 Provider 对账；不暴露任意 RPC。
-- `packages/evm-execution-enrichment-core`：离线的 EVM call trace、revert 和 allowlisted DEX swap 语义增强；由 Chain MCP composition 调用。
-- `packages/evm-execution-data-adapter`：启动时 allowlist 的 callTracer 或 Blockscout v2 raw trace 获取，以及 Uniswap V2/V3 pool/factory 元数据验证；公开 Blockscout 单源固定标为部分证据，生产 RPC trace/MEV 数据面仍走 readiness-gated 私有 composition。
-- `packages/evm-chain-analysis-harness`：不执行网络 I/O 的 transaction/execution/MEV 离线组合、replay corpus 评测和质量门禁；Chain MCP 只传入已验证对象。
-- `packages/evm-chain-analysis-readiness`：无网络 I/O 的 sampling plan/evidence intake、manifest/candidate handoff、单 owner reviewed replay 治理、生产数据面证据契约和综合 readiness evaluator；不含真实来源/法务审批、主网样本或 provider backend，Chain MCP 只消费持久化 evaluator 结果。
-- `packages/evm-chain-analysis-control-store`：通过注入 client 执行 SQL 的 Postgres sampling/handoff/单 owner 治理证据存储、sampling/retention/review worker contract、可重算 readiness evidence ledger、哈希链审计、共享 provider budget 和 circuit CAS backend；不自行创建连接、不访问 RPC/HTTP、不含生产 grant/审批/真实证据。
-- `packages/evm-chain-analysis-data-plane`：私有双 Provider composition root；从 opaque secret resolver 构建三个只读 adapter，在 HTTP 外层执行共享 budget/circuit、bounded cache、持久脱敏审计、metrics/alert 以及四类 worker handler contract；仅由运维入口和 readiness-gated Chain MCP 使用，不含真实 endpoint/credential 或生产部署证明。
-- `packages/evm-price-impact-sandwich-core`：离线的 lossless AMM price impact 和 Sandwich 四态判定；由 Chain MCP composition 调用。
-- `packages/evm-mev-observation-data-adapter`：启动时 allowlist 的同区块 swap、transaction-boundary pool state、actor token delta 和多 provider 冲突验证；通用配置可显式接入，生产深度数据面仍走 readiness-gated 私有 composition。
-- `apps/chain-control-cli`：与客服运行面隔离的生产 provisioning composition root；从受控 plan 与 Ed25519 attestation 写入独立 control Postgres，并重读 receipt/grant lineage/audit chain。
-- `apps/chain-operations-cli`：与客服运行面隔离的 Provider/worker 运维入口；还提供只有固定 manifest、canonical readiness attestation 与 Provider/budget lineage 全部有效时才启动的内部 chain-analysis stdio MCP composition root。
+- `packages/xxyy-transaction-diagnosis-runtime`：固定 Explorer/XXYY 浏览器查询、公开交易解析和隔离 Chrome 截图提供器；Web/Telegram 直接调用，交易 Skill CLI 由它打包生成。
+- `packages/transaction-analysis-core`：浏览器 EVM 交易快照使用的无网络领域分析。
+- `packages/solana-data-adapter`：浏览器页面内容的 Solana 交易归一化工具；公开运行时不调用 RPC。
 - `apps/cli`：`rag:ingest`、`rag:sync:x`、`rag:migrate`、`rag:stats`、`rag:evaluate`、`rag:ask`。
 - `apps/api`：HTTP API 和 Web UI 服务入口。
 - `apps/telegram-bot`：Telegram Bot long polling 与独立群知识整理 Worker；群消息实时写入本地 PostgreSQL 审计缓冲并入持久化队列，群内保持静默，Worker 自动生成待审候选，管理员批准后才进入发布队列，Bot 和整理 Worker 都不执行 pgvector 发布。
 - `apps/web`：静态聊天 UI。
 - `scripts/rag-refresh.mjs`：供外部 scheduler 调用的固定知识刷新 Job；提供 dry-run、同工作区锁和脱敏回执，并在最后自动对账、重试和执行群聊知识发布，不嵌入 API/Telegram 进程。
-- `skills/xxyy-product-support`：项目级 XXYY 产品支持 Skill；只依赖同名只读 MCP，不扩大客服边界。
+- `skills/xxyy-product-support`：通过受保护 Chat API 使用产品知识的独立 Skill。
 - `skills/onchain-transaction-inspector`：通用 EVM / Solana 单交易查询与证据解释 Skill；默认禁止隐式调用。
-- `skills/evm-sandwich-detector`：通用 EVM allowlisted pool Sandwich 四态判断 Skill；默认禁止隐式调用。
 - `skills/xxyy-transaction-diagnosis`：单笔公开交易的 XXYY 成交、池子与 Sandwich 证据诊断；默认禁止隐式调用。
 - `docs/product-features`：知识库种子文档和静态资产。
 
@@ -79,11 +64,6 @@ POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_USER=xxyy
 POSTGRES_PASSWORD=replace_me_with_a_strong_password
-CHAIN_CONTROL_DATABASE_URL=
-CHAIN_CONTROL_AUTHORITY_SYSTEM_ID=
-CHAIN_CONTROL_AUTHORITY_PUBLIC_KEY_FILE=
-CHAIN_ANALYSIS_DATA_PLANE_MANIFEST_FINGERPRINT=
-CHAIN_ANALYSIS_READINESS_FINGERPRINT=
 OPENAI_API_KEY=...
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=...
@@ -117,10 +97,9 @@ TRUST_PROXY=false
 - `pnpm run app:dev -- --full-sync`：启动前全量同步 `docs.xxyy.io` 中英文页面、图片 OCR、视频字幕/关键帧和 `x.com/useXXYYio` 更新，经审计后重建知识库。
 - `pnpm run app:dev -- --ingest`：启动前只执行知识库 ingest。
 - `pnpm rag:refresh`：独立增量刷新 Job；`--full` 执行官网/媒体/X 全量重建，两种模式最后都会运行严格自动知识治理与发布队列；`--dry-run` 只验证固定计划。生产定时任务优先使用该入口。
-- `pnpm product:mcp:dev`：以 stdio 启动只读产品知识 MCP server；API、CLI 和 Telegram 内部使用同一 MCP server 的 in-memory transport。
-- `pnpm onchain:mcp:dev`（兼容别名 `pnpm chain:mcp:dev`）：启动浏览器证据驱动的 XXYY 链上诊断 stdio MCP；要求隔离的 `XXYY_BROWSER_PROFILE_DIRECTORY`，不接受 RPC endpoint 或 RPC 配置。
-- `pnpm onchain:mcp:serve`（兼容别名 `pnpm chain:mcp:serve`）：启动 XXYY 内部 readiness-gated `onchain-analysis` stdio composition；不自动读取 `.env`，且必须同时通过固定 manifest、未过期 `ready` attestation、完整 Provider/budget lineage 与独立 control DB 门禁。
-- `pnpm chain:control:migrate` 与 `pnpm chain:provision:*`：只用于隔离的链上控制面 provisioning；不自动加载 `.env`，不接入客服或 Agent。
+- `node skills/xxyy-product-support/scripts/ask.mjs --question "XXYY Pro 有哪些权益？"`：外部 Agent 通过现有 Chat API 使用产品支持 Skill；配置 `XXYY_SUPPORT_API_BASE_URL` 和 `XXYY_SUPPORT_API_KEY`。
+- `pnpm onchain:inspect -- --reference <tx>`：运行自包含的浏览器基础交易查询 Skill JSON CLI；不启动 daemon 或端口。
+- `pnpm xxyy:diagnose -- --reference <tx> --checks sandwich,pool`：运行自包含 XXYY Skill JSON CLI；不启动 daemon 或端口，不接受 RPC endpoint 或 RPC 配置。
 - `NODE_ENV=production pnpm run app:dev`：生产模式跳过本地 Docker，默认不刷新知识库；可加 `--sync` 或 `--full-sync` 显式更新。
 - `pnpm run telegram:dev`：启动 Telegram Bot long polling。
 - `pnpm telegram:curation:worker`：启动群聊知识自动清洗 Worker；消费持久化队列，只生成待人工审批的候选。
@@ -177,12 +156,9 @@ pnpm run app:dev -- --full-sync
 - `pnpm rag:stats`：查看当前知识库文档数、chunk 数、source URL 数、最新 chunk 更新时间和最近一次 ingestion run。
 - `pnpm rag:evaluate`：运行便宜的 deterministic golden QA 子集；`pnpm rag:evaluate -- --provider` 使用正式 Agent/pgvector/OpenAI-compatible provider 做人工全链路评估。
 - `pnpm rag:ask -- "问题"`：命令行临时调用客服 Agent。
-- `pnpm product:mcp:dev`：为外部 MCP host 启动 `xxyy-product-support` stdio server，暴露只读 `search_product_docs`、Skill Resource 和 Prompt。
-- `pnpm onchain:mcp:dev`：为 MCP host 启动浏览器版 XXYY 交易诊断，读取固定 Explorer 与 XXYY 页面；浏览器证据只能给出部分事实和结构性 Sandwich 判断，不能给出深度 trace 或确定性 MEV 结论。
-- `pnpm chain:mcp:serve`：为受控内部 MCP host 启动相同的 `onchain-analysis` surface；任何 readiness 缺失、过期或 lineage 漂移都会失败关闭。
+- `pnpm onchain:inspect`：运行浏览器版单交易基础信息 Skill CLI。
+- `pnpm xxyy:diagnose`：运行浏览器版 XXYY 交易诊断 Skill CLI，读取固定 Explorer 与 XXYY 页面；浏览器证据只能给出部分事实和结构性 Sandwich 判断，不能给出深度 trace 或确定性 MEV 结论。
 - `pnpm agent:smoke`：检查已启动服务的 health、产品问题路线和边界路线。
-- `pnpm chain:control:migrate`：迁移独立 chain-control PostgreSQL。
-- `pnpm chain:provision:plan/attest/apply/receipt/verify`：生成 plan、机器签名、窗口内原子 apply，并验证 receipt、八条 grant lineage 和治理 audit chain；真实输入不得提交到仓库。
 
 关键行为验证：
 
@@ -202,11 +178,10 @@ env -u DATABASE_URL -u POSTGRES_DB -u POSTGRES_USER -u POSTGRES_PASSWORD OPENAI_
 - 不要提交 `.rag/`、`.env`、数据库数据或密钥。
 - 不要在 `docker-compose.yml` 写死数据库密码；使用 `.env` 注入。
 - 不要把真实 API key 写入测试、README 或日志。
-- 不要提交 chain-control request、plan、attestation、receipt、authority private key 或真实 identity/evidence fingerprint；通过受保护的运维通道提供。远程 control DB 必须验证 TLS，且不能与 Product RAG 共库。
 - 生产 API 服务端不负责迁移；迁移和正式知识写库由独立 `pnpm rag:refresh` Job、`pnpm rag:knowledge:automation:work`、`pnpm run app:dev -- --sync`、`pnpm run app:dev -- --full-sync`、`pnpm rag:ingest` 或 `pnpm rag:sync:x` 完成。本地 `pnpm run app:dev -- --sync` 可以为空知识库做首次 bootstrap。Telegram Bot 只允许创建、自动决定候选和排队，不直接写 pgvector。
-- Product MCP 只能读取正式产品知识；公开 Onchain/XXYY MCP 只能通过固定 Explorer 与 XXYY 页面读取用户明确提供的公开交易，不接受 endpoint、任意请求方法、任意区块范围或私有账户输入。新增 MCP/Skill 必须分别固定 manifest/source/version、配置精确 grant，再通过显式 Tool bridge 暴露，禁止把 discovery 结果自动注册到 Planner。
+- Product Skill 只能读取正式产品知识；公开交易 Skill runtime 只能通过固定 Explorer 与 XXYY 页面读取用户明确提供的公开交易，不接受 endpoint、任意请求方法、任意区块范围或私有账户输入。新增 Skill 必须固定 manifest/source/version、配置精确 grant，再通过显式 Tool bridge 暴露，禁止把目录发现结果自动注册到 Planner。
 - 公开运行时不得发起 RPC。浏览器必须使用隔离、持久的 Profile，页面来源固定在代码 allowlist 中；页面验证失败、字段缺失或来源冲突时返回 partial/insufficient_data。浏览器与 XXYY 前后成交行只能支持结构性 Sandwich 判断，不能伪装成深度 trace、池状态、盈亏证明或 production-ready 证据。
-- Chain Capability bridge 只接受 composition root 固定的可信 caller。Web/API 使用 `web/anonymous`、Telegram 使用 `telegram/service`；公开路径只接浏览器客户端。内部 readiness-gated 历史 composition 与公开客服隔离，不能被公开路径或开发回退调用。
+- Chain Capability bridge 只接受 composition root 固定的可信 caller。Web/API 使用 `web/anonymous`、Telegram 使用 `telegram/service`；公开路径只接浏览器客户端。
 - 新增行为需要加测试；风险较高的改动跑 `pnpm check`。
 - 对外错误信息应清晰区分：
   - LLM 配置缺失
@@ -238,9 +213,9 @@ Codex Desktop、Codex CLI 和人工创建 Git 提交时统一使用 Conventional
 - `packages/knowledge` 和 `docs/product-features`：`knowledge`
 - `packages/rag-core`：`rag`
 - `packages/agent-core`：`agent`
-- `packages/product-qa-mcp`、`packages/chain-analysis-mcp` 和 `skills/*`：`agent`
+- `packages/product-support-runtime` 和 `skills/*`：`agent`
 - `packages/shared`：`shared`
-- `apps/api`、`apps/web`、`apps/cli`、`apps/telegram-bot`：分别使用 `api`、`web`、`cli`、`telegram`；`apps/chain-control-cli` 与 `apps/chain-operations-cli` 使用 `infra`
+- `apps/api`、`apps/web`、`apps/cli`、`apps/telegram-bot`：分别使用 `api`、`web`、`cli`、`telegram`
 - 开发文档：`docs`；Docker、脚本和仓库工具链：`infra`；依赖更新：`deps`
 
 示例：

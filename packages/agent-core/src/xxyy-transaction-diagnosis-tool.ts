@@ -3,7 +3,7 @@ import {
   diagnoseXxyyTransactionInputSchema,
   diagnoseXxyyTransactionOutputSchema,
   type DiagnoseXxyyTransactionOutput,
-} from '@xxyy/xxyy-onchain-support-mcp';
+} from '@xxyy/xxyy-transaction-diagnosis-runtime';
 
 import type { CapabilityRegistry } from './capability-registry.js';
 import type { PublicChainAnalysisCaller } from './chain-analysis-capabilities.js';
@@ -100,7 +100,10 @@ export function formatXxyyTransactionDiagnosis(
       `判定条件：${sandwichCriteriaLine(sandwich.criteria)}。`,
       `判定依据：${sandwich.reasonCodes.join(', ')}。`,
     );
-    if (sandwich.candidateActor !== undefined) {
+    if (
+      sandwich.candidateActor !== undefined &&
+      (sandwich.verdict === 'confirmed' || sandwich.verdict === 'likely')
+    ) {
       lines.push(`前后交易候选地址：${sandwich.candidateActor}`);
     }
     if (sandwich.frontTransactionId !== undefined) {
@@ -184,7 +187,7 @@ function sandwichVerdictLabel(
 ): string {
   if (value === 'confirmed') return '已确认存在 Sandwich 证据';
   if (value === 'likely') return '疑似 Sandwich，但证据覆盖不完整';
-  if (value === 'unlikely') return '当前完整证据不支持 Sandwich';
+  if (value === 'unlikely') return '当前完整相邻成交证据不支持 Sandwich 结构';
   return '证据不足，无法可靠判断';
 }
 
@@ -237,6 +240,7 @@ function formatUnixSeconds(value: string): string {
 function transactionFactLines(transaction: DiagnoseXxyyTransactionOutput['transaction']): string[] {
   if (transaction.family === 'evm') {
     const fact = transaction.analysis.transaction;
+    const tokenAddresses = extractEvmTokenAddresses(transaction);
     return [
       `执行状态：${fact.executionStatus}`,
       ...(fact.blockNumber === undefined ? [] : [`区块：${fact.blockNumber}`]),
@@ -245,11 +249,7 @@ function transactionFactLines(transaction: DiagnoseXxyyTransactionOutput['transa
         : [`区块时间：${formatUnixSeconds(fact.blockTimestamp)}`]),
       ...(fact.feeWei === undefined ? [] : [`Gas 费用：${fact.feeWei} wei`]),
       ...(fact.from === undefined ? [] : [`交易发起地址：${fact.from}`]),
-      `涉及 Token：${
-        [...new Set(transaction.analysis.tokenTransfers.map((item) => item.tokenAddress))].join(
-          '、',
-        ) || '未解析'
-      }`,
+      `涉及 Token：${tokenAddresses.join('、') || '未解析'}`,
     ];
   }
   const fact = transaction.analysis;
@@ -264,4 +264,30 @@ function transactionFactLines(transaction: DiagnoseXxyyTransactionOutput['transa
     ...(fact.feeLamports === undefined ? [] : [`手续费：${fact.feeLamports} lamports`]),
     `涉及 Token mint：${[...new Set(fact.tokenBalanceChanges.map((item) => item.mint))].join('、') || '未解析'}`,
   ];
+}
+
+export function extractEvmTokenAddresses(
+  transaction: Extract<DiagnoseXxyyTransactionOutput['transaction'], { family: 'evm' }>,
+): string[] {
+  const addresses = new Set(
+    transaction.analysis.tokenTransfers.map((item) => item.tokenAddress.toLowerCase()),
+  );
+  for (const evidence of transaction.analysis.evidence) {
+    const structuredData = evidence.structuredData;
+    if (
+      structuredData === null ||
+      typeof structuredData !== 'object' ||
+      Array.isArray(structuredData)
+    ) {
+      continue;
+    }
+    const candidates = structuredData.tokenAddresses;
+    if (!Array.isArray(candidates)) continue;
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && /^0x[0-9a-f]{40}$/iu.test(candidate)) {
+        addresses.add(candidate.toLowerCase());
+      }
+    }
+  }
+  return [...addresses];
 }

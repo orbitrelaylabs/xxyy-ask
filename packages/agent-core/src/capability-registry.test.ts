@@ -119,7 +119,7 @@ describe('createCapabilityRegistry catalog', () => {
     );
 
     const otherRegistry = createCapabilityRegistry();
-    expect(() => registerReadCapability(otherRegistry, manifest, createAdapter('mcp'))).toThrow(
+    expect(() => registerReadCapability(otherRegistry, manifest, createAdapter('skill'))).toThrow(
       CapabilityAdapterSourceMismatchError,
     );
   });
@@ -222,7 +222,7 @@ describe('createCapabilityRegistry policy and audit boundary', () => {
       requiresConfirmation: true,
       risk: 'high',
       sideEffect: 'external_write',
-      source: 'mcp',
+      source: 'skill',
       version: '1.0.0',
     });
     const grant: CapabilityGrant = {
@@ -232,7 +232,7 @@ describe('createCapabilityRegistry policy and audit boundary', () => {
       maxRisk: 'high',
       principals: ['admin'],
       sideEffects: ['external_write'],
-      source: 'mcp',
+      source: 'skill',
       version: '1.0.0',
     };
     const { records, tracer } = createInMemoryQualityTracer();
@@ -245,7 +245,7 @@ describe('createCapabilityRegistry policy and audit boundary', () => {
       tracer,
     });
     registry.register({
-      adapter: createAdapter('mcp', invoke),
+      adapter: createAdapter('skill', invoke),
       inputSchema: z.object({ enabled: z.boolean() }),
       manifest,
       outputSchema: z.object({ idempotencyObserved: z.boolean(), updated: z.boolean() }),
@@ -294,7 +294,7 @@ describe('createCapabilityRegistry policy and audit boundary', () => {
       requiresConfirmation: true,
       risk: 'critical',
       sideEffect: 'financial_transaction',
-      source: 'mcp',
+      source: 'skill',
       version: '1.0.0',
     });
     const invoke = vi.fn<CapabilityAdapter['invoke']>(() => ({ submitted: true }));
@@ -302,7 +302,7 @@ describe('createCapabilityRegistry policy and audit boundary', () => {
       policy: { evaluate: () => ({ allowed: true, reason: 'explicit_grant' }) },
     });
     registry.register({
-      adapter: createAdapter('mcp', invoke),
+      adapter: createAdapter('skill', invoke),
       inputSchema: z.object({ payload: z.string() }),
       manifest,
       outputSchema: z.object({ submitted: z.boolean() }),

@@ -1,205 +1,84 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
-  createChainAnalysisMcpClientStub,
-  createInMemoryChainAnalysisMcpClient,
-} from '@xxyy/chain-analysis-mcp';
-import { createChainAnalysisFixtureRuntime } from '@xxyy/chain-analysis-mcp/test-fixtures';
+  createPublicTransactionClientStub,
+  type GetTransactionOutput,
+} from '@xxyy/xxyy-transaction-diagnosis-runtime';
 import { createInMemoryQualityTracer } from '@xxyy/rag-core';
 
 import { CapabilityPolicyDeniedError } from './capability-registry.js';
 import {
-  CHAIN_GET_MCP_CAPABILITY_ID,
   CHAIN_GET_SKILL_CAPABILITY_ID,
-  CHAIN_INSPECT_MCP_CAPABILITY_ID,
-  CHAIN_INSPECT_SKILL_CAPABILITY_ID,
-  CHAIN_SANDWICH_MCP_CAPABILITY_ID,
-  CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
-  createInternalChainAnalysisCapabilityRegistry,
-  createInternalChainAnalysisTools,
   createPublicChainAnalysisCapabilityRegistry,
-  type InternalChainAnalysisCaller,
-  type PublicChainAnalysisCaller,
 } from './chain-analysis-capabilities.js';
-import { createToolRegistry } from './tool-registry.js';
 
-describe('internal chain-analysis MCP and Skill capability bridge', () => {
-  it('executes an internal Tool through exact Skill and MCP capabilities', async () => {
-    const fixture = await createChainAnalysisFixtureRuntime('synthetic.inspect-execution');
+describe('public browser transaction Skill capability', () => {
+  it('registers and executes only the direct Skill capability', async () => {
+    const getTransaction = vi.fn(async () => transactionOutput());
     const { records, tracer } = createInMemoryQualityTracer();
-    const caller = { channel: 'internal' as const, principal: 'service' as const };
-    const mcpClient = createInMemoryChainAnalysisMcpClient({
-      handler: fixture.handler,
-    });
-    const registry = createInternalChainAnalysisCapabilityRegistry({
-      caller,
-      mcpClient,
+    const registry = createPublicChainAnalysisCapabilityRegistry({
+      caller: { channel: 'web', principal: 'anonymous' },
+      client: createPublicTransactionClientStub(getTransaction),
       tracer,
-    });
-    const tools = createToolRegistry();
-    for (const tool of createInternalChainAnalysisTools({ caller, registry })) {
-      tools.register(tool);
-    }
-
-    try {
-      await expect(
-        tools.execute(
-          'inspect_transaction',
-          {
-            chainId: fixture.chainId,
-            transactionHash: fixture.transactionHash,
-          },
-          { channel: 'untrusted-request-value', requestId: 'req-chain-internal' },
-        ),
-      ).resolves.toMatchObject({
-        capability: {
-          capability: 'chain.inspect_transaction',
-          transactionHash: fixture.transactionHash,
-        },
-      });
-      expect(registry.list().map((manifest) => manifest.id)).toEqual([
-        CHAIN_SANDWICH_MCP_CAPABILITY_ID,
-        CHAIN_GET_MCP_CAPABILITY_ID,
-        CHAIN_INSPECT_MCP_CAPABILITY_ID,
-        CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
-        CHAIN_GET_SKILL_CAPABILITY_ID,
-        CHAIN_INSPECT_SKILL_CAPABILITY_ID,
-      ]);
-      const capabilityRecords = records.filter((record) => record.name === 'agent.capability');
-      expect(capabilityRecords).toHaveLength(2);
-      expect(capabilityRecords.map((record) => record.metadata?.source).sort()).toEqual([
-        'mcp',
-        'skill',
-      ]);
-      expect(JSON.stringify(capabilityRecords)).not.toContain(fixture.transactionHash);
-    } finally {
-      await mcpClient.close();
-    }
-  });
-
-  it('denies the same capability under a different caller identity', async () => {
-    const fixture = await createChainAnalysisFixtureRuntime('synthetic.inspect-execution');
-    const registry = createInternalChainAnalysisCapabilityRegistry({
-      caller: { channel: 'internal', principal: 'service' },
-      mcpClient: createChainAnalysisMcpClientStub({
-        inspectTransaction: (input, signal) =>
-          fixture.handler.inspectTransaction(input, signal === undefined ? {} : { signal }),
-      }),
     });
 
     await expect(
       registry.invoke(
-        CHAIN_INSPECT_SKILL_CAPABILITY_ID,
-        {
-          chainId: fixture.chainId,
-          transactionHash: fixture.transactionHash,
-        },
+        CHAIN_GET_SKILL_CAPABILITY_ID,
+        { reference: `https://bscscan.com/tx/0x${'1'.repeat(64)}` },
         { channel: 'web', principal: 'anonymous' },
+      ),
+    ).resolves.toMatchObject({ family: 'solana', transactionId: '4'.repeat(88) });
+    expect(registry.list()).toEqual([
+      expect.objectContaining({ id: CHAIN_GET_SKILL_CAPABILITY_ID, source: 'skill' }),
+    ]);
+    expect(records.filter((record) => record.name === 'agent.capability')).toHaveLength(1);
+  });
+
+  it('denies the Skill under a different caller identity', async () => {
+    const registry = createPublicChainAnalysisCapabilityRegistry({
+      caller: { channel: 'web', principal: 'anonymous' },
+      client: createPublicTransactionClientStub(async () => transactionOutput()),
+    });
+    await expect(
+      registry.invoke(
+        CHAIN_GET_SKILL_CAPABILITY_ID,
+        { reference: 'x' },
+        { channel: 'telegram', principal: 'service' },
       ),
     ).rejects.toBeInstanceOf(CapabilityPolicyDeniedError);
   });
-
-  it('rejects public callers before constructing any grants', () => {
-    expect(() =>
-      createInternalChainAnalysisCapabilityRegistry({
-        caller: {
-          channel: 'web',
-          principal: 'anonymous',
-        } as unknown as InternalChainAnalysisCaller,
-        mcpClient: createChainAnalysisMcpClientStub({}),
-      }),
-    ).toThrow('internal-only trusted caller');
-  });
 });
 
-describe('public read-only chain-analysis capability grants', () => {
-  it('registers exact get, inspect, and Sandwich grants for Web', async () => {
-    const fixture = await createChainAnalysisFixtureRuntime('synthetic.confirmed-v2');
-    const mcpClient = createInMemoryChainAnalysisMcpClient({
-      handler: fixture.handler,
-    });
-    const registry = createPublicChainAnalysisCapabilityRegistry({
-      caller: { channel: 'web', principal: 'anonymous' },
-      mcpClient,
-    });
-
-    try {
-      expect(registry.list().map((manifest) => manifest.id)).toEqual([
-        CHAIN_SANDWICH_MCP_CAPABILITY_ID,
-        CHAIN_GET_MCP_CAPABILITY_ID,
-        CHAIN_INSPECT_MCP_CAPABILITY_ID,
-        CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
-        CHAIN_GET_SKILL_CAPABILITY_ID,
-        CHAIN_INSPECT_SKILL_CAPABILITY_ID,
-      ]);
-      await expect(
-        registry.invoke(
-          CHAIN_GET_SKILL_CAPABILITY_ID,
-          {
-            network: `eip155:${fixture.chainId}`,
-            reference: fixture.transactionHash,
-          },
-          { channel: 'web', principal: 'anonymous' },
-        ),
-      ).resolves.toMatchObject({
-        family: 'evm',
-        transactionId: fixture.transactionHash,
-      });
-      await expect(
-        registry.invoke(
-          CHAIN_INSPECT_SKILL_CAPABILITY_ID,
-          {
-            chainId: fixture.chainId,
-            transactionHash: fixture.transactionHash,
-          },
-          { channel: 'web', principal: 'anonymous' },
-        ),
-      ).resolves.toMatchObject({
-        capability: {
-          capability: 'chain.inspect_transaction',
-          transactionHash: fixture.transactionHash,
+function transactionOutput(): GetTransactionOutput {
+  const signature = '4'.repeat(88);
+  return {
+    analysis: {
+      accountKeys: [],
+      executionStatus: 'success',
+      logCount: 0,
+      nativeBalanceChanges: [],
+      network: 'solana:mainnet',
+      programIds: [],
+      slot: '1',
+      sources: [
+        {
+          id: 'solscan_browser',
+          kind: 'explorer_browser',
+          observedAt: '2026-08-04T00:00:00.000Z',
+          payloadHash: `sha256:${'a'.repeat(64)}`,
+          provenanceUrl: `https://solscan.io/tx/${signature}`,
         },
-      });
-      await expect(
-        registry.invoke(
-          CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
-          {
-            chainId: fixture.chainId,
-            poolAddress: fixture.poolAddress,
-            transactionHash: fixture.transactionHash,
-          },
-          { channel: 'web', principal: 'anonymous' },
-        ),
-      ).resolves.toMatchObject({
-        capability: {
-          capability: 'chain.detect_sandwich',
-          verdict: 'confirmed',
-        },
-      });
-      await expect(
-        registry.invoke(
-          CHAIN_INSPECT_SKILL_CAPABILITY_ID,
-          {
-            chainId: fixture.chainId,
-            transactionHash: fixture.transactionHash,
-          },
-          { channel: 'telegram', principal: 'service' },
-        ),
-      ).rejects.toBeInstanceOf(CapabilityPolicyDeniedError);
-    } finally {
-      await mcpClient.close();
-    }
-  });
-
-  it('rejects any public caller identity other than the fixed Web and Telegram principals', () => {
-    expect(() =>
-      createPublicChainAnalysisCapabilityRegistry({
-        caller: {
-          channel: 'telegram',
-          principal: 'anonymous',
-        } as unknown as PublicChainAnalysisCaller,
-        mcpClient: createChainAnalysisMcpClientStub({}),
-      }),
-    ).toThrow('web/anonymous or telegram/service');
-  });
-});
+      ],
+      tokenBalanceChanges: [],
+      transactionId: signature,
+    },
+    diagnostics: [],
+    explorerUrl: `https://solscan.io/tx/${signature}`,
+    family: 'solana',
+    network: 'solana:mainnet',
+    status: 'partial',
+    summary: 'Browser evidence.',
+    transactionId: signature,
+  };
+}

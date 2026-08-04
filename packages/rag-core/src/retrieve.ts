@@ -199,7 +199,7 @@ export function isExternalDeveloperDocumentationQuestion(question: string): bool
   const normalized = question.normalize('NFKC').toLowerCase();
   return (
     isApiDocumentationQuestion(normalized) ||
-    /agent\s*skill|api\s*skill|\bskill\b|\bmcp\b|clawhub|openclaw|github|智能体技能|代理技能|技能仓库|代码仓库/iu.test(
+    /agent\s*skill|api\s*skill|\bskill\b|clawhub|openclaw|github|智能体技能|代理技能|技能仓库|代码仓库/iu.test(
       normalized,
     )
   );

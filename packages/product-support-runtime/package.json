@@ -1,0 +1,19 @@
+{
+  "name": "@xxyy/product-support-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@xxyy/knowledge": "workspace:*",
+    "@xxyy/rag-core": "workspace:*",
+    "@xxyy/shared": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "scripts": {
+    "test": "vitest run src",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

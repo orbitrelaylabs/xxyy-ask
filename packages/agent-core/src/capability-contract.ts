@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const capabilitySources = ['builtin', 'skill', 'mcp'] as const;
+export const capabilitySources = ['builtin', 'skill'] as const;
 export const capabilityRiskLevels = ['low', 'moderate', 'high', 'critical'] as const;
 export const capabilitySideEffects = [
   'none',

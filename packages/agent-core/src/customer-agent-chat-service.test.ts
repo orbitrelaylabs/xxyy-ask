@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChatResponse, ChatStreamEvent } from '@xxyy/shared';
 import {
-  createChainAnalysisMcpClientStub,
-  createInMemoryChainAnalysisMcpClient,
-} from '@xxyy/chain-analysis-mcp';
-import { createChainAnalysisFixtureRuntime } from '@xxyy/chain-analysis-mcp/test-fixtures';
-import { createProductQaMcpClientStub, type ProductSearchOutput } from '@xxyy/product-qa-mcp';
+  createPublicTransactionClientStub,
+  getTransactionOutputSchema,
+  type GetTransactionOutput,
+} from '@xxyy/xxyy-transaction-diagnosis-runtime';
+import type { ProductSearchOutput } from '@xxyy/product-support-runtime';
 import {
   createInMemoryQualityTracer,
   LlmConfigurationError,
@@ -150,16 +150,16 @@ describe('createCustomerAgentChatService', () => {
     expect(retrieveCalls).toEqual([{ question: 'XXYY Pro 有哪些权益？', topK: 56 }]);
   });
 
-  it('uses an injected MCP client behind the Skill capability bridge', async () => {
-    const search = vi.fn((input: { query: string }, signal?: AbortSignal) => {
-      expect(signal).toBeInstanceOf(AbortSignal);
+  it('uses an injected product search runtime behind the Skill capability', async () => {
+    const search = vi.fn((input: { query: string }, options?: { signal?: AbortSignal }) => {
+      expect(options?.signal).toBeInstanceOf(AbortSignal);
       return Promise.resolve(createProductSearchOutput(input.query));
     });
     const service = createCustomerAgentChatService({
       answerProvider: {
         answer(input) {
           return Promise.resolve({
-            answer: `MCP-backed answer from ${input.retrievedChunks[0]?.id}`,
+            answer: `Skill-backed answer from ${input.retrievedChunks[0]?.id}`,
             citations: [],
             confidence: 0.8,
             intent: input.classification.intent,
@@ -171,13 +171,13 @@ describe('createCustomerAgentChatService', () => {
         channel: 'web',
         principal: 'anonymous',
       },
-      productMcpClient: createProductQaMcpClientStub(search),
+      productSearch: { searchProductDocs: search },
     });
 
     await expect(
       service.ask({ channel: 'web', message: 'XXYY Pro 有哪些权益？' }),
     ).resolves.toMatchObject({
-      answer: 'MCP-backed answer from pro-benefits',
+      answer: 'Skill-backed answer from pro-benefits',
       agentRoute: 'product_answer',
     });
     expect(search).toHaveBeenCalledWith(
@@ -186,12 +186,12 @@ describe('createCustomerAgentChatService', () => {
         question: 'XXYY Pro 有哪些权益？',
         topK: 7,
       },
-      expect.any(AbortSignal),
+      { signal: expect.any(AbortSignal) },
     );
   });
 
-  it('routes a public Explorer transaction through the explicitly granted chain Skill and MCP', async () => {
-    const fixture = await createChainAnalysisFixtureRuntime('synthetic.inspect-execution');
+  it('routes a public Explorer transaction through the browser Skill', async () => {
+    const transaction = publicTransactionOutput();
     const service = createCustomerAgentChatService({
       answerProvider: {
         answer: () => Promise.reject(new Error('product answer should not be called')),
@@ -201,15 +201,12 @@ describe('createCustomerAgentChatService', () => {
         channel: 'web',
         principal: 'anonymous',
       },
-      publicChainMcpClient: createChainAnalysisMcpClientStub({
-        getTransaction: (input, signal) =>
-          fixture.handler.getTransaction(input, signal === undefined ? {} : { signal }),
-      }),
+      publicTransactionClient: createPublicTransactionClientStub(async () => transaction),
       retriever: {
         retrieve: () => Promise.reject(new Error('product retrieval should not be called')),
       },
     });
-    const explorerUrl = `https://etherscan.io/tx/${fixture.transactionHash}`;
+    const explorerUrl = transaction.explorerUrl!;
 
     await expect(
       service.ask({
@@ -219,86 +216,19 @@ describe('createCustomerAgentChatService', () => {
     ).resolves.toMatchObject({
       agentRoute: 'chain_answer',
       citations: [{ sourceUrl: explorerUrl }],
-      confidence: 0.95,
+      confidence: 0.65,
       intent: 'onchain_transaction',
     });
     await expect(
       service.ask({
         channel: 'web',
-        message: fixture.transactionHash,
+        message: transaction.transactionId,
       }),
     ).resolves.toMatchObject({
       agentRoute: 'clarify',
       citations: [],
       intent: 'onchain_transaction',
     });
-  });
-
-  it('routes public call-trace and Sandwich requests through the same Web/Telegram Tool bridge', async () => {
-    const inspectionFixture = await createChainAnalysisFixtureRuntime(
-      'synthetic.inspect-execution',
-    );
-    const inspectionClient = createInMemoryChainAnalysisMcpClient({
-      handler: inspectionFixture.handler,
-    });
-    const inspectionService = createCustomerAgentChatService({
-      answerProvider: {
-        answer: () => Promise.reject(new Error('product answer should not be called')),
-      },
-      planner: createScriptedPlannerModel([]),
-      publicChainCapabilityCaller: {
-        channel: 'web',
-        principal: 'anonymous',
-      },
-      publicChainMcpClient: inspectionClient,
-      retriever: {
-        retrieve: () => Promise.reject(new Error('product retrieval should not be called')),
-      },
-    });
-
-    const sandwichFixture = await createChainAnalysisFixtureRuntime('synthetic.confirmed-v2');
-    const sandwichClient = createInMemoryChainAnalysisMcpClient({
-      handler: sandwichFixture.handler,
-    });
-    const sandwichService = createCustomerAgentChatService({
-      answerProvider: {
-        answer: () => Promise.reject(new Error('product answer should not be called')),
-      },
-      planner: createScriptedPlannerModel([]),
-      publicChainCapabilityCaller: {
-        channel: 'telegram',
-        principal: 'service',
-      },
-      publicChainMcpClient: sandwichClient,
-      retriever: {
-        retrieve: () => Promise.reject(new Error('product retrieval should not be called')),
-      },
-    });
-
-    try {
-      const inspection = await inspectionService.ask({
-        channel: 'web',
-        message: `调用追踪 https://etherscan.io/tx/${inspectionFixture.transactionHash}`,
-      });
-      expect(inspection).toMatchObject({
-        agentRoute: 'chain_answer',
-        intent: 'onchain_transaction',
-      });
-      expect(inspection.answer).toContain('调用追踪：可用（6 个调用节点）');
-
-      const sandwich = await sandwichService.ask({
-        channel: 'telegram',
-        message: `这笔交易是不是被夹了？ https://etherscan.io/tx/${sandwichFixture.transactionHash} 池子地址 ${sandwichFixture.poolAddress}`,
-      });
-      expect(sandwich).toMatchObject({
-        agentRoute: 'chain_answer',
-        confidence: 0.92,
-        intent: 'onchain_transaction',
-      });
-      expect(sandwich.answer).toContain('Sandwich 结论：已确认');
-    } finally {
-      await Promise.all([inspectionClient.close(), sandwichClient.close()]);
-    }
   });
 
   it('propagates one tracer through request, tool, and reranking layers', async () => {
@@ -338,7 +268,6 @@ describe('createCustomerAgentChatService', () => {
       'agent.guard',
       'agent.tool',
       'agent.capability',
-      'agent.capability',
       'rag.metadata_rerank',
       'agent.observe',
       'agent.answer_composer',
@@ -349,12 +278,8 @@ describe('createCustomerAgentChatService', () => {
     const skillCapability = records.find(
       (record) => record.name === 'agent.capability' && record.metadata?.source === 'skill',
     );
-    const mcpCapability = records.find(
-      (record) => record.name === 'agent.capability' && record.metadata?.source === 'mcp',
-    );
     expect(skillCapability?.parentId).toBe(tool?.id);
-    expect(mcpCapability?.parentId).toBe(skillCapability?.id);
-    expect(rerank?.parentId).toBe(mcpCapability?.id);
+    expect(rerank?.parentId).toBe(skillCapability?.id);
     expect(records.find((record) => record.name === 'agent.observe')).toMatchObject({
       outputs: { sufficient: true },
       parentId: root?.id,
@@ -933,6 +858,46 @@ function createProductSearchOutput(query: string): ProductSearchOutput {
     ],
     confidence: chunk.score,
   };
+}
+
+function publicTransactionOutput(): GetTransactionOutput {
+  const hash = `0x${'1'.repeat(64)}`;
+  return getTransactionOutputSchema.parse({
+    analysis: {
+      assetChanges: [],
+      conflicts: [],
+      diagnostics: [],
+      evidence: [],
+      findings: [],
+      skill: 'transaction_analysis',
+      status: 'partial',
+      summary: 'Browser evidence.',
+      timeline: [],
+      tokenTransfers: [],
+      transaction: {
+        blockNumber: '1',
+        blockTimestamp: '1',
+        chainId: '56',
+        executionStatus: 'success',
+        feeWei: '1',
+        from: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        hash,
+        inputKind: 'contract_call',
+        to: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        valueWei: '0',
+      },
+      version: '1.0.0',
+      warnings: [],
+    },
+    chainId: '56',
+    diagnostics: [],
+    explorerUrl: `https://bscscan.com/tx/${hash}`,
+    family: 'evm',
+    network: 'eip155:56',
+    status: 'partial',
+    summary: 'Browser evidence.',
+    transactionId: hash,
+  });
 }
 
 function restoreEnvValue(key: string, value: string | undefined): void {

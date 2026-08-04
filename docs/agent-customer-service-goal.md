@@ -34,7 +34,7 @@
 Web / Telegram / SDK
         |
         v
-LangGraph Agent -> Product MCP -> pgvector 正式知识
+LangGraph Agent -> Product RAG runtime -> pgvector 正式知识
         |
         +-> 脱敏会话 -> 显式转人工 -> 工单 -> 客服工作台 -> 人工回复
         |
@@ -51,7 +51,7 @@ Telegram 管理员回复
 - 生产 API 进程不执行迁移或知识发布；先运行 `pnpm rag:migrate`，发布继续由独立 Worker 完成。
 - 会话、反馈、工单主题和处理结论在写库前脱敏；用户 ID 只保存 SHA-256。
 - 管理面继续使用独立 RBAC Token；外部 Agent API Key 与管理 Token 不复用。
-- 公共客服不会自动读取账户、订单、钱包私有数据，也不会扩大现有链上 allowlist/readiness。
+- 公共客服不会自动读取账户、订单、钱包私有数据，也不会扩大浏览器链上数据边界。
 - 当前运营指标是活跃会话、活动工单、未分配工单、等待用户工单和知识缺口计数。生产部署还应把结构化日志接入集中式 metrics/alerting，并制定数据库保留、删除、备份与恢复策略。
 
 ## 验收

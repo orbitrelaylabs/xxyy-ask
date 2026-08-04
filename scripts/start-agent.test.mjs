@@ -293,18 +293,20 @@ describe('root package scripts', () => {
     expect(packageJson.scripts['telegram:curation:worker']).toBe(
       'pnpm --filter @xxyy/telegram-bot curation-worker',
     );
-    expect(packageJson.scripts['product:mcp:dev']).toBe('pnpm --filter @xxyy/product-qa-mcp start');
-    expect(packageJson.scripts['chain:mcp:serve']).toBe(
-      'pnpm --filter @xxyy/chain-operations-cli mcp',
+    expect(packageJson.scripts['onchain:query:production']).toBeUndefined();
+    expect(packageJson.scripts['xxyy:diagnose']).toBe(
+      'node skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs',
     );
-    expect(packageJson.scripts['tx:mcp:dev']).toBeUndefined();
-    expect(packageJson.scripts['tx:mcp:smoke']).toBeUndefined();
+    expect(packageJson.scripts['xxyy:skill:build']).toContain(
+      'packages/xxyy-transaction-diagnosis-runtime/src/cli.ts',
+    );
+    expect(packageJson.scripts['onchain:inspect']).toBe(
+      'node skills/onchain-transaction-inspector/scripts/inspect.mjs',
+    );
     expect(packageJson.scripts.start).toBeUndefined();
     expect(packageJson.scripts.dev).toBeUndefined();
     expect(packageJson.scripts.sync).toBeUndefined();
     expect(packageJson.scripts['start:service']).toBeUndefined();
     expect(packageJson.scripts['telegram:start']).toBeUndefined();
-    expect(packageJson.scripts['product:mcp']).toBeUndefined();
-    expect(packageJson.scripts['tx:mcp']).toBeUndefined();
   });
 });

@@ -29,8 +29,8 @@ describe('syncXxyyExternalDocs', () => {
       now: () => new Date('2026-07-19T00:00:00.000Z'),
     });
 
-    expect(result).toEqual({ commit: SHA, fileCount: 5, skipped: false });
-    expect(requests).toHaveLength(6);
+    expect(result).toEqual({ commit: SHA, fileCount: 3, skipped: false });
+    expect(requests).toHaveLength(4);
     const outputDir = path.join(cwd, 'docs', 'product-features', 'external', 'xxyy-trade-skill');
     const readme = await readFile(path.join(outputDir, 'readme.md'), 'utf8');
     const manifest = JSON.parse(await readFile(path.join(outputDir, 'manifest.json'), 'utf8'));
@@ -38,7 +38,7 @@ describe('syncXxyyExternalDocs', () => {
     expect(readme).toContain('https://x.com/useXXYYio/status/2029875008730976415');
     expect(readme).toContain('xxyy_ak_[redacted]');
     expect(readme).not.toContain('realcredential123');
-    expect(manifest.files).toHaveLength(5);
+    expect(manifest.files).toHaveLength(3);
 
     const cached = await syncXxyyExternalDocs({
       cwd,

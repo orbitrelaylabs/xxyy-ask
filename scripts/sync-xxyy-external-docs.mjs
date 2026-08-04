@@ -12,12 +12,6 @@ const VERIFIED_BY = 'https://x.com/useXXYYio/status/2029875008730976415';
 const SOURCE_FILES = [
   { output: 'readme.md', path: 'README.md', title: 'XXYY Trade Skill' },
   { output: 'readme-zh.md', path: 'docs/README_ZH.md', title: 'XXYY Trade Skill 中文说明' },
-  { output: 'mcp-readme.md', path: 'mcp/README.md', title: 'XXYY Trade Skill MCP 说明' },
-  {
-    output: 'mcp-readme-zh.md',
-    path: 'mcp/docs/README_ZH.md',
-    title: 'XXYY Trade Skill MCP 中文说明',
-  },
   { output: 'skill-reference.md', path: 'SKILL.md', title: 'XXYY Trade Skill Reference' },
 ];
 

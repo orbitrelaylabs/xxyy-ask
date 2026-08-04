@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createXxyyOnchainSupportMcpClientStub } from '@xxyy/xxyy-onchain-support-mcp';
-
 import { CapabilityPolicyDeniedError } from './capability-registry.js';
 import {
   XXYY_DIAGNOSIS_SKILL_CAPABILITY_ID,
@@ -13,7 +11,7 @@ describe('XXYY transaction diagnosis capabilities', () => {
     const diagnose = vi.fn();
     const registry = createXxyyTransactionDiagnosisCapabilityRegistry({
       caller: { channel: 'web', principal: 'anonymous' },
-      mcpClient: createXxyyOnchainSupportMcpClientStub(diagnose),
+      diagnosis: { diagnoseXxyyTransaction: diagnose },
     });
 
     await expect(

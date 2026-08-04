@@ -46,7 +46,6 @@ export {
 } from './capability-registry.js';
 export type { CapabilityRegistry, CreateCapabilityRegistryOptions } from './capability-registry.js';
 export {
-  XXYY_DIAGNOSIS_MCP_CAPABILITY_ID,
   XXYY_DIAGNOSIS_SKILL_CAPABILITY_ID,
   createXxyyTransactionDiagnosisCapabilityRegistry,
 } from './xxyy-transaction-diagnosis-capabilities.js';
@@ -84,7 +83,6 @@ export type {
 } from './answer-quality-rollout.js';
 export type { AnswerQualityVariant } from './langgraph-customer-runtime.js';
 export {
-  PRODUCT_SEARCH_MCP_CAPABILITY_ID,
   PRODUCT_SEARCH_SKILL_CAPABILITY_ID,
   createProductSupportCapabilityRegistry,
   createProductSupportSkillTool,
@@ -94,22 +92,13 @@ export type {
   TrustedProductCapabilityCaller,
 } from './product-support-capabilities.js';
 export {
-  CHAIN_GET_MCP_CAPABILITY_ID,
   CHAIN_GET_SKILL_CAPABILITY_ID,
-  CHAIN_INSPECT_MCP_CAPABILITY_ID,
-  CHAIN_INSPECT_SKILL_CAPABILITY_ID,
-  CHAIN_SANDWICH_MCP_CAPABILITY_ID,
-  CHAIN_SANDWICH_SKILL_CAPABILITY_ID,
-  createInternalChainAnalysisCapabilityRegistry,
-  createInternalChainAnalysisTools,
   createPublicChainAnalysisCapabilityRegistry,
   createPublicChainTransactionCapabilityRegistry,
 } from './chain-analysis-capabilities.js';
 export type {
-  CreateInternalChainAnalysisCapabilityRegistryOptions,
   CreatePublicChainAnalysisCapabilityRegistryOptions,
   CreatePublicChainTransactionCapabilityRegistryOptions,
-  InternalChainAnalysisCaller,
   PublicChainAnalysisCaller,
   PublicChainTransactionCaller,
 } from './chain-analysis-capabilities.js';

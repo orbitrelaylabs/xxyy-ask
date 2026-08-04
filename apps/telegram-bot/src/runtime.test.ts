@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  createChainAnalysisMcpClientStub,
-  createInMemoryChainAnalysisMcpClient,
-} from '@xxyy/chain-analysis-mcp';
-import { createChainAnalysisFixtureRuntime } from '@xxyy/chain-analysis-mcp/test-fixtures';
+  createPublicTransactionClientStub,
+  type GetTransactionOutput,
+} from '@xxyy/xxyy-transaction-diagnosis-runtime';
 import type { ChatRequest, ChatResponse } from '@xxyy/shared';
 import {
   createInMemoryQualityTracer,
@@ -43,13 +42,10 @@ describe('createTelegramChatRuntime', () => {
   });
 
   it('queries a public Explorer transaction through the Telegram grant', async () => {
-    const fixture = await createChainAnalysisFixtureRuntime('synthetic.inspect-execution');
-    const explorerUrl = `https://etherscan.io/tx/${fixture.transactionHash}`;
+    const transaction = publicTransactionOutput();
+    const explorerUrl = transaction.explorerUrl!;
     const runtime = createTelegramChatRuntime(loadRagConfig({}), undefined, {
-      publicChainMcpClient: createChainAnalysisMcpClientStub({
-        getTransaction: (input, signal) =>
-          fixture.handler.getTransaction(input, signal === undefined ? {} : { signal }),
-      }),
+      publicTransactionClient: createPublicTransactionClientStub(async () => transaction),
     });
 
     try {
@@ -68,33 +64,40 @@ describe('createTelegramChatRuntime', () => {
       await runtime.close();
     }
   });
-
-  it('exposes governed deep read-only analysis through the Telegram grant', async () => {
-    const fixture = await createChainAnalysisFixtureRuntime('synthetic.inspect-execution');
-    const explorerUrl = `https://etherscan.io/tx/${fixture.transactionHash}`;
-    const client = createInMemoryChainAnalysisMcpClient({ handler: fixture.handler });
-    const runtime = createTelegramChatRuntime(loadRagConfig({}), undefined, {
-      publicChainMcpClient: client,
-    });
-
-    try {
-      const response = await runtime.service.ask({
-        channel: 'telegram',
-        message: `调用追踪 ${explorerUrl}`,
-        requestId: 'telegram:chain:trace:1',
-      });
-
-      expect(response).toMatchObject({
-        agentRoute: 'chain_answer',
-        citations: [{ sourceUrl: explorerUrl }],
-        intent: 'onchain_transaction',
-      });
-      expect(response.answer).toContain('调用追踪：可用（6 个调用节点）');
-    } finally {
-      await runtime.close();
-    }
-  });
 });
+
+function publicTransactionOutput(): GetTransactionOutput {
+  const signature = '4'.repeat(88);
+  return {
+    analysis: {
+      accountKeys: [],
+      executionStatus: 'success',
+      logCount: 0,
+      nativeBalanceChanges: [],
+      network: 'solana:mainnet',
+      programIds: [],
+      slot: '1',
+      sources: [
+        {
+          id: 'solscan_browser',
+          kind: 'explorer_browser',
+          observedAt: '2026-08-04T00:00:00.000Z',
+          payloadHash: `sha256:${'a'.repeat(64)}`,
+          provenanceUrl: `https://solscan.io/tx/${signature}`,
+        },
+      ],
+      tokenBalanceChanges: [],
+      transactionId: signature,
+    },
+    diagnostics: [],
+    explorerUrl: `https://solscan.io/tx/${signature}`,
+    family: 'solana',
+    network: 'solana:mainnet',
+    status: 'partial',
+    summary: 'Browser evidence.',
+    transactionId: signature,
+  };
+}
 
 describe('withPersistentTelegramHistory', () => {
   it('loads a bounded safe history and persists the completed exchange', async () => {

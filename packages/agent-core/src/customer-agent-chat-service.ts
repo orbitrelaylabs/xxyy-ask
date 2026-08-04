@@ -1,11 +1,12 @@
 import type { RagIndex } from '@xxyy/shared';
-import type { ChainAnalysisMcpClient } from '@xxyy/chain-analysis-mcp';
-import type { XxyyOnchainSupportMcpClient } from '@xxyy/xxyy-onchain-support-mcp';
+import type {
+  PublicTransactionClient,
+  XxyyTransactionDiagnosisHandler,
+} from '@xxyy/xxyy-transaction-diagnosis-runtime';
 import {
-  createInMemoryProductQaMcpClient,
   createProductSearchHandler,
-  type ProductQaMcpClient,
-} from '@xxyy/product-qa-mcp';
+  type ProductSearchHandler,
+} from '@xxyy/product-support-runtime';
 import {
   LlmConfigurationError,
   loadRagConfig,
@@ -49,13 +50,13 @@ export interface CreateCustomerAgentChatServiceOptions {
   index?: RagIndex;
   planner?: PlannerModel;
   productCapabilityCaller?: TrustedProductCapabilityCaller;
-  productMcpClient?: ProductQaMcpClient;
+  productSearch?: ProductSearchHandler;
   publicChainCapabilityCaller?: PublicChainAnalysisCaller;
-  publicChainMcpClient?: ChainAnalysisMcpClient;
+  publicTransactionClient?: PublicTransactionClient;
   retriever?: Retriever;
   tracer?: QualityTracer;
   xxyyDiagnosisCapabilityCaller?: PublicChainAnalysisCaller;
-  xxyyOnchainMcpClient?: XxyyOnchainSupportMcpClient;
+  xxyyTransactionDiagnosis?: XxyyTransactionDiagnosisHandler;
 }
 
 export function createCustomerAgentChatService(
@@ -69,15 +70,13 @@ export function createCustomerAgentChatService(
     registry.register(tool);
   }
 
-  const productMcpClient =
-    options.productMcpClient ??
-    createInMemoryProductQaMcpClient({
-      handler: createProductSearchHandler({
-        ...(options.config === undefined ? {} : { config: options.config }),
-        ...(options.index === undefined ? {} : { index: options.index }),
-        ...(options.retriever === undefined ? {} : { retriever: options.retriever }),
-        ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
-      }),
+  const productSearch =
+    options.productSearch ??
+    createProductSearchHandler({
+      ...(options.config === undefined ? {} : { config: options.config }),
+      ...(options.index === undefined ? {} : { index: options.index }),
+      ...(options.retriever === undefined ? {} : { retriever: options.retriever }),
+      ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
     });
   const productCapabilityCaller = options.productCapabilityCaller ?? {
     channel: 'agent',
@@ -85,7 +84,7 @@ export function createCustomerAgentChatService(
   };
   const capabilityRegistry = createProductSupportCapabilityRegistry({
     caller: productCapabilityCaller,
-    mcpClient: productMcpClient,
+    productSearch,
     ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
   });
   registry.register(
@@ -96,19 +95,19 @@ export function createCustomerAgentChatService(
   );
 
   const hasPublicChainCaller = options.publicChainCapabilityCaller !== undefined;
-  const hasPublicChainClient = options.publicChainMcpClient !== undefined;
+  const hasPublicChainClient = options.publicTransactionClient !== undefined;
   if (hasPublicChainCaller !== hasPublicChainClient) {
     throw new TypeError(
-      'Public chain transaction capability requires both a fixed caller and an MCP client.',
+      'Public browser transaction capability requires both a fixed caller and a client.',
     );
   }
   if (
     options.publicChainCapabilityCaller !== undefined &&
-    options.publicChainMcpClient !== undefined
+    options.publicTransactionClient !== undefined
   ) {
     const publicChainRegistry = createPublicChainAnalysisCapabilityRegistry({
       caller: options.publicChainCapabilityCaller,
-      mcpClient: options.publicChainMcpClient,
+      client: options.publicTransactionClient,
       ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
     });
     registry.register(
@@ -120,19 +119,19 @@ export function createCustomerAgentChatService(
   }
 
   const hasXxyyDiagnosisCaller = options.xxyyDiagnosisCapabilityCaller !== undefined;
-  const hasXxyyDiagnosisClient = options.xxyyOnchainMcpClient !== undefined;
-  if (hasXxyyDiagnosisCaller !== hasXxyyDiagnosisClient) {
+  const hasXxyyDiagnosisRuntime = options.xxyyTransactionDiagnosis !== undefined;
+  if (hasXxyyDiagnosisCaller !== hasXxyyDiagnosisRuntime) {
     throw new TypeError(
-      'XXYY transaction diagnosis capability requires both a fixed caller and an MCP client.',
+      'XXYY transaction diagnosis capability requires both a fixed caller and a runtime.',
     );
   }
   if (
     options.xxyyDiagnosisCapabilityCaller !== undefined &&
-    options.xxyyOnchainMcpClient !== undefined
+    options.xxyyTransactionDiagnosis !== undefined
   ) {
     const xxyyDiagnosisRegistry = createXxyyTransactionDiagnosisCapabilityRegistry({
       caller: options.xxyyDiagnosisCapabilityCaller,
-      mcpClient: options.xxyyOnchainMcpClient,
+      diagnosis: options.xxyyTransactionDiagnosis,
       ...(options.tracer === undefined ? {} : { tracer: options.tracer }),
     });
     registry.register(

@@ -21,6 +21,7 @@ import { XxyyMarketDataError } from './errors.js';
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576;
 const TRADE_WINDOW_MS = 120_000;
+const TRADE_SEARCH_WINDOWS_MS = [2_000, 15_000, TRADE_WINDOW_MS] as const;
 const MAX_PAIR_CANDIDATES = 64;
 
 const pairApiSchema = z
@@ -51,6 +52,8 @@ const pairSearchResponseSchema = z
 
 const tradeApiSchema = z
   .object({
+    blockNumber: z.union([z.number().int().nonnegative(), z.string().regex(/^\d+$/u)]).optional(),
+    logIndex: z.number().int().nonnegative().optional(),
     maker: z.string(),
     marketCapUSD: z.string().optional(),
     nativeAmount: z.string(),
@@ -101,7 +104,7 @@ export function createXxyyMarketDataClient(
         ...(requestOptions.signal === undefined ? {} : { signal: requestOptions.signal }),
       });
       const tradeSearch = await loadMatchingTrades({
-        candidatePairs,
+        candidatePairs: candidatePairsForTradeSearch(input, candidatePairs),
         diagnostics,
         fetchImpl,
         input,
@@ -169,6 +172,7 @@ async function loadCandidatePairs(input: {
       const response = pairSearchResponseSchema.parse(
         await requestJson({
           fetchImpl: input.fetchImpl,
+          headers: xxyyHeaders(input.input.chain),
           maxResponseBytes: input.maxResponseBytes,
           requestTimeoutMs: input.requestTimeoutMs,
           ...(input.signal === undefined ? {} : { signal: input.signal }),
@@ -226,32 +230,30 @@ async function loadMatchingTrades(input: {
   for (const pair of input.candidatePairs) {
     try {
       const timestamp = input.input.timestampMs;
-      const response = tradeSearchResponseSchema.parse(
-        await requestJson({
-          body: {
-            makerAddress: '',
-            nativeAmountEnd: '',
-            nativeAmountStart: '',
-            pageSize: 50,
-            pairAddress: pair.pairAddress,
-            reverse: 0,
-            timeEnd: timestamp === undefined ? '' : timestamp + TRADE_WINDOW_MS,
-            timeStart: timestamp === undefined ? '' : Math.max(0, timestamp - TRADE_WINDOW_MS),
-            tokenAmountEnd: '',
-            tokenAmountStart: '',
-            type: 'all',
-            usdAmountEnd: '',
-            usdAmountStart: '',
-          },
-          fetchImpl: input.fetchImpl,
-          maxResponseBytes: input.maxResponseBytes,
-          method: 'POST',
-          requestTimeoutMs: input.requestTimeoutMs,
-          ...(input.signal === undefined ? {} : { signal: input.signal }),
-          url: new URL('/api/data/trades/search', XXYY_MARKET_DATA_ORIGIN),
-        }),
-      );
-      const pairTrades = response.data.map(parseMarketTrade);
+      const windows = timestamp === undefined ? [undefined] : TRADE_SEARCH_WINDOWS_MS;
+      let pairTrades: XxyyMarketTrade[] = [];
+      for (const windowMs of windows) {
+        const response = tradeSearchResponseSchema.parse(
+          await requestJson({
+            body: tradeSearchBody(pair.pairAddress, timestamp, windowMs),
+            fetchImpl: input.fetchImpl,
+            headers: xxyyHeaders(input.input.chain),
+            maxResponseBytes: input.maxResponseBytes,
+            method: 'POST',
+            requestTimeoutMs: input.requestTimeoutMs,
+            ...(input.signal === undefined ? {} : { signal: input.signal }),
+            url: new URL('/api/data/trades/search', XXYY_MARKET_DATA_ORIGIN),
+          }),
+        );
+        pairTrades = response.data.map(parseMarketTrade);
+        if (
+          pairTrades.some((trade) =>
+            identifierEquals(input.input.chain, trade.transactionId, input.input.transactionId),
+          )
+        ) {
+          break;
+        }
+      }
       tradesByPair.set(pair.pairAddress, pairTrades);
       for (const trade of pairTrades) {
         if (!identifierEquals(input.input.chain, trade.transactionId, input.input.transactionId)) {
@@ -271,6 +273,8 @@ async function loadMatchingTrades(input: {
 
 function parseMarketTrade(rawTrade: z.output<typeof tradeApiSchema>): XxyyMarketTrade {
   return xxyyMarketTradeSchema.parse({
+    ...(rawTrade.blockNumber === undefined ? {} : { blockNumber: String(rawTrade.blockNumber) }),
+    ...(rawTrade.logIndex === undefined ? {} : { logIndex: rawTrade.logIndex }),
     maker: rawTrade.maker,
     ...(rawTrade.marketCapUSD === undefined ? {} : { marketCapUsd: rawTrade.marketCapUSD }),
     nativeAmount: rawTrade.nativeAmount,
@@ -292,20 +296,48 @@ function contextTradesForMatch(
     .map(({ displayIndex, trade }) => ({
       ...trade,
       displayIndex,
-      relation:
-        trade.timestamp < target.timestamp
-          ? ('earlier' as const)
-          : trade.timestamp > target.timestamp
-            ? ('later' as const)
-            : ('same_time' as const),
+      relation: tradeRelation(target, trade),
     }))
     .sort((left, right) => {
-      const distance =
-        Math.abs(left.timestamp - target.timestamp) - Math.abs(right.timestamp - target.timestamp);
+      const distance = tradeDistance(target, left) - tradeDistance(target, right);
       return distance === 0 ? left.displayIndex - right.displayIndex : distance;
     })
     .slice(0, 6)
     .sort((left, right) => left.displayIndex - right.displayIndex);
+}
+
+function tradeDistance(target: XxyyMarketTrade, candidate: XxyyMarketTrade): number {
+  if (target.blockNumber !== undefined && candidate.blockNumber !== undefined) {
+    const difference = BigInt(candidate.blockNumber) - BigInt(target.blockNumber);
+    const absolute = difference < 0n ? -difference : difference;
+    const blockDistance = Number(
+      absolute > BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(Number.MAX_SAFE_INTEGER) : absolute,
+    );
+    const logDistance = Math.abs((candidate.logIndex ?? 0) - (target.logIndex ?? 0));
+    return blockDistance * 1_000_000 + Math.min(logDistance, 999_999);
+  }
+  return Math.abs(candidate.timestamp - target.timestamp);
+}
+
+function tradeRelation(
+  target: XxyyMarketTrade,
+  candidate: XxyyMarketTrade,
+): XxyyContextTrade['relation'] {
+  if (target.blockNumber !== undefined && candidate.blockNumber !== undefined) {
+    const targetBlock = BigInt(target.blockNumber);
+    const candidateBlock = BigInt(candidate.blockNumber);
+    if (candidateBlock < targetBlock) return 'earlier';
+    if (candidateBlock > targetBlock) return 'later';
+    if (target.logIndex !== undefined && candidate.logIndex !== undefined) {
+      if (candidate.logIndex < target.logIndex) return 'earlier';
+      if (candidate.logIndex > target.logIndex) return 'later';
+    }
+  }
+  return candidate.timestamp < target.timestamp
+    ? 'earlier'
+    : candidate.timestamp > target.timestamp
+      ? 'later'
+      : 'same_time';
 }
 
 function disambiguateMatchesByTransactionAccounts(
@@ -322,9 +354,24 @@ function disambiguateMatchesByTransactionAccounts(
   return onchainMatches.length === 1 ? onchainMatches : matches;
 }
 
+function candidatePairsForTradeSearch(
+  input: z.output<typeof xxyyTradeLookupInputSchema>,
+  candidatePairs: readonly XxyyPairCandidate[],
+): readonly XxyyPairCandidate[] {
+  if (input.transactionAccountAddresses === undefined) return candidatePairs;
+  const observed = new Set(
+    input.transactionAccountAddresses.map((address) => normalizeIdentifier(input.chain, address)),
+  );
+  const observedPairs = candidatePairs.filter((pair) =>
+    observed.has(normalizeIdentifier(input.chain, pair.pairAddress)),
+  );
+  return observedPairs.length === 0 ? candidatePairs : observedPairs;
+}
+
 async function requestJson(input: {
   body?: Record<string, unknown>;
   fetchImpl: typeof fetch;
+  headers?: Record<string, string>;
   maxResponseBytes: number;
   method?: 'GET' | 'POST';
   requestTimeoutMs: number;
@@ -341,6 +388,7 @@ async function requestJson(input: {
       headers: {
         accept: 'application/json',
         ...(input.body === undefined ? {} : { 'content-type': 'application/json' }),
+        ...input.headers,
       },
       method: input.method ?? 'GET',
       redirect: 'error',
@@ -370,6 +418,49 @@ async function requestJson(input: {
     clearTimeout(timeout);
     input.signal?.removeEventListener('abort', abort);
   }
+}
+
+function tradeSearchBody(
+  pairAddress: string,
+  timestamp: number | undefined,
+  windowMs: number | undefined,
+): Record<string, unknown> {
+  return {
+    makerAddress: '',
+    nativeAmountEnd: '',
+    nativeAmountStart: '',
+    pageSize: 50,
+    pairAddress,
+    reverse: 0,
+    timeEnd: timestamp === undefined || windowMs === undefined ? '' : timestamp + windowMs,
+    timeStart:
+      timestamp === undefined || windowMs === undefined ? '' : Math.max(0, timestamp - windowMs),
+    tokenAmountEnd: '',
+    tokenAmountStart: '',
+    type: 'all',
+    usdAmountEnd: '',
+    usdAmountStart: '',
+  };
+}
+
+function xxyyHeaders(chain: string): Record<string, string> {
+  const route: Record<string, string> = {
+    'eip155:1': 'eth',
+    'eip155:56': 'bsc',
+    'eip155:8453': 'base',
+    'eip155:4663': 'robin',
+    'eip155:988': 'stable',
+    'solana:mainnet': 'sol',
+  };
+  const xxyyChain = route[normalizeChain(chain)];
+  if (xxyyChain === undefined) {
+    throw new XxyyMarketDataError('invalid_response', false);
+  }
+  return {
+    'x-chain': xxyyChain,
+    'x-language': 'zh',
+    'x-version': '1',
+  };
 }
 
 async function readBoundedResponse(response: Response, maxBytes: number): Promise<string> {

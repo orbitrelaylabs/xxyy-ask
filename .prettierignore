@@ -2,6 +2,8 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs
+skills/onchain-transaction-inspector/scripts/inspect.mjs
 
 pnpm-lock.yaml
 docs/product-features/

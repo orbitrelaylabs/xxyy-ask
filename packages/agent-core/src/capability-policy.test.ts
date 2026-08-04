@@ -80,7 +80,7 @@ describe('capability manifest', () => {
       limits: { maxOutputBytes: 1024, timeoutMs: 1000 },
       risk: 'high',
       sideEffect: 'external_write',
-      source: 'mcp',
+      source: 'skill',
       version: '1.0.0',
     } as const;
 
@@ -118,7 +118,7 @@ describe('capability manifest', () => {
         requiresConfirmation: true,
         risk: 'moderate',
         sideEffect: 'financial_transaction',
-        source: 'mcp',
+        source: 'skill',
         version: '1.0.0',
       }),
     ).toThrow(z.ZodError);
@@ -150,7 +150,7 @@ describe('createDenyByDefaultCapabilityPolicy', () => {
   it('rejects grants with stale versions or insufficient source, risk, effect, or data scope coverage', () => {
     const insufficientGrants: CapabilityGrant[] = [
       { ...publicReadGrant, version: '1.0.1' },
-      { ...publicReadGrant, source: 'mcp' },
+      { ...publicReadGrant, source: 'skill' },
       { ...publicReadGrant, maxRisk: 'low' },
       { ...publicReadGrant, sideEffects: ['none'] },
       { ...publicReadGrant, dataScopes: ['market.public'] },
@@ -173,7 +173,7 @@ describe('createDenyByDefaultCapabilityPolicy', () => {
       requiresConfirmation: true,
       risk: 'high',
       sideEffect: 'external_write',
-      source: 'mcp',
+      source: 'skill',
       version: '2.1.0',
     });
     const grant: CapabilityGrant = {
@@ -183,7 +183,7 @@ describe('createDenyByDefaultCapabilityPolicy', () => {
       maxRisk: 'high',
       principals: ['admin'],
       sideEffects: ['external_write'],
-      source: 'mcp',
+      source: 'skill',
       version: '2.1.0',
     };
     const policy = createDenyByDefaultCapabilityPolicy([grant]);

@@ -5,13 +5,12 @@
   "type": "module",
   "dependencies": {
     "@xxyy/agent-core": "workspace:*",
-    "@xxyy/chain-analysis-mcp": "workspace:*",
     "@xxyy/knowledge": "workspace:*",
     "@xxyy/rag-core": "workspace:*",
     "@xxyy/shared": "workspace:*",
     "@xxyy/web": "workspace:*",
     "@xxyy/xxyy-market-data-adapter": "workspace:*",
-    "@xxyy/xxyy-onchain-support-mcp": "workspace:*",
+    "@xxyy/xxyy-transaction-diagnosis-runtime": "workspace:*",
     "zod": "^4.0.0"
   },
   "scripts": {

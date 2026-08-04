@@ -1,22 +1,17 @@
 import type { QualityTracer } from '@xxyy/rag-core';
 import {
   DIAGNOSE_XXYY_TRANSACTION_TIMEOUT_MS,
-  XXYY_ONCHAIN_SUPPORT_MCP_VERSION,
+  XXYY_TRANSACTION_DIAGNOSIS_RUNTIME_VERSION,
   diagnoseXxyyTransactionInputSchema,
   diagnoseXxyyTransactionOutputSchema,
-  type XxyyOnchainSupportMcpClient,
-} from '@xxyy/xxyy-onchain-support-mcp';
+  type XxyyTransactionDiagnosisHandler,
+} from '@xxyy/xxyy-transaction-diagnosis-runtime';
 
-import {
-  parseCapabilityManifest,
-  type CapabilityExecutionContext,
-  type CapabilityInvocationContext,
-} from './capability-contract.js';
+import { parseCapabilityManifest } from './capability-contract.js';
 import { createDenyByDefaultCapabilityPolicy } from './capability-policy.js';
 import { createCapabilityRegistry, type CapabilityRegistry } from './capability-registry.js';
 import type { PublicChainAnalysisCaller } from './chain-analysis-capabilities.js';
 
-export const XXYY_DIAGNOSIS_MCP_CAPABILITY_ID = 'xxyy.mcp.diagnose_transaction';
 export const XXYY_DIAGNOSIS_SKILL_CAPABILITY_ID = 'xxyy.skill.diagnose_transaction';
 const XXYY_DIAGNOSIS_DATA_SCOPES = [
   'chain.public.transaction',
@@ -27,13 +22,10 @@ const MAX_OUTPUT_BYTES = 1_048_576;
 
 export function createXxyyTransactionDiagnosisCapabilityRegistry(options: {
   caller: PublicChainAnalysisCaller;
-  mcpClient: XxyyOnchainSupportMcpClient;
+  diagnosis: XxyyTransactionDiagnosisHandler;
   tracer?: QualityTracer;
 }): CapabilityRegistry {
-  const grants = [
-    createGrant(XXYY_DIAGNOSIS_MCP_CAPABILITY_ID, 'mcp', options.caller),
-    createGrant(XXYY_DIAGNOSIS_SKILL_CAPABILITY_ID, 'skill', options.caller),
-  ];
+  const grants = [createGrant(XXYY_DIAGNOSIS_SKILL_CAPABILITY_ID, options.caller)];
   const registry = createCapabilityRegistry({
     maxOutputBytes: MAX_OUTPUT_BYTES,
     maxTimeoutMs: DIAGNOSE_XXYY_TRANSACTION_TIMEOUT_MS,
@@ -42,30 +34,11 @@ export function createXxyyTransactionDiagnosisCapabilityRegistry(options: {
   });
   registry.register({
     adapter: {
-      source: 'mcp',
-      invoke(request) {
-        return options.mcpClient.diagnoseXxyyTransaction(
-          diagnoseXxyyTransactionInputSchema.parse(request.input),
-          { signal: request.context.signal },
-        );
-      },
-    },
-    inputSchema: diagnoseXxyyTransactionInputSchema,
-    manifest: manifest(
-      XXYY_DIAGNOSIS_MCP_CAPABILITY_ID,
-      'mcp',
-      'Read normalized public transaction facts and exact XXYY market evidence through MCP.',
-    ),
-    outputSchema: diagnoseXxyyTransactionOutputSchema,
-  });
-  registry.register({
-    adapter: {
       source: 'skill',
       invoke(request) {
-        return registry.invoke(
-          XXYY_DIAGNOSIS_MCP_CAPABILITY_ID,
-          request.input,
-          nestedContext(request.context),
+        return options.diagnosis.diagnoseXxyyTransaction(
+          diagnoseXxyyTransactionInputSchema.parse(request.input),
+          { signal: request.context.signal },
         );
       },
     },
@@ -80,11 +53,7 @@ export function createXxyyTransactionDiagnosisCapabilityRegistry(options: {
   return registry;
 }
 
-function createGrant(
-  capabilityId: string,
-  source: 'mcp' | 'skill',
-  caller: PublicChainAnalysisCaller,
-) {
+function createGrant(capabilityId: string, caller: PublicChainAnalysisCaller) {
   return {
     capabilityId,
     channels: [caller.channel],
@@ -92,12 +61,12 @@ function createGrant(
     maxRisk: 'moderate' as const,
     principals: [caller.principal],
     sideEffects: ['external_read' as const],
-    source,
-    version: XXYY_ONCHAIN_SUPPORT_MCP_VERSION,
+    source: 'skill' as const,
+    version: XXYY_TRANSACTION_DIAGNOSIS_RUNTIME_VERSION,
   };
 }
 
-function manifest(id: string, source: 'mcp' | 'skill', description: string) {
+function manifest(id: string, source: 'skill', description: string) {
   return parseCapabilityManifest({
     dataScopes: [...XXYY_DIAGNOSIS_DATA_SCOPES],
     description,
@@ -111,15 +80,6 @@ function manifest(id: string, source: 'mcp' | 'skill', description: string) {
     risk: 'moderate',
     sideEffect: 'external_read',
     source,
-    version: XXYY_ONCHAIN_SUPPORT_MCP_VERSION,
+    version: XXYY_TRANSACTION_DIAGNOSIS_RUNTIME_VERSION,
   });
-}
-
-function nestedContext(context: CapabilityExecutionContext): CapabilityInvocationContext {
-  return {
-    channel: context.channel,
-    principal: context.principal,
-    ...(context.requestId === undefined ? {} : { requestId: context.requestId }),
-    signal: context.signal,
-  };
 }

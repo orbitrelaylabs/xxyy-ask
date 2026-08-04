@@ -1291,13 +1291,11 @@ describe('createRequestHandler', () => {
     }));
     const retriever = { retrieve: vi.fn() };
     const createLazyRetriever = vi.fn(() => retriever);
-    const publicChainMcpClient = {
+    const publicTransactionClient = {
       close: vi.fn(() => Promise.resolve()),
-      detectSandwich: vi.fn(),
       getTransaction: vi.fn(),
-      inspectTransaction: vi.fn(),
     };
-    const createBrowserChainAnalysisClient = vi.fn(() => publicChainMcpClient);
+    const createBrowserChainAnalysisClient = vi.fn(() => publicTransactionClient);
     const resolveBrowserChromeExecutable = vi.fn(() =>
       Promise.resolve('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
     );
@@ -1316,7 +1314,7 @@ describe('createRequestHandler', () => {
         createOpenAiEmbeddingProvider: vi.fn(() => ({ embedTexts: vi.fn() })),
       };
     });
-    vi.doMock('@xxyy/xxyy-onchain-support-mcp', async (importOriginal) => {
+    vi.doMock('@xxyy/xxyy-transaction-diagnosis-runtime', async (importOriginal) => {
       const actual = await importOriginal<Record<string, unknown>>();
       return {
         ...actual,
@@ -1373,11 +1371,11 @@ describe('createRequestHandler', () => {
         'config',
         'productCapabilityCaller',
         'publicChainCapabilityCaller',
-        'publicChainMcpClient',
+        'publicTransactionClient',
         'retriever',
         'tracer',
         'xxyyDiagnosisCapabilityCaller',
-        'xxyyOnchainMcpClient',
+        'xxyyTransactionDiagnosis',
       ]);
       expect(serviceOptions.productCapabilityCaller).toEqual({
         channel: 'web',
@@ -1387,12 +1385,12 @@ describe('createRequestHandler', () => {
         channel: 'web',
         principal: 'anonymous',
       });
-      expect(serviceOptions.publicChainMcpClient).toBe(publicChainMcpClient);
+      expect(serviceOptions.publicTransactionClient).toBe(publicTransactionClient);
       expect(serviceOptions.xxyyDiagnosisCapabilityCaller).toEqual({
         channel: 'web',
         principal: 'anonymous',
       });
-      expect(serviceOptions.xxyyOnchainMcpClient).toBeDefined();
+      expect(serviceOptions.xxyyTransactionDiagnosis).toBeDefined();
       expect(resolveBrowserChromeExecutable).toHaveBeenCalledWith(undefined);
       expect(createBrowserChainAnalysisClient).toHaveBeenCalledWith({
         chromeExecutable: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -1410,7 +1408,7 @@ describe('createRequestHandler', () => {
       vi.doUnmock('@xxyy/agent-core');
       vi.doUnmock('@xxyy/knowledge');
       vi.doUnmock('@xxyy/rag-core');
-      vi.doUnmock('@xxyy/xxyy-onchain-support-mcp');
+      vi.doUnmock('@xxyy/xxyy-transaction-diagnosis-runtime');
     }
   });
 

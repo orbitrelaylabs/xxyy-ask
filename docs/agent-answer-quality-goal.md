@@ -46,7 +46,7 @@ optimized 100%。2026-08-01 又完成了普通复合问题拆解、逐子问题�
   → 渠道回复
 ```
 
-现有系统已经具备规则意图分类、Product MCP、向量与词法混合检索、metadata rerank、当前/历史状态、引用、claim grounding、Golden QA 和低证据信号，但仍存在以下质量缺口：
+现有系统已经具备规则意图分类、Product RAG runtime、向量与词法混合检索、metadata rerank、当前/历史状态、引用、claim grounding、Golden QA 和低证据信号，但仍存在以下质量缺口：
 
 1. `product_qa` 与 `how_to` 首轮使用确定性计划，通常绕过 LLM Planner。
 2. 第一次 `search_product_docs` 强制使用原始问题，不能采用安全的规范化 Query。
@@ -76,7 +76,7 @@ optimized 100%。2026-08-01 又完成了普通复合问题拆解、逐子问题�
 - 不通过自动训练或在线修改模型权重实现“自学习”。
 - 不允许模型或 Telegram Bot 直接写入 pgvector。
 - 不开放用户账户、订单、余额、私有交易或任意 RPC。
-- 不改变 Chain MCP 的 allowlist、Provider 和 readiness 门禁。
+- 不改变浏览器交易 Skill 的固定来源和证据边界。
 - 不把外部网页、普通群成员发言或未经治理的内容直接纳入正式知识。
 - 不仅靠更换模型、增加 Top K 或扩大 Prompt 掩盖分类和检索缺陷。
 - 不在没有测量证据前迁移到 Elasticsearch、知识图谱或新的向量数据库。
@@ -185,7 +185,7 @@ interface QuestionUnderstanding {
 
 - 对外继续返回现有 `product_qa`、`how_to` 等顶层 intent。
 - 细粒度意图作为 trace metadata、评测字段和内部策略输入。
-- 不根据 MCP discovery 动态注册或授权工具。
+- 不根据目录扫描动态注册或授权工具。
 
 ## 工作流二：上下文与 Query 改写
 
@@ -594,7 +594,7 @@ Agent、API 和 Telegram Bot 不直接发布正式知识。对话样本先进入
 
 ### 2026-07-31 问答准确率专项复验
 
-- 按“本地优先、暂缓 MCP/Skill 扩展”的范围重新执行 Provider 全链路基线，定位到两个后段
+- 按“本地优先、暂缓 Skill 扩展”的范围重新执行 Provider 全链路基线，定位到两个后段
   证据使用问题：来源定位题只返回推文编号而遗漏事实；包含 `P1/P2/P3` 的精确实体题被泛化
   的“交易设置”文档覆盖。
 - 来源定位题改为使用已选定证据生成“事实 + 来源”的确定性回答，避免模型压缩掉用户问题中
@@ -605,7 +605,7 @@ Agent、API 和 Telegram Bot 不直接发布正式知识。对话样本先进入
   模型响应 `4` 次、合计 `6290` tokens。
 - `pnpm check` 通过：Web build、format check、24 个 workspace package typecheck、
   `1248` tests（另有 `2` skipped）和 deterministic Golden QA `55/55` 全部通过。
-- MCP、Skill、链上能力、知识发布和生产部署配置均未修改。
+- Skill、链上能力、知识发布和生产部署配置均未修改。
 
 ### 2026-08-01 完整链路补强
 
@@ -632,23 +632,23 @@ Agent、API 和 Telegram Bot 不直接发布正式知识。对话样本先进入
 
 ## 代码落点
 
-| 模块                      | 主要职责                                                                         |
-| ------------------------- | -------------------------------------------------------------------------------- |
-| `packages/shared`         | Question Understanding、Query Plan、Evidence Report 和 trace 契约                |
-| `packages/agent-core`     | 上下文恢复、意图/主体理解、澄清、Planner、LangGraph 状态与停止条件               |
-| `packages/rag-core`       | Query 规范化、动态来源策略、多路召回、rerank、多样性、Evidence Report、grounding |
-| `packages/product-qa-mcp` | 接受受约束检索计划，保持只读产品知识边界                                         |
-| `packages/knowledge`      | 功能目录和正式知识的加载、chunk、metadata 与 embedding                           |
-| `apps/telegram-bot`       | 会话历史、reply chain、topic/user 隔离和低质量反馈                               |
-| `apps/api`                | 质量观测、管理查询和版本化兼容接口                                               |
-| `apps/web`                | 管理员质量诊断和评测/知识缺口分诊                                                |
-| `apps/cli`                | 基线、retrieval-only、full-chain、差异和发布前质量报告                           |
-| `docs/eval`               | Golden QA、标注规范、基线与发布门槛                                              |
-| `docs/product-features`   | 经治理的当前功能目录及其正式来源                                                 |
+| 模块                               | 主要职责                                                                         |
+| ---------------------------------- | -------------------------------------------------------------------------------- |
+| `packages/shared`                  | Question Understanding、Query Plan、Evidence Report 和 trace 契约                |
+| `packages/agent-core`              | 上下文恢复、意图/主体理解、澄清、Planner、LangGraph 状态与停止条件               |
+| `packages/rag-core`                | Query 规范化、动态来源策略、多路召回、rerank、多样性、Evidence Report、grounding |
+| `packages/product-support-runtime` | 接受受约束检索计划，保持只读产品知识边界                                         |
+| `packages/knowledge`               | 功能目录和正式知识的加载、chunk、metadata 与 embedding                           |
+| `apps/telegram-bot`                | 会话历史、reply chain、topic/user 隔离和低质量反馈                               |
+| `apps/api`                         | 质量观测、管理查询和版本化兼容接口                                               |
+| `apps/web`                         | 管理员质量诊断和评测/知识缺口分诊                                                |
+| `apps/cli`                         | 基线、retrieval-only、full-chain、差异和发布前质量报告                           |
+| `docs/eval`                        | Golden QA、标注规范、基线与发布门槛                                              |
+| `docs/product-features`            | 经治理的当前功能目录及其正式来源                                                 |
 
 ## 发布、兼容与回滚
 
-- 新内部字段先设为可选，避免一次性破坏 Web、Telegram、SDK 和 MCP 契约。
+- 新内部字段先设为可选，避免一次性破坏 Web、Telegram、SDK 和 Skill 契约。
 - 旧顶层 intent 和 `ChatResponse` 保持兼容，细粒度结果先进入内部 metadata。
 - Query Plan 和新 Evidence Report 必须版本化。
 - 功能目录缺失时系统回退到官网文档检索，但必须降低完整性声明。

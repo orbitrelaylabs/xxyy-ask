@@ -10,10 +10,9 @@ import {
   createChromeXxyyScreenshotProvider,
   createBrowserChainAnalysisClient,
   createConfiguredCanonicalPoolResolver,
-  createInMemoryXxyyOnchainSupportMcpClient,
   createXxyyTransactionDiagnosisService,
   resolveBrowserChromeExecutable,
-} from '@xxyy/xxyy-onchain-support-mcp';
+} from '@xxyy/xxyy-transaction-diagnosis-runtime';
 import {
   loadAnswerQualityRolloutConfig,
   type AnswerQualityRolloutEnv,
@@ -71,7 +70,7 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
   const workspaceEnv = loadWorkspaceEnv({ cwd: workspaceCwd, env });
   const config = loadRagConfig(workspaceEnv);
   const botConfig = loadTelegramBotConfig(workspaceEnv);
-  const publicChainMcpClient = await resolveBrowserChromeExecutable(
+  const publicTransactionClient = await resolveBrowserChromeExecutable(
     workspaceEnv.XXYY_SCREENSHOT_CHROME_EXECUTABLE,
   ).then((chromeExecutable) =>
     chromeExecutable === undefined ||
@@ -83,7 +82,6 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
           profileDirectory: workspaceEnv.XXYY_BROWSER_PROFILE_DIRECTORY,
         }),
   );
-  const xxyyChainMcpClient = publicChainMcpClient;
   const screenshotProvider = createOptionalScreenshotProvider(workspaceEnv);
   const canonicalPoolResolver =
     workspaceEnv.XXYY_CANONICAL_POOL_CONFIG_JSON?.trim() === undefined ||
@@ -99,25 +97,23 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
           },
         }
       : {}),
-    ...(publicChainMcpClient === undefined ? {} : { publicChainMcpClient }),
-    ...(xxyyChainMcpClient === undefined
+    ...(publicTransactionClient === undefined ? {} : { publicTransactionClient }),
+    ...(publicTransactionClient === undefined
       ? {}
       : {
-          xxyyOnchainMcpClient: createInMemoryXxyyOnchainSupportMcpClient({
-            handler: createXxyyTransactionDiagnosisService({
-              chainAnalysis: xxyyChainMcpClient,
-              ...(canonicalPoolResolver === undefined ? {} : { canonicalPoolResolver }),
-              marketData: createXxyyMarketDataClient(),
-              poolPolicy: {
-                maxSmallPoolLiquidityUsd:
-                  workspaceEnv.XXYY_SMALL_POOL_MAX_LIQUIDITY_USD?.trim() || '10000',
-                maxSmallPoolRelativeLiquidityPpm: Number(
-                  workspaceEnv.XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM ?? '100000',
-                ),
-                version: '1.0.0',
-              },
-              ...(screenshotProvider === undefined ? {} : { screenshotProvider }),
-            }),
+          xxyyTransactionDiagnosis: createXxyyTransactionDiagnosisService({
+            chainAnalysis: publicTransactionClient,
+            ...(canonicalPoolResolver === undefined ? {} : { canonicalPoolResolver }),
+            marketData: createXxyyMarketDataClient(),
+            poolPolicy: {
+              maxSmallPoolLiquidityUsd:
+                workspaceEnv.XXYY_SMALL_POOL_MAX_LIQUIDITY_USD?.trim() || '10000',
+              maxSmallPoolRelativeLiquidityPpm: Number(
+                workspaceEnv.XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM ?? '100000',
+              ),
+              version: '1.0.0',
+            },
+            ...(screenshotProvider === undefined ? {} : { screenshotProvider }),
           }),
         }),
   });
