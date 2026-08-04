@@ -1,6 +1,17 @@
+import { access, chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
-import { resolveSolanaBrowserTransactionId } from './browser-chain-analysis-client.js';
+import {
+  createBrowserChainAnalysisClient,
+  createScanPageTransactionExpression,
+  ExplorerBrowserVerificationError,
+  prepareBrowserProfile,
+  resolveExplorerChromeLaunch,
+  resolveSolanaBrowserTransactionId,
+} from './browser-chain-analysis-client.js';
 
 const signature =
   'mC3JipVwKobtkB1evDCxb9jDWqic9aVaRj81r6ffNweQ3gfmA9vPJCmftTuUCECb35TbvovRznezsuL7TCq6BVb';
@@ -16,5 +27,93 @@ describe('browser chain analysis client', () => {
       resolveSolanaBrowserTransactionId(`https://example.com/tx/${signature}`),
     ).toThrow();
     expect(() => resolveSolanaBrowserTransactionId(signature, 'eip155:1')).toThrow();
+  });
+
+  it('waits for transient scan verification but fails closed on a hard block', () => {
+    const evaluate = (title: string, innerText: string) =>
+      Function(
+        'document',
+        'location',
+        `return ${createScanPageTransactionExpression()}`,
+      )({ body: { innerText }, title }, { pathname: '/tx/0x' }) as unknown;
+
+    expect(evaluate('Just a moment...', 'Performing security verification')).toBeNull();
+    expect(evaluate('Attention Required', 'Sorry, you have been blocked')).toEqual({
+      blocked: true,
+    });
+  });
+
+  it('classifies a hard scan block as interactive verification', async () => {
+    const client = createBrowserChainAnalysisClient({
+      chromeExecutable: process.execPath,
+      profileDirectory: '/tmp/xxyy-browser-profile-test',
+      scanPageEvaluator: async () => ({ blocked: true }),
+    });
+
+    await expect(
+      client.getTransaction({
+        reference: `https://bscscan.com/tx/0x${'1'.repeat(64)}`,
+      }),
+    ).rejects.toBeInstanceOf(ExplorerBrowserVerificationError);
+  });
+
+  it('keeps all explorer token links after prioritizing actor-received tokens', () => {
+    const expression = createScanPageTransactionExpression();
+
+    expect(expression).toContain('[...actorReceivedTokens, ...tokenLinks, ...textAddresses]');
+    expect(expression).toContain('text.matchAll(/\\b0x[0-9a-f]{40}\\b/gi)');
+    expect(expression).not.toContain('actorReceivedTokens.length > 0 ?');
+  });
+
+  it('removes browser profile locks left by a previous container', async () => {
+    const profileDirectory = await mkdtemp(path.join(tmpdir(), 'xxyy-browser-profile-test-'));
+    try {
+      await symlink('previous-container-123', path.join(profileDirectory, 'SingletonLock'));
+      await symlink('cookie', path.join(profileDirectory, 'SingletonCookie'));
+      await symlink('/tmp/missing-browser-socket', path.join(profileDirectory, 'SingletonSocket'));
+      await writeFile(path.join(profileDirectory, 'DevToolsActivePort'), '9222');
+
+      await prepareBrowserProfile(profileDirectory);
+
+      await expect(access(path.join(profileDirectory, 'SingletonLock'))).rejects.toThrow();
+      await expect(access(path.join(profileDirectory, 'SingletonCookie'))).rejects.toThrow();
+      await expect(access(path.join(profileDirectory, 'SingletonSocket'))).rejects.toThrow();
+      await expect(access(path.join(profileDirectory, 'DevToolsActivePort'))).rejects.toThrow();
+    } finally {
+      await rm(profileDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it('uses a virtual display when xvfb-run is installed and otherwise stays headless', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'xxyy-xvfb-test-'));
+    const xvfbRunExecutable = path.join(directory, 'xvfb-run');
+    try {
+      await writeFile(xvfbRunExecutable, '#!/bin/sh\n', { mode: 0o700 });
+      await chmod(xvfbRunExecutable, 0o700);
+
+      expect(
+        await resolveExplorerChromeLaunch('/usr/bin/chromium', ['about:blank'], {
+          xvfbRunExecutable,
+        }),
+      ).toEqual({
+        arguments: [
+          '-a',
+          '--server-args=-screen 0 1600x1000x24 -nolisten tcp',
+          '/usr/bin/chromium',
+          'about:blank',
+        ],
+        command: xvfbRunExecutable,
+      });
+      expect(
+        await resolveExplorerChromeLaunch('/usr/bin/chromium', ['about:blank'], {
+          xvfbRunExecutable: path.join(directory, 'missing-xvfb-run'),
+        }),
+      ).toEqual({
+        arguments: ['--headless=new', 'about:blank'],
+        command: '/usr/bin/chromium',
+      });
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 });

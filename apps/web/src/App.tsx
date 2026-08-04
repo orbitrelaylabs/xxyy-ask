@@ -401,7 +401,7 @@ export function App(): ReactElement {
               name="message"
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="例如：XXYY Pro 有哪些权益？"
+              placeholder="产品问题，或粘贴 Explorer 交易链接查询基础信息/被夹/池子"
               required
               value={input}
             />
@@ -473,7 +473,7 @@ function Sidebar({
           </li>
           <li>
             <span className="dot" />
-            公开交易、调用追踪与 MEV
+            公开交易、被夹与池子查证
           </li>
           <li>
             <span className="dot warn" />
@@ -951,9 +951,9 @@ function createWelcomeMessage(): ChatMessage {
     citations: [],
     id: 'welcome',
     rawAnswer:
-      '你好，我可以回答 XXYY 产品功能、Pro 权益、交易设置、钱包监控和更新日志，也可以查询你提供的公开 Explorer 交易链接。',
+      '你好，我可以回答 XXYY 产品功能、Pro 权益、交易设置、钱包监控和更新日志。你也可以发送一笔公开 Explorer 交易链接，查询基础交易信息，或检查是否被夹、买错池及小池；证据就绪时会附上真实 XXYY 标注截图。',
     role: 'assistant',
-    text: '你好，我可以回答 XXYY 产品功能、Pro 权益、交易设置、钱包监控和更新日志，也可以查询你提供的公开 Explorer 交易链接。',
+    text: '你好，我可以回答 XXYY 产品功能、Pro 权益、交易设置、钱包监控和更新日志。你也可以发送一笔公开 Explorer 交易链接，查询基础交易信息，或检查是否被夹、买错池及小池；证据就绪时会附上真实 XXYY 标注截图。',
   };
 }
 

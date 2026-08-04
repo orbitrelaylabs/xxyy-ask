@@ -69,6 +69,7 @@ export async function runXxyyTransactionDiagnosisCli(
       screenshotProvider: createChromeXxyyScreenshotProvider({
         artifactDirectory,
         chromeExecutable,
+        profileDirectory: path.join(profileDirectory, 'screenshots'),
       }),
     });
     const output = await service.diagnoseXxyyTransaction(

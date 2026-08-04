@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createPublicTransactionClientStub,
+  ExplorerBrowserVerificationError,
   getTransactionOutputSchema,
   type GetTransactionOutput,
 } from '@xxyy/xxyy-transaction-diagnosis-runtime';
@@ -59,6 +60,25 @@ describe('public browser transaction Skill tool', () => {
       network: 'eip155:56',
       reference: hash,
     });
+  });
+
+  it('returns an actionable response when Explorer requires interactive verification', async () => {
+    const caller = { channel: 'telegram' as const, principal: 'service' as const };
+    const registry = createPublicChainAnalysisCapabilityRegistry({
+      caller,
+      client: createPublicTransactionClientStub(async () => {
+        throw new ExplorerBrowserVerificationError('bscscan.com');
+      }),
+    });
+
+    const output = await createPublicChainTransactionTool({ caller, registry }).execute(
+      { query: `https://bscscan.com/tx/${hash}` },
+      { channel: 'telegram' },
+    );
+
+    expect(output.agentRoute).toBe('clarify');
+    expect(output.answer).toContain('人机验证');
+    expect(output.answer).toContain('不会自动绕过验证');
   });
 });
 

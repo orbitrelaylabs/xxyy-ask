@@ -1790,6 +1790,16 @@ function sortJsonValue(value: unknown): unknown {
 }
 
 function toolFailureResponse(toolName: string): ChatResponse {
+  if (toolName === PUBLIC_TRANSACTION_TOOL_NAME) {
+    return createClarificationResponse(
+      '公开交易浏览器查证暂时失败。请确认 Explorer 链接可公开访问，并联系管理员检查隔离浏览器 Profile 是否需要重新完成站点验证。',
+    );
+  }
+  if (toolName === PUBLIC_XXYY_TRANSACTION_DIAGNOSIS_TOOL_NAME) {
+    return createClarificationResponse(
+      'XXYY 交易诊断暂时失败，当前无法可靠核对目标成交、前后成交或截图。请稍后重试；系统不会用缺失证据猜测被夹或池子结论。',
+    );
+  }
   return createClarificationResponse(
     `当前知识库检索或 AI 服务暂时不可用，${toolName} 无法可靠处理这个请求。请稍后重试，或检查 AI/embedding 服务和向量库健康状态。`,
   );

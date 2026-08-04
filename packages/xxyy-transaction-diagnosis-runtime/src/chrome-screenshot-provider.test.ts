@@ -33,14 +33,16 @@ describe('xxyyPairUrl', () => {
     expect(expression).not.toContain('createElement');
   });
 
-  it('requires stable OHLC data and painted K-line pixels before capture', () => {
+  it('requires stable OHLC data and a rendered K-line canvas before capture', () => {
     const expression = buildKlineReadinessExpression();
 
-    expect(expression).toContain("document.querySelector('.main-content .chart iframe')");
+    expect(expression).toContain("document.querySelectorAll('.main-content iframe')");
+    expect(expression).toContain("candidate.src.startsWith('blob:https://www.xxyy.io/')");
     expect(expression).toContain("text.includes('∅')");
     expect(expression).toContain("frameDocument.querySelectorAll('.pane canvas')");
-    expect(expression).toContain("canvas.getContext('2d', {willReadFrequently:true})");
-    expect(expression).toContain('colorfulPixels >= 3');
+    expect(expression).toContain('canvas.width >= 100 && canvas.height >= 100');
+    expect(expression).toContain('open|\\bO');
+    expect(expression).toContain('close|\\bC');
     expect(expression).not.toContain('createElement');
   });
 
@@ -49,10 +51,12 @@ describe('xxyyPairUrl', () => {
 
     expect(expression).toContain("name === 'tradeTable'");
     expect(expression).toContain('tradeTable.updateFilters');
+    expect(expression).toContain('{...current, timeStart:1785576517057');
     expect(expression).toContain('timeStart:1785576517057');
     expect(expression).toContain('timeEnd:1785576521057');
     expect(expression).toContain('document.hidden');
     expect(expression).not.toContain('createElement');
+    expect(expression).not.toContain('JSON.stringify(current)');
     expect(expression).not.toContain('/api/data/trades/search');
     expect(expression).not.toContain('xxyy-verified-evidence-panel');
   });

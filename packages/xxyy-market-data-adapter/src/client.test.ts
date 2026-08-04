@@ -366,6 +366,38 @@ describe('XXYY market data adapter', () => {
       status: 'exact',
     });
   });
+
+  it('stops pair discovery after the first candidate-bearing token', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (url) =>
+      String(url).includes('/search/v3')
+        ? jsonResponse({
+            code: 0,
+            data: {
+              results: Array.from({ length: 64 }, (_, index) => ({
+                pairInfo: {
+                  address: `pool-${index}`,
+                  baseToken: 'token-1',
+                  chain: 'bsc',
+                  quoteToken: 'wrapped-bnb',
+                },
+              })),
+            },
+          })
+        : jsonResponse({ code: 0, data: [] }),
+    );
+    const client = createXxyyMarketDataClient({ fetchImpl });
+
+    const result = await client.findTrade({
+      chain: 'eip155:56',
+      targetTokenAddresses: ['token-1', 'token-2'],
+      transactionId: 'tx-1',
+    });
+
+    expect(result.candidatePairs).toHaveLength(64);
+    expect(fetchImpl.mock.calls.filter(([url]) => String(url).includes('/search/v3'))).toHaveLength(
+      1,
+    );
+  });
 });
 
 function jsonResponse(value: unknown): Response {

@@ -168,6 +168,7 @@ async function loadCandidatePairs(input: {
 }): Promise<XxyyPairCandidate[]> {
   const pairs = new Map<string, XxyyPairCandidate>();
   for (const tokenAddress of input.input.targetTokenAddresses) {
+    if (pairs.size >= MAX_PAIR_CANDIDATES) break;
     try {
       const response = pairSearchResponseSchema.parse(
         await requestJson({
@@ -204,6 +205,7 @@ async function loadCandidatePairs(input: {
           break;
         }
       }
+      if (pairs.size > 0) break;
     } catch (error) {
       input.diagnostics.push(diagnosticFor(error, 'pair_search'));
     }

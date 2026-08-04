@@ -18,6 +18,7 @@ import {
   type AnswerQualityRolloutEnv,
   type AnswerQualityRolloutObservation,
 } from '@xxyy/agent-core';
+import path from 'node:path';
 
 import {
   TelegramBotConfigurationError,
@@ -178,14 +179,20 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
 function createOptionalScreenshotProvider(env: TelegramEnv) {
   const chromeExecutable = env.XXYY_SCREENSHOT_CHROME_EXECUTABLE?.trim();
   const artifactDirectory = env.XXYY_SCREENSHOT_DIRECTORY?.trim();
+  const profileDirectory = env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim();
   const values = [chromeExecutable, artifactDirectory];
   if (values.every((value) => value === undefined || value.length === 0)) return undefined;
-  if (values.some((value) => value === undefined || value.length === 0)) {
+  if (
+    values.some((value) => value === undefined || value.length === 0) ||
+    profileDirectory === undefined ||
+    profileDirectory.length === 0
+  ) {
     throw new TypeError('XXYY screenshot configuration must be provided as one complete set.');
   }
   return createChromeXxyyScreenshotProvider({
     artifactDirectory: artifactDirectory!,
     chromeExecutable: chromeExecutable!,
+    profileDirectory: path.join(profileDirectory!, 'screenshots'),
   });
 }
 

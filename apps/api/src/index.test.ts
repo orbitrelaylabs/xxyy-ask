@@ -429,6 +429,53 @@ describe('createRequestHandler', () => {
     );
   });
 
+  it('reports an unavailable configured browser in deep health status', async () => {
+    const handler = createRequestHandler({
+      env: {
+        XXYY_BROWSER_PROFILE_DIRECTORY: '/missing/browser-profile',
+        XXYY_SCREENSHOT_CHROME_EXECUTABLE: '/missing/chromium',
+        XXYY_SCREENSHOT_DIRECTORY: '/missing/evidence',
+      },
+    });
+
+    const response = await callHandler(handler, { method: 'GET', url: '/health/deep' });
+    const payload = JSON.parse(response.body) as {
+      checks: { browser: { configured: boolean; message: string; status: string } };
+      status: string;
+    };
+
+    expect(response.statusCode).toBe(503);
+    expect(payload.status).toBe('degraded');
+    expect(payload.checks.browser).toEqual({
+      configured: true,
+      message: 'Browser executable or evidence directories are unavailable.',
+      status: 'error',
+    });
+  });
+
+  it('reports the Chromium fallback when ego-browser is unavailable', async () => {
+    const handler = createRequestHandler({
+      env: {
+        PATH: '',
+        XXYY_BROWSER_PROFILE_DIRECTORY: '/tmp',
+        XXYY_SCREENSHOT_CHROME_EXECUTABLE: process.execPath,
+        XXYY_SCREENSHOT_DIRECTORY: '/tmp',
+      },
+    });
+
+    const response = await callHandler(handler, { method: 'GET', url: '/health/deep' });
+    const payload = JSON.parse(response.body) as {
+      checks: { browser: { configured: boolean; driver: string; message: string; status: string } };
+    };
+
+    expect(payload.checks.browser).toEqual({
+      configured: true,
+      driver: 'chromium-fallback',
+      message: 'ego-browser is unavailable; Explorer queries may require interactive verification.',
+      status: 'error',
+    });
+  });
+
   it('handles allowed CORS preflight requests for chat APIs', async () => {
     const handler = createRequestHandler({
       env: {

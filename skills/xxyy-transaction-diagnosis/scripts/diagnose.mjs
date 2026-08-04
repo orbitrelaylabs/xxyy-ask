@@ -15049,6 +15049,7 @@ function createXxyyMarketDataClient(options = {}) {
 async function loadCandidatePairs(input) {
   const pairs = /* @__PURE__ */ new Map();
   for (const tokenAddress of input.input.targetTokenAddresses) {
+    if (pairs.size >= MAX_PAIR_CANDIDATES) break;
     try {
       const response = pairSearchResponseSchema.parse(
         await requestJson({
@@ -15083,6 +15084,7 @@ async function loadCandidatePairs(input) {
           break;
         }
       }
+      if (pairs.size > 0) break;
     } catch (error51) {
       input.diagnostics.push(diagnosticFor(error51, "pair_search"));
     }
@@ -15342,7 +15344,8 @@ function positiveInteger(value, label) {
 // packages/xxyy-transaction-diagnosis-runtime/src/browser-chain-analysis-client.ts
 import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
 import { spawn as spawn2 } from "node:child_process";
-import { access, mkdir as mkdir2 } from "node:fs/promises";
+import { access, mkdir as mkdir2, readlink, unlink } from "node:fs/promises";
+import { hostname as hostname3 } from "node:os";
 import path2 from "node:path";
 
 // packages/shared/src/domain-contract.ts
@@ -15982,81 +15985,92 @@ var diagnoseXxyyTransactionOutputSchema = external_exports.object({
 }).strict();
 
 // packages/xxyy-transaction-diagnosis-runtime/src/chrome-screenshot-provider.ts
-var DEFAULT_CAPTURE_TIMEOUT_MS = 45e3;
+var DEFAULT_CAPTURE_TIMEOUT_MS = 6e4;
 var MAX_SCREENSHOT_BYTES = 10 * 1048576;
 function createChromeXxyyScreenshotProvider(options) {
   const artifactDirectory = path.resolve(nonEmpty(options.artifactDirectory, "artifactDirectory"));
   const chromeExecutable = path.resolve(nonEmpty(options.chromeExecutable, "chromeExecutable"));
+  const persistentProfileDirectory = options.profileDirectory === void 0 ? void 0 : path.resolve(nonEmpty(options.profileDirectory, "profileDirectory"));
   const timeoutMs = positiveInteger2(options.timeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS, "timeoutMs");
-  return {
-    async capture(input, requestOptions = {}) {
-      const sourceUrl = xxyyPairUrl(input.chain, input.pairAddress);
-      const profileDirectory = await mkdtemp(path.join(tmpdir(), "xxyy-screenshot-"));
-      let chrome;
+  let captureQueue = Promise.resolve();
+  const capture = async (input, requestOptions = {}) => {
+    const sourceUrl = xxyyPairUrl(input.chain, input.pairAddress);
+    const profileDirectory = persistentProfileDirectory ?? await mkdtemp(path.join(tmpdir(), "xxyy-screenshot-"));
+    const cacheDirectory = path.join(artifactDirectory, ".browser-cache");
+    let chrome;
+    try {
+      await Promise.all([
+        mkdir(artifactDirectory, { recursive: true, mode: 488 }),
+        mkdir(cacheDirectory, { recursive: true, mode: 488 })
+      ]);
+      await prepareBrowserProfile(profileDirectory);
+      const chromeArguments = [
+        "--disable-component-update",
+        "--disable-default-apps",
+        "--disable-extensions",
+        "--disable-sync",
+        "--enable-webgl",
+        "--hide-scrollbars",
+        "--ignore-gpu-blocklist",
+        "--no-default-browser-check",
+        "--no-first-run",
+        "--use-gl=swiftshader",
+        ...chromeRootSandboxFlags(),
+        "--remote-debugging-port=0",
+        `--disk-cache-dir=${cacheDirectory}`,
+        `--user-data-dir=${profileDirectory}`,
+        "--window-size=1600,1000",
+        sourceUrl
+      ];
+      const launch = await resolveExplorerChromeLaunch(chromeExecutable, chromeArguments);
+      chrome = spawn(launch.command, launch.arguments, {
+        detached: process.platform !== "win32",
+        stdio: ["ignore", "ignore", "pipe"]
+      });
+      const debuggerUrl = await readDebuggerUrl(chrome, timeoutMs, requestOptions.signal);
+      const pageUrl = await findPageDebuggerUrl(debuggerUrl, timeoutMs, requestOptions.signal);
+      const cdp = await createCdpClient(pageUrl, timeoutMs, requestOptions.signal);
       try {
-        await mkdir(artifactDirectory, { recursive: true, mode: 488 });
-        chrome = spawn(
-          chromeExecutable,
-          [
-            "--headless=new",
-            "--disable-background-networking",
-            "--disable-component-update",
-            "--disable-default-apps",
-            "--disable-extensions",
-            "--disable-gpu",
-            "--disable-sync",
-            "--hide-scrollbars",
-            "--no-default-browser-check",
-            "--no-first-run",
-            ...chromeRootSandboxFlags(),
-            "--remote-debugging-port=0",
-            `--user-data-dir=${profileDirectory}`,
-            "--window-size=1600,1000",
-            sourceUrl
-          ],
-          { stdio: ["ignore", "ignore", "pipe"] }
-        );
-        const debuggerUrl = await readDebuggerUrl(chrome, timeoutMs, requestOptions.signal);
-        const pageUrl = await findPageDebuggerUrl(debuggerUrl, timeoutMs, requestOptions.signal);
-        const cdp = await createCdpClient(pageUrl, timeoutMs, requestOptions.signal);
-        try {
-          await cdp.call("Page.enable");
-          await cdp.call("Runtime.enable");
-          await prepareNativeEvidencePage({
-            cdp,
-            input,
-            timeoutMs
-          });
-          const capture = await cdp.call("Page.captureScreenshot", {
-            captureBeyondViewport: false,
-            format: "png",
-            fromSurface: true
-          });
-          const data = recordString(capture, "data");
-          const png = Buffer.from(data, "base64");
-          if (png.byteLength === 0 || png.byteLength > MAX_SCREENSHOT_BYTES) {
-            throw new Error("XXYY screenshot size was invalid.");
-          }
-          const filename = `${createHash("sha256").update(input.transactionId).digest("hex")}.png`;
-          const temporaryFile = path.join(artifactDirectory, `.${filename}.${randomUUID()}.tmp`);
-          const finalFile = path.join(artifactDirectory, filename);
-          await writeFile(temporaryFile, png, { flag: "wx", mode: 416 });
-          await rename(temporaryFile, finalFile);
-          return xxyyScreenshotArtifactSchema.parse({
-            capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
-            maker: input.maker,
-            mediaType: "image/png",
-            pairAddress: input.pairAddress,
-            sourceUrl,
-            title: "XXYY native trade-row evidence",
-            transactionId: input.transactionId,
-            url: `/xxyy-evidence/${filename}`
-          });
-        } finally {
-          cdp.close();
+        await cdp.call("Page.enable");
+        await cdp.call("Runtime.enable");
+        await cdp.call("Page.bringToFront");
+        await cdp.call("Emulation.setFocusEmulationEnabled", { enabled: true });
+        await prepareNativeEvidencePage({
+          cdp,
+          input,
+          timeoutMs
+        });
+        const capture2 = await cdp.call("Page.captureScreenshot", {
+          captureBeyondViewport: false,
+          format: "png",
+          fromSurface: true
+        });
+        const data = recordString(capture2, "data");
+        const png = Buffer.from(data, "base64");
+        if (png.byteLength === 0 || png.byteLength > MAX_SCREENSHOT_BYTES) {
+          throw new Error("XXYY screenshot size was invalid.");
         }
+        const filename = `${createHash("sha256").update(input.transactionId).digest("hex")}.png`;
+        const temporaryFile = path.join(artifactDirectory, `.${filename}.${randomUUID()}.tmp`);
+        const finalFile = path.join(artifactDirectory, filename);
+        await writeFile(temporaryFile, png, { flag: "wx", mode: 416 });
+        await rename(temporaryFile, finalFile);
+        return xxyyScreenshotArtifactSchema.parse({
+          capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          maker: input.maker,
+          mediaType: "image/png",
+          pairAddress: input.pairAddress,
+          sourceUrl,
+          title: "XXYY native trade-row evidence",
+          transactionId: input.transactionId,
+          url: `/xxyy-evidence/${filename}`
+        });
       } finally {
-        await terminateChrome(chrome);
+        cdp.close();
+      }
+    } finally {
+      await terminateChrome(chrome);
+      if (persistentProfileDirectory === void 0) {
         await rm(profileDirectory, {
           force: true,
           maxRetries: 5,
@@ -16066,19 +16080,41 @@ function createChromeXxyyScreenshotProvider(options) {
       }
     }
   };
+  return {
+    capture(input, requestOptions = {}) {
+      const result2 = captureQueue.then(() => capture(input, requestOptions));
+      captureQueue = result2.then(
+        () => void 0,
+        () => void 0
+      );
+      return result2;
+    }
+  };
 }
 async function prepareNativeEvidencePage(input) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (attempt > 0) {
-      await input.cdp.call("Page.reload", { ignoreCache: true });
+      await input.cdp.call("Page.reload");
       await delay(500);
     }
+    const klineReady = await waitForKlineReady({
+      cdp: input.cdp,
+      timeoutMs: Math.min(input.timeoutMs, attempt === 0 ? 3e4 : 2e4)
+    });
+    if (!klineReady && attempt === 0) {
+      continue;
+    }
     if (input.input.timestamp !== void 0) {
-      await applyNativeHistoricalFilter({
-        cdp: input.cdp,
-        timeoutMs: Math.min(input.timeoutMs, 12e3),
-        timestamp: input.input.timestamp
-      });
+      try {
+        await applyNativeHistoricalFilter({
+          cdp: input.cdp,
+          timeoutMs: Math.min(input.timeoutMs, 3e4),
+          timestamp: input.input.timestamp
+        });
+      } catch (error51) {
+        if (attempt === 0) continue;
+        throw error51;
+      }
     }
     const highlighted = await pollForVerifiedRow({
       cdp: input.cdp,
@@ -16095,9 +16131,9 @@ async function prepareNativeEvidencePage(input) {
         "The exact trade was verified by API but its native XXYY trade row was not rendered."
       );
     }
-    if (await waitForKlineReady({
+    if (!klineReady || await waitForKlineReady({
       cdp: input.cdp,
-      timeoutMs: Math.min(input.timeoutMs, 15e3)
+      timeoutMs: Math.min(input.timeoutMs, 5e3)
     })) {
       return;
     }
@@ -16107,13 +16143,26 @@ async function prepareNativeEvidencePage(input) {
 async function terminateChrome(process3) {
   if (process3 === void 0 || process3.exitCode !== null) return;
   await new Promise((resolve) => {
-    const timeout = setTimeout(resolve, 2e3);
+    const timeout = setTimeout(() => {
+      signalBrowserProcess(process3, "SIGKILL");
+      resolve();
+    }, 2e3);
     process3.once("exit", () => {
       clearTimeout(timeout);
       resolve();
     });
-    process3.kill("SIGTERM");
+    signalBrowserProcess(process3, "SIGTERM");
   });
+}
+function signalBrowserProcess(process3, signal) {
+  if (process3.pid !== void 0 && globalThis.process.platform !== "win32") {
+    try {
+      globalThis.process.kill(-process3.pid, signal);
+      return;
+    } catch {
+    }
+  }
+  process3.kill(signal);
 }
 function chromeRootSandboxFlags() {
   return typeof process.getuid === "function" && process.getuid() === 0 ? ["--no-sandbox"] : [];
@@ -16362,40 +16411,17 @@ async function waitForKlineReady(input) {
 }
 function buildKlineReadinessExpression() {
   return `(() => {
-    const frame = document.querySelector('.main-content .chart iframe');
+    const frame = [...document.querySelectorAll('.main-content iframe')]
+      .find((candidate) => candidate.src.startsWith('blob:https://www.xxyy.io/'));
     const frameDocument = frame && frame.contentDocument;
     if (!frameDocument || frameDocument.readyState !== 'complete') return false;
     const text = (frameDocument.body && frameDocument.body.innerText || '').replace(/\\s+/g, ' ').trim();
     if (!text || /No data here/i.test(text) || text.includes('\u2205')) return false;
-    const hasOpen = /(?:\u5F00|open)\\s*=?:?\\s*[-+]?\\d/i.test(text);
-    const hasClose = /(?:\u6536|close)\\s*=?:?\\s*[-+]?\\d/i.test(text);
+    const hasOpen = /(?:\u5F00|open|\\bO)\\s*=?:?\\s*[-+]?\\d/i.test(text);
+    const hasClose = /(?:\u6536|close|\\bC)\\s*=?:?\\s*[-+]?\\d/i.test(text);
     if (!hasOpen || !hasClose) return false;
     const canvases = [...frameDocument.querySelectorAll('.pane canvas')];
-    return canvases.some((canvas) => {
-      if (canvas.width < 100 || canvas.height < 100) return false;
-      try {
-        const context = canvas.getContext('2d', {willReadFrequently:true});
-        if (!context) return false;
-        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-        let colorfulPixels = 0;
-        for (let y = 5; y < canvas.height; y += 25) {
-          for (let x = 5; x < canvas.width; x += 25) {
-            const offset = (y * canvas.width + x) * 4;
-            const red = pixels[offset];
-            const green = pixels[offset + 1];
-            const blue = pixels[offset + 2];
-            const alpha = pixels[offset + 3];
-            if (alpha > 0 && Math.max(red, green, blue) - Math.min(red, green, blue) > 20) {
-              colorfulPixels += 1;
-              if (colorfulPixels >= 3) return true;
-            }
-          }
-        }
-      } catch {
-        return false;
-      }
-      return false;
-    });
+    return canvases.some((canvas) => canvas.width >= 100 && canvas.height >= 100);
   })()`;
 }
 async function applyNativeHistoricalFilter(input) {
@@ -16443,9 +16469,7 @@ function buildNativeHistoricalFilterExpression(timestamp) {
     }
     const current = tradeTable.filters;
     if (current.timeStart === ${start} && current.timeEnd === ${end}) return true;
-    tradeTable.updateFilters({...JSON.parse(JSON.stringify(current)), timeStart:${start}, timeEnd:${end}});
-    tradeTable.trades = [];
-    tradeTable.datas = [];
+    tradeTable.updateFilters({...current, timeStart:${start}, timeEnd:${end}});
     return true;
   })()`;
 }
@@ -16626,6 +16650,11 @@ function invalidReference() {
 
 // packages/xxyy-transaction-diagnosis-runtime/src/browser-chain-analysis-client.ts
 var DEFAULT_TIMEOUT_MS = 45e3;
+var EXPLORER_VERIFICATION_EXPRESSION = `(() => {
+  const state = ((document.title || '') + '
+' + (document.body?.innerText || '')).trim();
+  return /Just a moment|security verification|\u5B89\u5168\u9A8C\u8BC1|Checking your browser|Verify you are human|Attention Required|Sorry, you have been blocked/i.test(state);
+})()`;
 var SOLSCAN_ORIGIN = "https://solscan.io";
 var SOLSCAN_API_ORIGIN = "https://api-v2.solscan.io";
 var BLOCKSCOUT_ORIGINS = {
@@ -16636,6 +16665,15 @@ var BLOCKSCOUT_ORIGINS = {
 var SCAN_ORIGINS = {
   "eip155:56": "https://bscscan.com",
   "eip155:988": "https://stablescan.xyz"
+};
+var ExplorerBrowserVerificationError = class extends Error {
+  code = "explorer_verification_required";
+  constructor(host) {
+    super(
+      host === void 0 ? "Explorer browser requires interactive verification." : `Explorer browser requires interactive verification for ${host}.`
+    );
+    this.name = "ExplorerBrowserVerificationError";
+  }
 };
 var browserTransactionSchema = external_exports.object({
   accountKeys: external_exports.array(external_exports.string()).max(512),
@@ -16795,7 +16833,8 @@ async function evaluateEgoBrowserPage(command, input) {
     "    if (value !== null && value !== undefined) break",
     "    await wait(0.25)",
     "  }",
-    "  payload = value === null || value === undefined ? {ok:false, error:'page_evidence_timeout'} : {ok:true, value}",
+    "  const verificationRequired = value === null || value === undefined ? await js(" + JSON.stringify(EXPLORER_VERIFICATION_EXPRESSION) + ") : false",
+    "  payload = value === null || value === undefined ? {ok:false, error:verificationRequired ? 'verification_required' : 'page_evidence_timeout'} : {ok:true, value}",
     "} catch {",
     "  payload = {ok:false, error:'page_evaluation_failed'}",
     "} finally {",
@@ -16866,6 +16905,9 @@ async function evaluateEgoBrowserPage(command, input) {
   }
   const payloadText = chunks.map((chunk) => chunk.value).join("");
   const payload = JSON.parse(payloadText);
+  if (isRecord2(payload) && payload.error === "verification_required") {
+    throw new ExplorerBrowserVerificationError(new URL(input.url).hostname);
+  }
   if (!isRecord2(payload) || payload.ok !== true || !("value" in payload)) {
     throw new Error("ego-browser page evaluation returned no evidence.");
   }
@@ -16917,9 +16959,20 @@ async function loadBlockscoutTransaction(input) {
 }
 async function loadScanPageTransaction(input) {
   const explorerUrl = `${input.origin}/tx/${input.reference.transactionId}`;
-  const expression = `(() => {
+  const expression = createScanPageTransactionExpression();
+  const raw = await input.scanPageEvaluator({ ...input, expression, url: explorerUrl });
+  if (isRecord2(raw) && raw.blocked === true) {
+    throw new ExplorerBrowserVerificationError(new URL(explorerUrl).hostname);
+  }
+  const parsed = browserEvmTransactionSchema.parse(raw);
+  return projectEvmBrowserTransaction(parsed, input.reference, explorerUrl, "scan_browser");
+}
+function createScanPageTransactionExpression() {
+  return `(() => {
     const text = (document.body?.innerText || '').replace(/\\r/g, '');
-    if (/security verification|\u5B89\u5168\u9A8C\u8BC1|Attention Required|Sorry, you have been blocked/i.test(text)) return {blocked:true};
+    const pageState = ((document.title || '') + '\\n' + text).trim();
+    if (/Attention Required|Sorry, you have been blocked/i.test(pageState)) return {blocked:true};
+    if (/Just a moment|security verification|\u5B89\u5168\u9A8C\u8BC1|Checking your browser|Verify you are human/i.test(pageState)) return null;
     const addressLinks = [...document.querySelectorAll('a[href*="/address/0x"]')].map((a) => (a.getAttribute('href') || '').match(/\\/address\\/(0x[0-9a-f]{40})/i)?.[1]).filter(Boolean);
     const tokenLinks = [...document.querySelectorAll('a[href*="/token/0x"]')].map((a) => (a.getAttribute('href') || '').match(/\\/token\\/(0x[0-9a-f]{40})/i)?.[1]).filter(Boolean);
     const hash = location.pathname.match(/\\/tx\\/(0x[0-9a-f]{64})/i)?.[1];
@@ -16950,7 +17003,11 @@ async function loadScanPageTransaction(input) {
       }
       return [];
     }) : [];
-    const targetTokenLinks = actorReceivedTokens.length > 0 ? [...new Set(actorReceivedTokens)] : [...new Set(tokenLinks)];
+    const excludedAddresses = new Set([fromMatch, toMatch].filter(Boolean).map((value) => value.toLowerCase()));
+    const textAddresses = [...text.matchAll(/\\b0x[0-9a-f]{40}\\b/gi)]
+      .map((match) => match[0])
+      .filter((address) => !excludedAddresses.has(address.toLowerCase()));
+    const targetTokenLinks = [...new Set([...actorReceivedTokens, ...tokenLinks, ...textAddresses])];
     if (!hash || !block || (!fromMatch && addressLinks.length === 0)) return null;
     return {
       accountAddresses:[...new Set([fromMatch || addressLinks[0], toMatch || addressLinks[1]].filter(Boolean))], blockNumber:block, feeWei:toWei(feeEth),
@@ -16960,12 +17017,6 @@ async function loadScanPageTransaction(input) {
       to:toMatch || addressLinks[1] || null, tokenAddresses:targetTokenLinks, tokenTransfers:[], valueWei:toWei(valueEth)
     };
   })()`;
-  const raw = await input.scanPageEvaluator({ ...input, expression, url: explorerUrl });
-  if (isRecord2(raw) && raw.blocked === true) {
-    throw new Error("Explorer browser profile requires interactive site verification.");
-  }
-  const parsed = browserEvmTransactionSchema.parse(raw);
-  return projectEvmBrowserTransaction(parsed, input.reference, explorerUrl, "scan_browser");
 }
 function projectEvmBrowserTransaction(parsed, reference, explorerUrl, source) {
   const evidenceId = "browser.transaction";
@@ -17060,25 +17111,20 @@ async function readJsonBrowserPage(input) {
 async function evaluateBrowserPage(input) {
   let chrome;
   try {
-    await mkdir2(input.profileDirectory, { recursive: true, mode: 448 });
-    chrome = spawn2(
-      input.chromeExecutable,
-      [
-        "--headless=new",
-        "--disable-component-update",
-        "--disable-default-apps",
-        "--disable-extensions",
-        "--disable-gpu",
-        "--disable-sync",
-        "--no-default-browser-check",
-        "--no-first-run",
-        ...chromeRootSandboxFlags2(),
-        "--remote-debugging-port=0",
-        `--user-data-dir=${input.profileDirectory}`,
-        "about:blank"
-      ],
-      { stdio: ["ignore", "ignore", "pipe"] }
-    );
+    await prepareBrowserProfile(input.profileDirectory);
+    chrome = await spawnExplorerChrome(input.chromeExecutable, [
+      "--disable-component-update",
+      "--disable-default-apps",
+      "--disable-extensions",
+      "--disable-gpu",
+      "--disable-sync",
+      "--no-default-browser-check",
+      "--no-first-run",
+      ...chromeRootSandboxFlags2(),
+      "--remote-debugging-port=0",
+      `--user-data-dir=${input.profileDirectory}`,
+      "about:blank"
+    ]);
     const debuggerUrl = await readDebuggerUrl(chrome, input.timeoutMs, input.signal);
     const pageUrl = await findPageDebuggerUrl(debuggerUrl, input.timeoutMs, input.signal);
     const cdp = await createCdpClient(pageUrl, input.timeoutMs, input.signal);
@@ -17087,6 +17133,7 @@ async function evaluateBrowserPage(input) {
       await cdp.call("Runtime.enable");
       await cdp.call("Page.navigate", { url: input.url });
       const deadline = Date.now() + input.timeoutMs;
+      let verificationRequired = false;
       while (Date.now() < deadline) {
         input.signal?.throwIfAborted();
         const result2 = await cdp.call("Runtime.evaluate", {
@@ -17098,7 +17145,17 @@ async function evaluateBrowserPage(input) {
         if (remote !== void 0 && remote.value !== null && remote.value !== void 0) {
           return remote.value;
         }
+        const verification = await cdp.call("Runtime.evaluate", {
+          awaitPromise: true,
+          expression: EXPLORER_VERIFICATION_EXPRESSION,
+          returnByValue: true
+        });
+        const verificationRemote = isRecord2(verification.result) ? verification.result : void 0;
+        verificationRequired ||= verificationRemote?.value === true;
         await delay(250, input.signal);
+      }
+      if (verificationRequired) {
+        throw new ExplorerBrowserVerificationError(new URL(input.url).hostname);
       }
       throw new Error(`Browser page evidence timed out for ${new URL(input.url).hostname}.`);
     } finally {
@@ -17112,25 +17169,20 @@ async function loadSolscanTransaction(chromeExecutable, profileDirectory, transa
   const explorerUrl = `${SOLSCAN_ORIGIN}/tx/${transactionId}`;
   let chrome;
   try {
-    await mkdir2(profileDirectory, { recursive: true, mode: 448 });
-    chrome = spawn2(
-      chromeExecutable,
-      [
-        "--headless=new",
-        "--disable-component-update",
-        "--disable-default-apps",
-        "--disable-extensions",
-        "--disable-gpu",
-        "--disable-sync",
-        "--no-default-browser-check",
-        "--no-first-run",
-        ...chromeRootSandboxFlags2(),
-        "--remote-debugging-port=0",
-        `--user-data-dir=${profileDirectory}`,
-        "about:blank"
-      ],
-      { stdio: ["ignore", "ignore", "pipe"] }
-    );
+    await prepareBrowserProfile(profileDirectory);
+    chrome = await spawnExplorerChrome(chromeExecutable, [
+      "--disable-component-update",
+      "--disable-default-apps",
+      "--disable-extensions",
+      "--disable-gpu",
+      "--disable-sync",
+      "--no-default-browser-check",
+      "--no-first-run",
+      ...chromeRootSandboxFlags2(),
+      "--remote-debugging-port=0",
+      `--user-data-dir=${profileDirectory}`,
+      "about:blank"
+    ]);
     const debuggerUrl = await readDebuggerUrl(chrome, timeoutMs, signal);
     const pageUrl = await findPageDebuggerUrl(debuggerUrl, timeoutMs, signal);
     const cdp = await createCdpClient(pageUrl, timeoutMs, signal);
@@ -17148,6 +17200,66 @@ async function loadSolscanTransaction(chromeExecutable, profileDirectory, transa
   } finally {
     await terminateChrome2(chrome);
   }
+}
+async function prepareBrowserProfile(profileDirectory) {
+  await mkdir2(profileDirectory, { recursive: true, mode: 448 });
+  const lockPath = path2.join(profileDirectory, "SingletonLock");
+  let owner;
+  try {
+    owner = await readlink(lockPath);
+  } catch (error51) {
+    if (isNodeError(error51) && error51.code === "ENOENT") return;
+    throw error51;
+  }
+  const separator = owner.lastIndexOf("-");
+  const ownerHost = separator < 0 ? owner : owner.slice(0, separator);
+  const ownerPid = separator < 0 ? Number.NaN : Number(owner.slice(separator + 1));
+  if (ownerHost === hostname3() && Number.isSafeInteger(ownerPid) && ownerPid > 0) {
+    try {
+      process.kill(ownerPid, 0);
+      return;
+    } catch (error51) {
+      if (!isNodeError(error51) || error51.code !== "ESRCH") return;
+    }
+  }
+  await Promise.all(
+    ["SingletonLock", "SingletonCookie", "SingletonSocket", "DevToolsActivePort"].map(
+      async (name) => {
+        try {
+          await unlink(path2.join(profileDirectory, name));
+        } catch (error51) {
+          if (!isNodeError(error51) || error51.code !== "ENOENT") throw error51;
+        }
+      }
+    )
+  );
+}
+async function resolveExplorerChromeLaunch(chromeExecutable, chromeArguments, options = {}) {
+  const xvfbRunExecutable = options.xvfbRunExecutable ?? "/usr/bin/xvfb-run";
+  try {
+    await access(xvfbRunExecutable);
+    return {
+      arguments: [
+        "-a",
+        "--server-args=-screen 0 1600x1000x24 -nolisten tcp",
+        chromeExecutable,
+        ...chromeArguments
+      ],
+      command: xvfbRunExecutable
+    };
+  } catch {
+    return { arguments: ["--headless=new", ...chromeArguments], command: chromeExecutable };
+  }
+}
+async function spawnExplorerChrome(chromeExecutable, chromeArguments) {
+  const launch = await resolveExplorerChromeLaunch(chromeExecutable, chromeArguments);
+  return spawn2(launch.command, launch.arguments, {
+    detached: process.platform !== "win32",
+    stdio: ["ignore", "ignore", "pipe"]
+  });
+}
+function isNodeError(error51) {
+  return error51 instanceof Error && "code" in error51;
 }
 function projectTransaction(parsed, explorerUrl) {
   const accountKeys = unique([
@@ -17324,13 +17436,29 @@ function positiveInteger3(value, label) {
 async function terminateChrome2(chrome) {
   if (chrome === void 0 || chrome.exitCode !== null) return;
   await new Promise((resolve) => {
-    const timeout = setTimeout(resolve, 2e3);
+    const timeout = setTimeout(() => {
+      signalBrowserProcess2(chrome, "SIGKILL");
+      resolve();
+    }, 2e3);
     chrome.once("exit", () => {
       clearTimeout(timeout);
       resolve();
     });
-    chrome.kill("SIGTERM");
+    signalBrowserProcess2(chrome, "SIGTERM");
   });
+}
+function signalBrowserProcess2(chrome, signal) {
+  if (chrome.pid !== void 0 && process.platform !== "win32") {
+    try {
+      process.kill(-chrome.pid, signal);
+      return;
+    } catch {
+    }
+  }
+  try {
+    chrome.kill(signal);
+  } catch {
+  }
 }
 
 // packages/xxyy-transaction-diagnosis-runtime/src/canonical-pool-config.ts
@@ -17723,7 +17851,8 @@ async function runXxyyTransactionDiagnosisCli(options = {}) {
       },
       screenshotProvider: createChromeXxyyScreenshotProvider({
         artifactDirectory,
-        chromeExecutable
+        chromeExecutable,
+        profileDirectory: path3.join(profileDirectory, "screenshots")
       })
     });
     const output = await service.diagnoseXxyyTransaction(

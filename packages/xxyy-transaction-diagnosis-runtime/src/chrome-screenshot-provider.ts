@@ -5,13 +5,18 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { xxyyScreenshotArtifactSchema, type XxyyScreenshotEvidenceProvider } from './contracts.js';
+import {
+  prepareBrowserProfile,
+  resolveExplorerChromeLaunch,
+} from './browser-chain-analysis-client.js';
 
-const DEFAULT_CAPTURE_TIMEOUT_MS = 45_000;
+const DEFAULT_CAPTURE_TIMEOUT_MS = 60_000;
 const MAX_SCREENSHOT_BYTES = 10 * 1_048_576;
 
 export interface CreateChromeXxyyScreenshotProviderOptions {
   artifactDirectory: string;
   chromeExecutable: string;
+  profileDirectory?: string;
   timeoutMs?: number;
 }
 
@@ -20,77 +25,95 @@ export function createChromeXxyyScreenshotProvider(
 ): XxyyScreenshotEvidenceProvider {
   const artifactDirectory = path.resolve(nonEmpty(options.artifactDirectory, 'artifactDirectory'));
   const chromeExecutable = path.resolve(nonEmpty(options.chromeExecutable, 'chromeExecutable'));
+  const persistentProfileDirectory =
+    options.profileDirectory === undefined
+      ? undefined
+      : path.resolve(nonEmpty(options.profileDirectory, 'profileDirectory'));
   const timeoutMs = positiveInteger(options.timeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS, 'timeoutMs');
+  let captureQueue = Promise.resolve();
 
-  return {
-    async capture(input, requestOptions = {}) {
-      const sourceUrl = xxyyPairUrl(input.chain, input.pairAddress);
-      const profileDirectory = await mkdtemp(path.join(tmpdir(), 'xxyy-screenshot-'));
-      let chrome: ChildProcess | undefined;
+  const capture = async (
+    input: Parameters<XxyyScreenshotEvidenceProvider['capture']>[0],
+    requestOptions: { signal?: AbortSignal } = {},
+  ) => {
+    const sourceUrl = xxyyPairUrl(input.chain, input.pairAddress);
+    const profileDirectory =
+      persistentProfileDirectory ?? (await mkdtemp(path.join(tmpdir(), 'xxyy-screenshot-')));
+    const cacheDirectory = path.join(artifactDirectory, '.browser-cache');
+    let chrome: ChildProcess | undefined;
+    try {
+      await Promise.all([
+        mkdir(artifactDirectory, { recursive: true, mode: 0o750 }),
+        mkdir(cacheDirectory, { recursive: true, mode: 0o750 }),
+      ]);
+      await prepareBrowserProfile(profileDirectory);
+      const chromeArguments = [
+        '--disable-component-update',
+        '--disable-default-apps',
+        '--disable-extensions',
+        '--disable-sync',
+        '--enable-webgl',
+        '--hide-scrollbars',
+        '--ignore-gpu-blocklist',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--use-gl=swiftshader',
+        ...chromeRootSandboxFlags(),
+        '--remote-debugging-port=0',
+        `--disk-cache-dir=${cacheDirectory}`,
+        `--user-data-dir=${profileDirectory}`,
+        '--window-size=1600,1000',
+        sourceUrl,
+      ];
+      const launch = await resolveExplorerChromeLaunch(chromeExecutable, chromeArguments);
+      chrome = spawn(launch.command, launch.arguments, {
+        detached: process.platform !== 'win32',
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+      const debuggerUrl = await readDebuggerUrl(chrome, timeoutMs, requestOptions.signal);
+      const pageUrl = await findPageDebuggerUrl(debuggerUrl, timeoutMs, requestOptions.signal);
+      const cdp = await createCdpClient(pageUrl, timeoutMs, requestOptions.signal);
       try {
-        await mkdir(artifactDirectory, { recursive: true, mode: 0o750 });
-        chrome = spawn(
-          chromeExecutable,
-          [
-            '--headless=new',
-            '--disable-background-networking',
-            '--disable-component-update',
-            '--disable-default-apps',
-            '--disable-extensions',
-            '--disable-gpu',
-            '--disable-sync',
-            '--hide-scrollbars',
-            '--no-default-browser-check',
-            '--no-first-run',
-            ...chromeRootSandboxFlags(),
-            '--remote-debugging-port=0',
-            `--user-data-dir=${profileDirectory}`,
-            '--window-size=1600,1000',
-            sourceUrl,
-          ],
-          { stdio: ['ignore', 'ignore', 'pipe'] },
-        );
-        const debuggerUrl = await readDebuggerUrl(chrome, timeoutMs, requestOptions.signal);
-        const pageUrl = await findPageDebuggerUrl(debuggerUrl, timeoutMs, requestOptions.signal);
-        const cdp = await createCdpClient(pageUrl, timeoutMs, requestOptions.signal);
-        try {
-          await cdp.call('Page.enable');
-          await cdp.call('Runtime.enable');
-          await prepareNativeEvidencePage({
-            cdp,
-            input,
-            timeoutMs,
-          });
-          const capture = await cdp.call('Page.captureScreenshot', {
-            captureBeyondViewport: false,
-            format: 'png',
-            fromSurface: true,
-          });
-          const data = recordString(capture, 'data');
-          const png = Buffer.from(data, 'base64');
-          if (png.byteLength === 0 || png.byteLength > MAX_SCREENSHOT_BYTES) {
-            throw new Error('XXYY screenshot size was invalid.');
-          }
-          const filename = `${createHash('sha256').update(input.transactionId).digest('hex')}.png`;
-          const temporaryFile = path.join(artifactDirectory, `.${filename}.${randomUUID()}.tmp`);
-          const finalFile = path.join(artifactDirectory, filename);
-          await writeFile(temporaryFile, png, { flag: 'wx', mode: 0o640 });
-          await rename(temporaryFile, finalFile);
-          return xxyyScreenshotArtifactSchema.parse({
-            capturedAt: new Date().toISOString(),
-            maker: input.maker,
-            mediaType: 'image/png',
-            pairAddress: input.pairAddress,
-            sourceUrl,
-            title: 'XXYY native trade-row evidence',
-            transactionId: input.transactionId,
-            url: `/xxyy-evidence/${filename}`,
-          });
-        } finally {
-          cdp.close();
+        await cdp.call('Page.enable');
+        await cdp.call('Runtime.enable');
+        await cdp.call('Page.bringToFront');
+        await cdp.call('Emulation.setFocusEmulationEnabled', { enabled: true });
+        await prepareNativeEvidencePage({
+          cdp,
+          input,
+          timeoutMs,
+        });
+        const capture = await cdp.call('Page.captureScreenshot', {
+          captureBeyondViewport: false,
+          format: 'png',
+          fromSurface: true,
+        });
+        const data = recordString(capture, 'data');
+        const png = Buffer.from(data, 'base64');
+        if (png.byteLength === 0 || png.byteLength > MAX_SCREENSHOT_BYTES) {
+          throw new Error('XXYY screenshot size was invalid.');
         }
+        const filename = `${createHash('sha256').update(input.transactionId).digest('hex')}.png`;
+        const temporaryFile = path.join(artifactDirectory, `.${filename}.${randomUUID()}.tmp`);
+        const finalFile = path.join(artifactDirectory, filename);
+        await writeFile(temporaryFile, png, { flag: 'wx', mode: 0o640 });
+        await rename(temporaryFile, finalFile);
+        return xxyyScreenshotArtifactSchema.parse({
+          capturedAt: new Date().toISOString(),
+          maker: input.maker,
+          mediaType: 'image/png',
+          pairAddress: input.pairAddress,
+          sourceUrl,
+          title: 'XXYY native trade-row evidence',
+          transactionId: input.transactionId,
+          url: `/xxyy-evidence/${filename}`,
+        });
       } finally {
-        await terminateChrome(chrome);
+        cdp.close();
+      }
+    } finally {
+      await terminateChrome(chrome);
+      if (persistentProfileDirectory === undefined) {
         await rm(profileDirectory, {
           force: true,
           maxRetries: 5,
@@ -98,6 +121,17 @@ export function createChromeXxyyScreenshotProvider(
           retryDelay: 100,
         });
       }
+    }
+  };
+
+  return {
+    capture(input, requestOptions = {}) {
+      const result = captureQueue.then(() => capture(input, requestOptions));
+      captureQueue = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
     },
   };
 }
@@ -109,15 +143,27 @@ async function prepareNativeEvidencePage(input: {
 }): Promise<void> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (attempt > 0) {
-      await input.cdp.call('Page.reload', { ignoreCache: true });
+      await input.cdp.call('Page.reload');
       await delay(500);
     }
+    const klineReady = await waitForKlineReady({
+      cdp: input.cdp,
+      timeoutMs: Math.min(input.timeoutMs, attempt === 0 ? 30_000 : 20_000),
+    });
+    if (!klineReady && attempt === 0) {
+      continue;
+    }
     if (input.input.timestamp !== undefined) {
-      await applyNativeHistoricalFilter({
-        cdp: input.cdp,
-        timeoutMs: Math.min(input.timeoutMs, 12_000),
-        timestamp: input.input.timestamp,
-      });
+      try {
+        await applyNativeHistoricalFilter({
+          cdp: input.cdp,
+          timeoutMs: Math.min(input.timeoutMs, 30_000),
+          timestamp: input.input.timestamp,
+        });
+      } catch (error) {
+        if (attempt === 0) continue;
+        throw error;
+      }
     }
     const highlighted = await pollForVerifiedRow({
       cdp: input.cdp,
@@ -135,10 +181,11 @@ async function prepareNativeEvidencePage(input: {
       );
     }
     if (
-      await waitForKlineReady({
+      !klineReady ||
+      (await waitForKlineReady({
         cdp: input.cdp,
-        timeoutMs: Math.min(input.timeoutMs, 15_000),
-      })
+        timeoutMs: Math.min(input.timeoutMs, 5_000),
+      }))
     ) {
       return;
     }
@@ -149,13 +196,28 @@ async function prepareNativeEvidencePage(input: {
 async function terminateChrome(process: ChildProcess | undefined): Promise<void> {
   if (process === undefined || process.exitCode !== null) return;
   await new Promise<void>((resolve) => {
-    const timeout = setTimeout(resolve, 2_000);
+    const timeout = setTimeout(() => {
+      signalBrowserProcess(process, 'SIGKILL');
+      resolve();
+    }, 2_000);
     process.once('exit', () => {
       clearTimeout(timeout);
       resolve();
     });
-    process.kill('SIGTERM');
+    signalBrowserProcess(process, 'SIGTERM');
   });
+}
+
+function signalBrowserProcess(process: ChildProcess, signal: NodeJS.Signals): void {
+  if (process.pid !== undefined && globalThis.process.platform !== 'win32') {
+    try {
+      globalThis.process.kill(-process.pid, signal);
+      return;
+    } catch {
+      // Fall back to signaling the direct child when its process group is already gone.
+    }
+  }
+  process.kill(signal);
 }
 
 function chromeRootSandboxFlags(): string[] {
@@ -453,40 +515,17 @@ async function waitForKlineReady(input: { cdp: CdpClient; timeoutMs: number }): 
 
 export function buildKlineReadinessExpression(): string {
   return `(() => {
-    const frame = document.querySelector('.main-content .chart iframe');
+    const frame = [...document.querySelectorAll('.main-content iframe')]
+      .find((candidate) => candidate.src.startsWith('blob:https://www.xxyy.io/'));
     const frameDocument = frame && frame.contentDocument;
     if (!frameDocument || frameDocument.readyState !== 'complete') return false;
     const text = (frameDocument.body && frameDocument.body.innerText || '').replace(/\\s+/g, ' ').trim();
     if (!text || /No data here/i.test(text) || text.includes('∅')) return false;
-    const hasOpen = /(?:开|open)\\s*=?:?\\s*[-+]?\\d/i.test(text);
-    const hasClose = /(?:收|close)\\s*=?:?\\s*[-+]?\\d/i.test(text);
+    const hasOpen = /(?:开|open|\\bO)\\s*=?:?\\s*[-+]?\\d/i.test(text);
+    const hasClose = /(?:收|close|\\bC)\\s*=?:?\\s*[-+]?\\d/i.test(text);
     if (!hasOpen || !hasClose) return false;
     const canvases = [...frameDocument.querySelectorAll('.pane canvas')];
-    return canvases.some((canvas) => {
-      if (canvas.width < 100 || canvas.height < 100) return false;
-      try {
-        const context = canvas.getContext('2d', {willReadFrequently:true});
-        if (!context) return false;
-        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-        let colorfulPixels = 0;
-        for (let y = 5; y < canvas.height; y += 25) {
-          for (let x = 5; x < canvas.width; x += 25) {
-            const offset = (y * canvas.width + x) * 4;
-            const red = pixels[offset];
-            const green = pixels[offset + 1];
-            const blue = pixels[offset + 2];
-            const alpha = pixels[offset + 3];
-            if (alpha > 0 && Math.max(red, green, blue) - Math.min(red, green, blue) > 20) {
-              colorfulPixels += 1;
-              if (colorfulPixels >= 3) return true;
-            }
-          }
-        }
-      } catch {
-        return false;
-      }
-      return false;
-    });
+    return canvases.some((canvas) => canvas.width >= 100 && canvas.height >= 100);
   })()`;
 }
 
@@ -540,9 +579,7 @@ export function buildNativeHistoricalFilterExpression(timestamp: number): string
     }
     const current = tradeTable.filters;
     if (current.timeStart === ${start} && current.timeEnd === ${end}) return true;
-    tradeTable.updateFilters({...JSON.parse(JSON.stringify(current)), timeStart:${start}, timeEnd:${end}});
-    tradeTable.trades = [];
-    tradeTable.datas = [];
+    tradeTable.updateFilters({...current, timeStart:${start}, timeEnd:${end}});
     return true;
   })()`;
 }

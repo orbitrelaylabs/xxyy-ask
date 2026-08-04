@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { chatResponseSchema, type ChatResponse } from '@xxyy/shared';
 import {
   BUILT_IN_EVM_NETWORKS,
+  ExplorerBrowserVerificationError,
   PublicTransactionReferenceError,
   SOLANA_MAINNET_NETWORK,
   findBuiltInEvmNetworkByChainId,
@@ -269,7 +270,9 @@ function queryError(error: unknown): ChatResponse {
   const answer =
     error instanceof PublicTransactionReferenceError
       ? '交易链接、交易哈希或网络不匹配，请检查后重试。'
-      : 'Explorer 浏览器查询暂时不可用，请稍后重试。';
+      : error instanceof ExplorerBrowserVerificationError
+        ? 'Explorer 需要完成人机验证。请在已配置的持久浏览器会话中完成验证后重试；系统不会自动绕过验证。'
+        : 'Explorer 浏览器查询暂时不可用，请稍后重试。';
   return chatResponseSchema.parse({
     agentRoute: 'clarify',
     answer,

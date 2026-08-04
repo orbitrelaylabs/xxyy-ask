@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
 import { createServer } from 'node:http';
 import type { IncomingHttpHeaders } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -88,6 +89,7 @@ type ApiEnv = RagEnv &
       | 'ANSWER_QUALITY_WEB_OPTIMIZED_PERCENTAGE'
       | 'XXYY_AGENT_API_KEYS_JSON'
       | 'NODE_ENV'
+      | 'PATH'
       | 'XXYY_SMALL_POOL_MAX_LIQUIDITY_USD'
       | 'XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM'
       | 'XXYY_CANONICAL_POOL_CONFIG_JSON'
@@ -213,6 +215,8 @@ interface HealthCheck {
   model?: string;
   dimension?: number;
   chunkCount?: number;
+  configured?: boolean;
+  driver?: string;
   vectorExtension?: boolean;
 }
 
@@ -223,6 +227,7 @@ interface DeepHealthStatus {
     embedding: HealthCheck;
     llm: HealthCheck;
     vectorStore: HealthCheck;
+    browser?: HealthCheck;
   };
 }
 
@@ -239,7 +244,7 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
   const getChatService =
     options.getChatService ??
     createCachedChatServiceLoader(config, tracer, env, answerQualityRolloutObserver);
-  const getHealthStatus = options.getHealthStatus ?? (() => createDeepHealthStatus(config));
+  const getHealthStatus = options.getHealthStatus ?? (() => createDeepHealthStatus(config, env));
   const getKnowledgeAdminServices =
     options.getKnowledgeAdminServices ?? createCachedKnowledgeAdminServicesLoader({ config, env });
   const getSupportOperationsStore =
@@ -1136,8 +1141,10 @@ function redactSensitiveCredentials(text: string): string {
 
 async function createDeepHealthStatus(
   config: ReturnType<typeof loadRagConfig>,
+  env: ApiEnv,
 ): Promise<DeepHealthStatus> {
   const checks: DeepHealthStatus['checks'] = {
+    browser: await checkBrowserRuntime(env),
     config: checkRequiredConfig(config),
     embedding: await checkEmbedding(config),
     llm: await checkLlm(config),
@@ -1148,6 +1155,72 @@ async function createDeepHealthStatus(
     checks,
     status: Object.values(checks).every((check) => check.status === 'ok') ? 'ok' : 'degraded',
   };
+}
+
+async function checkBrowserRuntime(env: ApiEnv): Promise<HealthCheck> {
+  const chromeExecutable = env.XXYY_SCREENSHOT_CHROME_EXECUTABLE?.trim();
+  const profileDirectory = env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim();
+  const screenshotDirectory = env.XXYY_SCREENSHOT_DIRECTORY?.trim();
+  const configuredValues = [chromeExecutable, profileDirectory, screenshotDirectory];
+
+  if (configuredValues.every((value) => value === undefined || value.length === 0)) {
+    return { configured: false, status: 'ok' };
+  }
+
+  const missing = [
+    ['XXYY_SCREENSHOT_CHROME_EXECUTABLE', chromeExecutable],
+    ['XXYY_BROWSER_PROFILE_DIRECTORY', profileDirectory],
+    ['XXYY_SCREENSHOT_DIRECTORY', screenshotDirectory],
+  ]
+    .filter((entry) => entry[1] === undefined || entry[1]!.length === 0)
+    .map((entry) => entry[0]!);
+  if (missing.length > 0) {
+    return { configured: true, missing, status: 'error' };
+  }
+
+  try {
+    await access(chromeExecutable!, fsConstants.X_OK);
+    await access(profileDirectory!, fsConstants.R_OK | fsConstants.W_OK);
+    await access(screenshotDirectory!, fsConstants.R_OK | fsConstants.W_OK);
+    const egoBrowserExecutable = await findExecutableOnPath(
+      'ego-browser',
+      env.PATH ?? process.env.PATH,
+    );
+    if (egoBrowserExecutable === undefined) {
+      return {
+        configured: true,
+        driver: 'chromium-fallback',
+        message:
+          'ego-browser is unavailable; Explorer queries may require interactive verification.',
+        status: 'error',
+      };
+    }
+    return { configured: true, driver: 'ego-browser', status: 'ok' };
+  } catch {
+    return {
+      configured: true,
+      message: 'Browser executable or evidence directories are unavailable.',
+      status: 'error',
+    };
+  }
+}
+
+async function findExecutableOnPath(
+  executable: string,
+  pathValue: string | undefined,
+): Promise<string | undefined> {
+  if (pathValue === undefined || pathValue.trim().length === 0) return undefined;
+  for (const directory of pathValue.split(path.delimiter)) {
+    if (directory.length === 0) continue;
+    const candidate = path.join(directory, executable);
+    try {
+      await access(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      // Continue searching the configured PATH.
+    }
+  }
+  return undefined;
 }
 
 function checkRequiredConfig(config: ReturnType<typeof loadRagConfig>): HealthCheck {
@@ -1524,12 +1597,17 @@ function loadXxyyPoolPolicy(env: ApiEnv) {
 }
 
 function createOptionalXxyyScreenshotProvider(env: ApiEnv) {
+  const profileDirectory = env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim();
   const values = [
     env.XXYY_SCREENSHOT_CHROME_EXECUTABLE?.trim(),
     env.XXYY_SCREENSHOT_DIRECTORY?.trim(),
   ];
   if (values.every((value) => value === undefined || value.length === 0)) return undefined;
-  if (values.some((value) => value === undefined || value.length === 0)) {
+  if (
+    values.some((value) => value === undefined || value.length === 0) ||
+    profileDirectory === undefined ||
+    profileDirectory.length === 0
+  ) {
     throw new TypeError(
       'XXYY screenshot capture requires Chrome executable and artifact directory together.',
     );
@@ -1537,6 +1615,7 @@ function createOptionalXxyyScreenshotProvider(env: ApiEnv) {
   return createChromeXxyyScreenshotProvider({
     artifactDirectory: values[1]!,
     chromeExecutable: values[0]!,
+    profileDirectory: path.join(profileDirectory, 'screenshots'),
   });
 }
 
