@@ -66,6 +66,14 @@ XXYY_SCREENSHOT_DIRECTORY=
 XXYY_CANONICAL_POOL_CONFIG_JSON='{"entries":[]}'
 ```
 
+需要查询 BscScan 等受保护 Explorer 时，先安装 [ego lite](https://lite.ego.app/)，完成首次引导并确认命令可用：
+
+```bash
+command -v ego-browser
+```
+
+未安装 ego-browser 不影响产品知识问答，但受保护 Explorer 的交易查询会返回安装提示。
+
 Chrome 可执行文件为空时自动检测。浏览器使用隔离持久 profile；若 Explorer 有真人验证，需要先在该 profile 中完成。`XXYY_SCREENSHOT_DIRECTORY` 同时供 Web 返回图片和 Telegram 上传 PNG 使用，不需要公共图片 URL。
 
 BscScan/Etherscan 等 Explorer 可能拒绝 Docker 内的无头 Chromium。需要公开链上查询时，推荐只在 Docker 中运行 PostgreSQL，并在安装了 `ego-browser` 的宿主机运行 API 与 Telegram，使二者复用已经由用户完成验证的持久浏览器会话：
@@ -81,7 +89,7 @@ pnpm run app:dev
 pnpm run telegram:dev
 ```
 
-这种模式不需要 MCP 或 RPC。检测到 Cloudflare 验证时系统会明确提示人工验证，不会自动绕过验证。Docker 内 Chromium 仅作为兼容回退，`/health/deep` 会将该回退标记为不可用于可靠 Explorer 查询。
+这种模式不需要 MCP 或 RPC。检测到 Cloudflare 验证时系统会明确提示人工验证，不会自动绕过验证。受保护页面不会静默回退到 Docker Chromium；`/health/deep` 会将缺少 ego-browser 标记为不可用于可靠 Explorer 查询。
 
 ## 启动
 

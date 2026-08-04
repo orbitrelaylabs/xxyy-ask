@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
 import { access, mkdir, readlink, unlink } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import path from 'node:path';
@@ -49,6 +50,17 @@ export class ExplorerBrowserVerificationError extends Error {
         : `Explorer browser requires interactive verification for ${host}.`,
     );
     this.name = 'ExplorerBrowserVerificationError';
+  }
+}
+
+export class EgoBrowserUnavailableError extends Error {
+  readonly code = 'ego_browser_unavailable';
+
+  constructor() {
+    super(
+      'ego-browser is required for protected Explorer pages. Install ego lite from https://lite.ego.app/ and complete onboarding.',
+    );
+    this.name = 'EgoBrowserUnavailableError';
   }
 }
 
@@ -223,10 +235,27 @@ export async function resolveBrowserChromeExecutable(
   ].filter((candidate): candidate is string => candidate !== undefined && candidate.length > 0);
   for (const candidate of candidates) {
     try {
-      await access(candidate);
+      await access(candidate, fsConstants.X_OK);
       return path.resolve(candidate);
     } catch {
       // Try the next fixed local browser location.
+    }
+  }
+  return undefined;
+}
+
+export async function resolveEgoBrowserExecutable(
+  pathValue: string | undefined = process.env.PATH,
+): Promise<string | undefined> {
+  if (pathValue === undefined || pathValue.trim().length === 0) return undefined;
+  for (const directory of pathValue.split(path.delimiter)) {
+    if (directory.length === 0) continue;
+    const candidate = path.join(directory, 'ego-browser');
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+      // Continue searching the configured PATH.
     }
   }
   return undefined;
@@ -243,7 +272,7 @@ export function createEgoBrowserPageEvaluator(
       return await evaluateEgoBrowserPage(command, input);
     } catch (error) {
       if (isRecord(error) && error.code === 'ENOENT') {
-        return await evaluateBrowserPage(input);
+        throw new EgoBrowserUnavailableError();
       }
       throw error;
     }

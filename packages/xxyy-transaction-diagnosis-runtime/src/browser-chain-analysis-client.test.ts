@@ -6,10 +6,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createBrowserChainAnalysisClient,
+  createEgoBrowserPageEvaluator,
   createScanPageTransactionExpression,
+  EgoBrowserUnavailableError,
   ExplorerBrowserVerificationError,
   prepareBrowserProfile,
   resolveExplorerChromeLaunch,
+  resolveEgoBrowserExecutable,
   resolveSolanaBrowserTransactionId,
 } from './browser-chain-analysis-client.js';
 
@@ -55,6 +58,36 @@ describe('browser chain analysis client', () => {
         reference: `https://bscscan.com/tx/0x${'1'.repeat(64)}`,
       }),
     ).rejects.toBeInstanceOf(ExplorerBrowserVerificationError);
+  });
+
+  it('does not silently fall back when ego-browser is unavailable', async () => {
+    const evaluator = createEgoBrowserPageEvaluator({
+      command: '/missing/ego-browser',
+    });
+
+    await expect(
+      evaluator({
+        chromeExecutable: process.execPath,
+        expression: 'null',
+        profileDirectory: '/tmp/xxyy-browser-profile-test',
+        timeoutMs: 1_000,
+        url: `https://bscscan.com/tx/0x${'1'.repeat(64)}`,
+      }),
+    ).rejects.toBeInstanceOf(EgoBrowserUnavailableError);
+  });
+
+  it('resolves ego-browser from the configured PATH', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'xxyy-ego-browser-test-'));
+    const executable = path.join(directory, 'ego-browser');
+    try {
+      await writeFile(executable, '#!/bin/sh\n', { mode: 0o700 });
+      await chmod(executable, 0o700);
+
+      await expect(resolveEgoBrowserExecutable(directory)).resolves.toBe(executable);
+      await expect(resolveEgoBrowserExecutable('')).resolves.toBeUndefined();
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   it('keeps all explorer token links after prioritizing actor-received tokens', () => {

@@ -12,6 +12,7 @@ import {
   createConfiguredCanonicalPoolResolver,
   createXxyyTransactionDiagnosisService,
   resolveBrowserChromeExecutable,
+  resolveEgoBrowserExecutable,
 } from '@xxyy/xxyy-transaction-diagnosis-runtime';
 import {
   loadAnswerQualityRolloutConfig,
@@ -38,6 +39,7 @@ type TelegramEnv = RagEnv &
     Record<
       | 'INIT_CWD'
       | 'NODE_ENV'
+      | 'PATH'
       | 'ANSWER_QUALITY_CLI_MODE'
       | 'ANSWER_QUALITY_CLI_OPTIMIZED_PERCENTAGE'
       | 'ANSWER_QUALITY_OBSERVABILITY_ENABLED'
@@ -69,6 +71,7 @@ const logger = {
 async function main(env: TelegramEnv = process.env): Promise<void> {
   const workspaceCwd = resolveWorkspaceCwd(process.cwd(), env);
   const workspaceEnv = loadWorkspaceEnv({ cwd: workspaceCwd, env });
+  await logExplorerBrowserStartup(workspaceEnv);
   const config = loadRagConfig(workspaceEnv);
   const botConfig = loadTelegramBotConfig(workspaceEnv);
   const publicTransactionClient = await resolveBrowserChromeExecutable(
@@ -174,6 +177,17 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
     process.off('SIGTERM', stop);
     await Promise.all([runtime.close(), knowledgeRuntime.close()]);
   }
+}
+
+async function logExplorerBrowserStartup(env: TelegramEnv): Promise<void> {
+  const profileDirectory = env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim();
+  if (profileDirectory === undefined || profileDirectory.length === 0) return;
+  const executable = await resolveEgoBrowserExecutable(env.PATH ?? process.env.PATH);
+  logger.info(
+    executable === undefined
+      ? 'Explorer browser: ego-browser not found. Install ego lite from https://lite.ego.app/ for protected Explorer queries; product Q&A remains available.'
+      : `Explorer browser: ego-browser ready (${executable}).`,
+  );
 }
 
 function createOptionalScreenshotProvider(env: TelegramEnv) {

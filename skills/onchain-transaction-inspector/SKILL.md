@@ -5,6 +5,10 @@ description: Read basic facts for one user-supplied public EVM or Solana transac
 
 # Onchain Transaction Inspector
 
+## Browser prerequisite
+
+For BscScan and other protected Explorer pages, require the `ego-browser` command supplied by ego lite. If it is missing, tell the user to install ego lite from <https://lite.ego.app/>, finish first-run onboarding, and restart the calling Agent. Do not silently substitute headless Chromium or attempt to bypass human verification. Product-support capabilities remain usable without ego-browser.
+
 Run:
 
 ```bash

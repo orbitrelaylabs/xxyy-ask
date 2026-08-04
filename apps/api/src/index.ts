@@ -19,6 +19,7 @@ import {
   createConfiguredCanonicalPoolResolver,
   createXxyyTransactionDiagnosisService,
   resolveBrowserChromeExecutable,
+  resolveEgoBrowserExecutable,
 } from '@xxyy/xxyy-transaction-diagnosis-runtime';
 import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxyy/knowledge';
 import {
@@ -1182,10 +1183,7 @@ async function checkBrowserRuntime(env: ApiEnv): Promise<HealthCheck> {
     await access(chromeExecutable!, fsConstants.X_OK);
     await access(profileDirectory!, fsConstants.R_OK | fsConstants.W_OK);
     await access(screenshotDirectory!, fsConstants.R_OK | fsConstants.W_OK);
-    const egoBrowserExecutable = await findExecutableOnPath(
-      'ego-browser',
-      env.PATH ?? process.env.PATH,
-    );
+    const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH ?? process.env.PATH);
     if (egoBrowserExecutable === undefined) {
       return {
         configured: true,
@@ -1203,24 +1201,6 @@ async function checkBrowserRuntime(env: ApiEnv): Promise<HealthCheck> {
       status: 'error',
     };
   }
-}
-
-async function findExecutableOnPath(
-  executable: string,
-  pathValue: string | undefined,
-): Promise<string | undefined> {
-  if (pathValue === undefined || pathValue.trim().length === 0) return undefined;
-  for (const directory of pathValue.split(path.delimiter)) {
-    if (directory.length === 0) continue;
-    const candidate = path.join(directory, executable);
-    try {
-      await access(candidate, fsConstants.X_OK);
-      return candidate;
-    } catch {
-      // Continue searching the configured PATH.
-    }
-  }
-  return undefined;
 }
 
 function checkRequiredConfig(config: ReturnType<typeof loadRagConfig>): HealthCheck {
@@ -1438,6 +1418,7 @@ export function createDefaultApiEnv(
 
 export function startServer(options: StartServerOptions = {}): ReturnType<typeof createServer> {
   const env = options.env ?? createDefaultApiEnv(options);
+  void logExplorerBrowserStartup(env);
   const port = Number(options.port ?? env.PORT ?? 3000);
   const portRetryLimit =
     options.portRetryLimit ?? (env.NODE_ENV === 'production' ? 0 : DEFAULT_LOCAL_PORT_RETRY_LIMIT);
@@ -1453,6 +1434,17 @@ export function startServer(options: StartServerOptions = {}): ReturnType<typeof
   listenWithPortRetry(server, port, portRetryLimit);
 
   return server;
+}
+
+async function logExplorerBrowserStartup(env: ApiEnv): Promise<void> {
+  const profileDirectory = env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim();
+  if (profileDirectory === undefined || profileDirectory.length === 0) return;
+  const executable = await resolveEgoBrowserExecutable(env.PATH ?? process.env.PATH);
+  process.stdout.write(
+    executable === undefined
+      ? 'Explorer browser: ego-browser not found. Install ego lite from https://lite.ego.app/ for protected Explorer queries; product Q&A remains available.\n'
+      : `Explorer browser: ego-browser ready (${executable}).\n`,
+  );
 }
 
 function listenWithPortRetry(

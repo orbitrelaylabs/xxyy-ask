@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createPublicTransactionClientStub,
+  EgoBrowserUnavailableError,
   ExplorerBrowserVerificationError,
   getTransactionOutputSchema,
   type GetTransactionOutput,
@@ -79,6 +80,24 @@ describe('public browser transaction Skill tool', () => {
     expect(output.agentRoute).toBe('clarify');
     expect(output.answer).toContain('人机验证');
     expect(output.answer).toContain('不会自动绕过验证');
+  });
+
+  it('returns an installation hint when ego-browser is unavailable', async () => {
+    const caller = { channel: 'telegram' as const, principal: 'service' as const };
+    const registry = createPublicChainAnalysisCapabilityRegistry({
+      caller,
+      client: createPublicTransactionClientStub(async () => {
+        throw new EgoBrowserUnavailableError();
+      }),
+    });
+
+    const output = await createPublicChainTransactionTool({ caller, registry }).execute(
+      { query: `https://bscscan.com/tx/${hash}` },
+      { channel: 'telegram' },
+    );
+
+    expect(output.answer).toContain('https://lite.ego.app/');
+    expect(output.answer).toContain('产品知识问答不受影响');
   });
 });
 

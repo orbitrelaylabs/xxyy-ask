@@ -14,6 +14,7 @@ import { pathToFileURL } from "node:url";
 // packages/xxyy-transaction-diagnosis-runtime/src/browser-chain-analysis-client.ts
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
+import { constants as fsConstants } from "node:fs";
 import { access, mkdir, readlink, unlink } from "node:fs/promises";
 import { hostname as hostname3 } from "node:os";
 import path from "node:path";
@@ -15671,6 +15672,15 @@ var ExplorerBrowserVerificationError = class extends Error {
     this.name = "ExplorerBrowserVerificationError";
   }
 };
+var EgoBrowserUnavailableError = class extends Error {
+  code = "ego_browser_unavailable";
+  constructor() {
+    super(
+      "ego-browser is required for protected Explorer pages. Install ego lite from https://lite.ego.app/ and complete onboarding."
+    );
+    this.name = "EgoBrowserUnavailableError";
+  }
+};
 var browserTransactionSchema = external_exports.object({
   accountKeys: external_exports.array(external_exports.string()).max(512),
   blockTime: external_exports.number().int().nonnegative().optional(),
@@ -15792,7 +15802,7 @@ async function resolveBrowserChromeExecutable(configured) {
   ].filter((candidate) => candidate !== void 0 && candidate.length > 0);
   for (const candidate of candidates) {
     try {
-      await access(candidate);
+      await access(candidate, fsConstants.X_OK);
       return path.resolve(candidate);
     } catch {
     }
@@ -15806,7 +15816,7 @@ function createEgoBrowserPageEvaluator(options = {}) {
       return await evaluateEgoBrowserPage(command, input);
     } catch (error51) {
       if (isRecord2(error51) && error51.code === "ENOENT") {
-        return await evaluateBrowserPage(input);
+        throw new EgoBrowserUnavailableError();
       }
       throw error51;
     }

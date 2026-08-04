@@ -7,6 +7,10 @@ description: Diagnose one user-supplied public EVM or Solana transaction with a 
 
 Run the bundled `scripts/diagnose.mjs` for one public transaction reference and preserve the returned evidence states exactly. Resolve the script relative to this `SKILL.md`; do not copy the script into another directory.
 
+## Browser prerequisite
+
+For BscScan and other protected Explorer pages, require the `ego-browser` command supplied by ego lite. If it is missing, tell the user to install ego lite from <https://lite.ego.app/>, finish first-run onboarding, and restart the calling Agent. Do not silently substitute headless Chromium or attempt to bypass human verification. Product-support capabilities remain usable without ego-browser.
+
 ## Workflow
 
 1. Require a transaction hash or supported Explorer URL. A bare hash also needs an explicit or uniquely resolvable network.
@@ -21,7 +25,7 @@ Run the bundled `scripts/diagnose.mjs` for one public transaction reference and 
      --checks sandwich,pool
    ```
 
-   The script writes only the final JSON object to stdout and uses a nonzero exit code with `status: "error"` on failure. It automatically discovers Chrome/Chromium, uses browser-only public evidence, and stores screenshots under `~/.xxyy/evidence` unless `--output-dir` is provided.
+   The script writes only the final JSON object to stdout and uses a nonzero exit code with `status: "error"` on failure. It uses ego-browser for protected Explorer evidence, automatically discovers Chrome/Chromium for native XXYY screenshots and supported unprotected pages, and stores screenshots under `~/.xxyy/evidence` unless `--output-dir` is provided.
 
 4. Start the answer with normalized transaction facts: chain, transaction ID, execution status, block or slot, timestamp, fee, transaction actor/signer when evidenced, assets, direction, amount, and pool. State when any field is unavailable.
    - When the transaction source is `explorer_browser`, explicitly label it as partial browser evidence. Never describe it as RPC consensus or production-ready evidence.
