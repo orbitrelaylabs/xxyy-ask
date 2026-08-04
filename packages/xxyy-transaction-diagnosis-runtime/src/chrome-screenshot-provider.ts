@@ -153,28 +153,37 @@ async function prepareNativeEvidencePage(input: {
     if (!klineReady && attempt === 0) {
       continue;
     }
-    if (input.input.timestamp !== undefined) {
-      try {
-        await applyNativeHistoricalFilter({
-          cdp: input.cdp,
-          timeoutMs: Math.min(input.timeoutMs, 30_000),
-          timestamp: input.input.timestamp,
-        });
-      } catch (error) {
-        if (attempt === 0) continue;
-        throw error;
+    let highlighted = false;
+    const filterWindows =
+      input.input.timestamp === undefined ? [undefined] : [5_000, 15_000, 120_000];
+    for (const windowMs of filterWindows) {
+      if (input.input.timestamp !== undefined && windowMs !== undefined) {
+        try {
+          await applyNativeHistoricalFilter({
+            cdp: input.cdp,
+            timeoutMs: Math.min(input.timeoutMs, 10_000),
+            timestamp: input.input.timestamp,
+            windowMs,
+          });
+        } catch (error) {
+          if (attempt === 0) continue;
+          throw error;
+        }
       }
+      highlighted = await pollForVerifiedRow({
+        cdp: input.cdp,
+        makerSuffix: input.input.maker.slice(-6),
+        ...(input.input.nativeAmount === undefined
+          ? {}
+          : { nativeAmount: input.input.nativeAmount }),
+        timeoutMs: Math.min(input.timeoutMs, 8_000),
+        ...(input.input.timestamp === undefined ? {} : { timestamp: input.input.timestamp }),
+        ...(input.input.tokenAmount === undefined ? {} : { tokenAmount: input.input.tokenAmount }),
+        ...(input.input.type === undefined ? {} : { type: input.input.type }),
+        ...(input.input.usdAmount === undefined ? {} : { usdAmount: input.input.usdAmount }),
+      });
+      if (highlighted) break;
     }
-    const highlighted = await pollForVerifiedRow({
-      cdp: input.cdp,
-      makerSuffix: input.input.maker.slice(-6),
-      ...(input.input.nativeAmount === undefined ? {} : { nativeAmount: input.input.nativeAmount }),
-      timeoutMs: Math.min(input.timeoutMs, 25_000),
-      ...(input.input.timestamp === undefined ? {} : { timestamp: input.input.timestamp }),
-      ...(input.input.tokenAmount === undefined ? {} : { tokenAmount: input.input.tokenAmount }),
-      ...(input.input.type === undefined ? {} : { type: input.input.type }),
-      ...(input.input.usdAmount === undefined ? {} : { usdAmount: input.input.usdAmount }),
-    });
     if (!highlighted) {
       throw new Error(
         'The exact trade was verified by API but its native XXYY trade row was not rendered.',
@@ -444,6 +453,55 @@ export function buildVerifiedRowHighlightExpression(input: {
       dashboard.style.setProperty('height', desiredHeight + 'px', 'important');
       dashboard.style.setProperty('flex-basis', desiredHeight + 'px', 'important');
     }
+    const syncNativeTradeRows = () => {
+      const root = document.querySelector('#app')?._vnode;
+      if (!root) return -1;
+      const seen = new Set();
+      let component;
+      const visit = (vnode) => {
+        if (!vnode || typeof vnode !== 'object' || seen.has(vnode) || component) return;
+        seen.add(vnode);
+        if (vnode.component) {
+          const candidate = vnode.component;
+          const name = candidate.type && (candidate.type.name || candidate.type.__name);
+          if (name === 'tradeTable') {
+            component = candidate;
+            return;
+          }
+          visit(candidate.subTree);
+        }
+        if (Array.isArray(vnode.children)) vnode.children.forEach(visit);
+        if (vnode.suspense) visit(vnode.suspense.activeBranch);
+      };
+      visit(root);
+      const source = component && component.data && component.data.trades;
+      const rendered = component && component.data && component.data.datas;
+      if (!Array.isArray(source) || !Array.isArray(rendered)) return -1;
+      const isTarget = (trade) => {
+        const text = [trade.maker, trade.type, trade.tokenAmount, trade.nativeAmount, trade.usdAmount]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return text.includes(suffix.toLowerCase()) &&
+          (!side || text.includes(side.toLowerCase())) &&
+          (amounts.length === 0 || amounts.some((value) => text.includes(value.toLowerCase())));
+      };
+      const targetIndex = source.findIndex(isTarget);
+      if (targetIndex < 0) return -1;
+      if (!rendered.some(isTarget)) rendered.splice(0, rendered.length, ...source);
+      return targetIndex;
+    };
+    const nativeTargetIndex = syncNativeTradeRows();
+    if (nativeTargetIndex >= 0) {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const nativeScroller = document.querySelector('.vue-recycle-scroller');
+      const sampleRow = nativeScroller && nativeScroller.querySelector('.row');
+      if (nativeScroller && sampleRow) {
+        const rowHeight = Math.max(1, sampleRow.getBoundingClientRect().height);
+        nativeScroller.scrollTop = Math.max(0, (nativeTargetIndex - 2) * rowHeight);
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }
+    }
     const findScoredRows = () => {
       const leaves = [...document.querySelectorAll('body *')].filter((node) => node.children.length === 0 && (node.textContent || '').trim().endsWith(suffix));
       const rows = [];
@@ -533,8 +591,9 @@ async function applyNativeHistoricalFilter(input: {
   cdp: CdpClient;
   timeoutMs: number;
   timestamp: number;
+  windowMs: number;
 }): Promise<void> {
-  const expression = buildNativeHistoricalFilterExpression(input.timestamp);
+  const expression = buildNativeHistoricalFilterExpression(input.timestamp, input.windowMs);
   const deadline = Date.now() + input.timeoutMs;
   while (Date.now() < deadline) {
     const result = await input.cdp.call('Runtime.evaluate', {
@@ -549,9 +608,12 @@ async function applyNativeHistoricalFilter(input: {
   throw new Error('XXYY native historical trade filter was unavailable.');
 }
 
-export function buildNativeHistoricalFilterExpression(timestamp: number): string {
-  const start = timestamp - 2_000;
-  const end = timestamp + 2_000;
+export function buildNativeHistoricalFilterExpression(
+  timestamp: number,
+  windowMs = 120_000,
+): string {
+  const start = timestamp - windowMs;
+  const end = timestamp + windowMs;
   return `(() => {
     if (document.hidden) return false;
     const root = document.querySelector('#app')?._vnode;

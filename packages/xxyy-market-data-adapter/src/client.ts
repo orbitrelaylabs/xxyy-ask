@@ -247,13 +247,14 @@ async function loadMatchingTrades(input: {
             url: new URL('/api/data/trades/search', XXYY_MARKET_DATA_ORIGIN),
           }),
         );
-        pairTrades = response.data.map(parseMarketTrade);
+        const responseTrades = response.data.map(parseMarketTrade);
         if (
-          pairTrades.some((trade) =>
+          responseTrades.some((trade) =>
             identifierEquals(input.input.chain, trade.transactionId, input.input.transactionId),
-          )
+          ) &&
+          responseTrades.length >= pairTrades.length
         ) {
-          break;
+          pairTrades = responseTrades;
         }
       }
       tradesByPair.set(pair.pairAddress, pairTrades);

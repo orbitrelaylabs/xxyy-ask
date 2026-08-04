@@ -55,6 +55,29 @@ describe('public browser transaction Skill tool', () => {
     expect(output.answer).toContain('无法确定网络');
   });
 
+  it('makes a reverted transaction reason and readable native amounts prominent', async () => {
+    const caller = { channel: 'telegram' as const, principal: 'service' as const };
+    const registry = createPublicChainAnalysisCapabilityRegistry({
+      caller,
+      client: createPublicTransactionClientStub(async () =>
+        transactionOutput({
+          failureReason: "Fail with Custom Error 'SafeTransferFailed ()'",
+          status: 'reverted',
+        }),
+      ),
+    });
+
+    const output = await createPublicChainTransactionTool({ caller, registry }).execute(
+      { query: `https://bscscan.com/tx/${hash}` },
+      { channel: 'telegram' },
+    );
+
+    expect(output.answer).toContain('🚨 BNB Smart Chain 交易执行失败');
+    expect(output.answer).toContain('**❌ 失败原因**');
+    expect(output.answer).toContain('SafeTransferFailed ()');
+    expect(output.answer).toContain('0.5 BNB');
+  });
+
   it('exposes deterministic reference helpers for routing', () => {
     expect(hasPublicTransactionReference(`https://bscscan.com/tx/${hash}`)).toBe(true);
     expect(resolveSinglePublicTransactionInput(`BSC ${hash}`)).toEqual({
@@ -101,7 +124,12 @@ describe('public browser transaction Skill tool', () => {
   });
 });
 
-function transactionOutput(): GetTransactionOutput {
+function transactionOutput(
+  options: {
+    failureReason?: string;
+    status?: 'reverted' | 'success';
+  } = {},
+): GetTransactionOutput {
   return getTransactionOutputSchema.parse({
     analysis: {
       assetChanges: [],
@@ -118,13 +146,14 @@ function transactionOutput(): GetTransactionOutput {
         blockNumber: '1',
         blockTimestamp: '1',
         chainId: '56',
-        executionStatus: 'success',
-        feeWei: '1',
+        executionStatus: options.status ?? 'success',
+        ...(options.failureReason === undefined ? {} : { failureReason: options.failureReason }),
+        feeWei: '20810282400000000',
         from: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         hash,
         inputKind: 'contract_call',
         to: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-        valueWei: '0',
+        valueWei: '500000000000000000',
       },
       version: '1.0.0',
       warnings: [],

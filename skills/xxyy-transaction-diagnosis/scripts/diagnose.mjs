@@ -15114,11 +15114,11 @@ async function loadMatchingTrades(input) {
             url: new URL("/api/data/trades/search", XXYY_MARKET_DATA_ORIGIN)
           })
         );
-        pairTrades = response.data.map(parseMarketTrade);
-        if (pairTrades.some(
+        const responseTrades = response.data.map(parseMarketTrade);
+        if (responseTrades.some(
           (trade) => identifierEquals(input.input.chain, trade.transactionId, input.input.transactionId)
-        )) {
-          break;
+        ) && responseTrades.length >= pairTrades.length) {
+          pairTrades = responseTrades;
         }
       }
       tradesByPair.set(pair.pairAddress, pairTrades);
@@ -15709,6 +15709,7 @@ var transactionFactSchema = external_exports.object({
   blockTimestamp: evmUintSchema.optional(),
   chainId: evmChainIdSchema,
   executionStatus: external_exports.enum(transactionExecutionStatuses),
+  failureReason: external_exports.string().trim().min(1).max(1e3).optional(),
   feeWei: evmUintSchema.optional(),
   from: evmAddressSchema.optional(),
   hash: evmHashSchema,
@@ -16105,28 +16106,34 @@ async function prepareNativeEvidencePage(input) {
     if (!klineReady && attempt === 0) {
       continue;
     }
-    if (input.input.timestamp !== void 0) {
-      try {
-        await applyNativeHistoricalFilter({
-          cdp: input.cdp,
-          timeoutMs: Math.min(input.timeoutMs, 3e4),
-          timestamp: input.input.timestamp
-        });
-      } catch (error51) {
-        if (attempt === 0) continue;
-        throw error51;
+    let highlighted = false;
+    const filterWindows = input.input.timestamp === void 0 ? [void 0] : [5e3, 15e3, 12e4];
+    for (const windowMs of filterWindows) {
+      if (input.input.timestamp !== void 0 && windowMs !== void 0) {
+        try {
+          await applyNativeHistoricalFilter({
+            cdp: input.cdp,
+            timeoutMs: Math.min(input.timeoutMs, 1e4),
+            timestamp: input.input.timestamp,
+            windowMs
+          });
+        } catch (error51) {
+          if (attempt === 0) continue;
+          throw error51;
+        }
       }
+      highlighted = await pollForVerifiedRow({
+        cdp: input.cdp,
+        makerSuffix: input.input.maker.slice(-6),
+        ...input.input.nativeAmount === void 0 ? {} : { nativeAmount: input.input.nativeAmount },
+        timeoutMs: Math.min(input.timeoutMs, 8e3),
+        ...input.input.timestamp === void 0 ? {} : { timestamp: input.input.timestamp },
+        ...input.input.tokenAmount === void 0 ? {} : { tokenAmount: input.input.tokenAmount },
+        ...input.input.type === void 0 ? {} : { type: input.input.type },
+        ...input.input.usdAmount === void 0 ? {} : { usdAmount: input.input.usdAmount }
+      });
+      if (highlighted) break;
     }
-    const highlighted = await pollForVerifiedRow({
-      cdp: input.cdp,
-      makerSuffix: input.input.maker.slice(-6),
-      ...input.input.nativeAmount === void 0 ? {} : { nativeAmount: input.input.nativeAmount },
-      timeoutMs: Math.min(input.timeoutMs, 25e3),
-      ...input.input.timestamp === void 0 ? {} : { timestamp: input.input.timestamp },
-      ...input.input.tokenAmount === void 0 ? {} : { tokenAmount: input.input.tokenAmount },
-      ...input.input.type === void 0 ? {} : { type: input.input.type },
-      ...input.input.usdAmount === void 0 ? {} : { usdAmount: input.input.usdAmount }
-    });
     if (!highlighted) {
       throw new Error(
         "The exact trade was verified by API but its native XXYY trade row was not rendered."
@@ -16343,6 +16350,55 @@ function buildVerifiedRowHighlightExpression(input) {
       dashboard.style.setProperty('height', desiredHeight + 'px', 'important');
       dashboard.style.setProperty('flex-basis', desiredHeight + 'px', 'important');
     }
+    const syncNativeTradeRows = () => {
+      const root = document.querySelector('#app')?._vnode;
+      if (!root) return -1;
+      const seen = new Set();
+      let component;
+      const visit = (vnode) => {
+        if (!vnode || typeof vnode !== 'object' || seen.has(vnode) || component) return;
+        seen.add(vnode);
+        if (vnode.component) {
+          const candidate = vnode.component;
+          const name = candidate.type && (candidate.type.name || candidate.type.__name);
+          if (name === 'tradeTable') {
+            component = candidate;
+            return;
+          }
+          visit(candidate.subTree);
+        }
+        if (Array.isArray(vnode.children)) vnode.children.forEach(visit);
+        if (vnode.suspense) visit(vnode.suspense.activeBranch);
+      };
+      visit(root);
+      const source = component && component.data && component.data.trades;
+      const rendered = component && component.data && component.data.datas;
+      if (!Array.isArray(source) || !Array.isArray(rendered)) return -1;
+      const isTarget = (trade) => {
+        const text = [trade.maker, trade.type, trade.tokenAmount, trade.nativeAmount, trade.usdAmount]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return text.includes(suffix.toLowerCase()) &&
+          (!side || text.includes(side.toLowerCase())) &&
+          (amounts.length === 0 || amounts.some((value) => text.includes(value.toLowerCase())));
+      };
+      const targetIndex = source.findIndex(isTarget);
+      if (targetIndex < 0) return -1;
+      if (!rendered.some(isTarget)) rendered.splice(0, rendered.length, ...source);
+      return targetIndex;
+    };
+    const nativeTargetIndex = syncNativeTradeRows();
+    if (nativeTargetIndex >= 0) {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const nativeScroller = document.querySelector('.vue-recycle-scroller');
+      const sampleRow = nativeScroller && nativeScroller.querySelector('.row');
+      if (nativeScroller && sampleRow) {
+        const rowHeight = Math.max(1, sampleRow.getBoundingClientRect().height);
+        nativeScroller.scrollTop = Math.max(0, (nativeTargetIndex - 2) * rowHeight);
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }
+    }
     const findScoredRows = () => {
       const leaves = [...document.querySelectorAll('body *')].filter((node) => node.children.length === 0 && (node.textContent || '').trim().endsWith(suffix));
       const rows = [];
@@ -16426,7 +16482,7 @@ function buildKlineReadinessExpression() {
   })()`;
 }
 async function applyNativeHistoricalFilter(input) {
-  const expression = buildNativeHistoricalFilterExpression(input.timestamp);
+  const expression = buildNativeHistoricalFilterExpression(input.timestamp, input.windowMs);
   const deadline = Date.now() + input.timeoutMs;
   while (Date.now() < deadline) {
     const result2 = await input.cdp.call("Runtime.evaluate", {
@@ -16440,9 +16496,9 @@ async function applyNativeHistoricalFilter(input) {
   }
   throw new Error("XXYY native historical trade filter was unavailable.");
 }
-function buildNativeHistoricalFilterExpression(timestamp) {
-  const start = timestamp - 2e3;
-  const end = timestamp + 2e3;
+function buildNativeHistoricalFilterExpression(timestamp, windowMs = 12e4) {
+  const start = timestamp - windowMs;
+  const end = timestamp + windowMs;
   return `(() => {
     if (document.hidden) return false;
     const root = document.querySelector('#app')?._vnode;
@@ -16710,6 +16766,7 @@ var browserTransactionSchema = external_exports.object({
 var browserEvmTransactionSchema = external_exports.object({
   accountAddresses: external_exports.array(external_exports.string()).max(1024),
   blockNumber: external_exports.union([external_exports.string(), external_exports.number()]),
+  failureReason: external_exports.string().trim().min(1).max(1e3).optional(),
   feeWei: external_exports.string(),
   from: external_exports.string(),
   hash: external_exports.string(),
@@ -16954,6 +17011,7 @@ async function loadBlockscoutTransaction(input) {
       ...tokenTransfers.flatMap((transfer) => [transfer.from, transfer.to, transfer.tokenAddress])
     ]),
     blockNumber: raw.block_number,
+    ...typeof raw.revert_reason === "string" && raw.revert_reason.trim().length > 0 ? { failureReason: raw.revert_reason.trim() } : {},
     feeWei: fee ?? "0",
     from,
     hash: raw.hash,
@@ -16992,6 +17050,11 @@ function createScanPageTransactionExpression() {
     const feeEth = text.match(/(?:Transaction Fee|Txn Fee|\u4EA4\u6613\u8D39\u7528)[^0-9]*([0-9]+(?:\\.[0-9]+)?)/i)?.[1];
     const valueEth = text.match(/(?:Value|\u4EF7\u503C)[^0-9]*([0-9]+(?:\\.[0-9]+)?)/i)?.[1];
     const statusText = text.match(/(?:Status|\u72B6\u6001)\\s*[:]?\\s*([^\\n]+)/i)?.[1] || '';
+    const executionErrorText = text.match(/(?:Warning!\\s*)?Error encountered during contract execution\\s*\\[([^\\]]+)\\]/i)?.[1] || '';
+    const reverted = /fail|error|revert|\u5931\u8D25/i.test(statusText) || executionErrorText.length > 0;
+    const failureReason = reverted
+      ? (/fail|error|revert|\u5931\u8D25/i.test(statusText) ? statusText.trim() : executionErrorText.trim())
+      : '';
     const toWei = (value) => {
       if (!value) return '0';
       const [whole, fraction=''] = value.split('.');
@@ -16999,6 +17062,19 @@ function createScanPageTransactionExpression() {
     };
     const fromMatch = text.match(/(?:^|\\n)From:\\s*\\n(0x[0-9a-f]{40})/i)?.[1];
     const toMatch = text.match(/(?:^|\\n)To:\\s*\\n(0x[0-9a-f]{40})/i)?.[1];
+    const actionTokenLinks = [...document.querySelectorAll('a[href^="/token/"]')].flatMap((anchor) => {
+      const href = anchor.getAttribute('href') || '';
+      const token = href.match(/^\\/token\\/(0x[0-9a-f]{40})$/i)?.[1];
+      if (!token) return [];
+      let node = anchor;
+      for (let index = 0; index < 3 && node.parentElement; index += 1) {
+        const actionText = (node.textContent || '').replace(/\\s+/g, ' ').trim();
+        const looksLikeTransferRow = /(?:^|\\s)(?:From|To|received|sent)(?:\\s|$)/i.test(actionText);
+        if (/(?:^|\\s)Swap(?:\\s|$)/i.test(actionText) && !looksLikeTransferRow && actionText.length < 800) return [token];
+        node = node.parentElement;
+      }
+      return [];
+    });
     const actorReceivedTokens = fromMatch ? [...document.querySelectorAll('a[href^="/token/"]')].flatMap((anchor) => {
       const href = anchor.getAttribute('href') || '';
       const token = href.match(/^\\/token\\/(0x[0-9a-f]{40})/i)?.[1];
@@ -17017,12 +17093,14 @@ function createScanPageTransactionExpression() {
     const textAddresses = [...text.matchAll(/\\b0x[0-9a-f]{40}\\b/gi)]
       .map((match) => match[0])
       .filter((address) => !excludedAddresses.has(address.toLowerCase()));
-    const targetTokenLinks = [...new Set([...actorReceivedTokens, ...tokenLinks, ...textAddresses])];
+    const targetTokenLinks = actionTokenLinks.length > 0
+      ? [...new Set(actionTokenLinks)].slice(0, 1)
+      : [...new Set([...actorReceivedTokens, ...tokenLinks, ...textAddresses])];
     if (!hash || !block || (!fromMatch && addressLinks.length === 0)) return null;
     return {
       accountAddresses:[...new Set([fromMatch || addressLinks[0], toMatch || addressLinks[1]].filter(Boolean))], blockNumber:block, feeWei:toWei(feeEth),
-      from:fromMatch || addressLinks[0], hash, rawInput:'0x',
-      status:/success|\u6210\u529F/i.test(statusText)?'success':/fail|error|\u5931\u8D25/i.test(statusText)?'reverted':'unknown',
+      ...(failureReason ? {failureReason} : {}), from:fromMatch || addressLinks[0], hash, rawInput:'0x',
+      status:/success|\u6210\u529F/i.test(statusText)?'success':reverted?'reverted':'unknown',
       timestamp:unix ? new Date(Number(unix)*1000).toISOString() : timestampText ? new Date(timestampText.replace('+UTC','UTC')).toISOString() : new Date().toISOString(),
       to:toMatch || addressLinks[1] || null, tokenAddresses:targetTokenLinks, tokenTransfers:[], valueWei:toWei(valueEth)
     };
@@ -17051,6 +17129,7 @@ function projectEvmBrowserTransaction(parsed, reference, explorerUrl, source) {
         sourceUrl: explorerUrl,
         structuredData: {
           accountAddresses: parsed.accountAddresses,
+          ...parsed.failureReason === void 0 ? {} : { failureReason: parsed.failureReason },
           tokenAddresses: parsed.tokenAddresses
         },
         supports: [findingId],
@@ -17080,6 +17159,7 @@ function projectEvmBrowserTransaction(parsed, reference, explorerUrl, source) {
       blockTimestamp,
       chainId: reference.chainId,
       executionStatus: parsed.status,
+      ...parsed.failureReason === void 0 ? {} : { failureReason: parsed.failureReason },
       feeWei: parsed.feeWei,
       from: parsed.from,
       hash: reference.transactionId,

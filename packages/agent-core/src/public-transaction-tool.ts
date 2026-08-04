@@ -200,7 +200,7 @@ function formatSection(result: GetTransactionOutput) {
     result.family === 'solana'
       ? 'Solana'
       : (findBuiltInEvmNetworkByChainId(result.chainId)?.name ?? result.network);
-  const title = `${name} 交易 ${shortId(result.transactionId)}`;
+  const citationTitle = `${name} 交易 ${shortId(result.transactionId)}`;
   const citations =
     result.explorerUrl === undefined
       ? []
@@ -209,7 +209,7 @@ function formatSection(result: GetTransactionOutput) {
             excerpt: `${name} 公开 Explorer 交易页面。`,
             file: `onchain/${result.network}/${result.transactionId}`,
             sourceUrl: result.explorerUrl,
-            title,
+            title: citationTitle,
           },
         ];
   if (result.family === 'solana') {
@@ -227,28 +227,83 @@ function formatSection(result: GetTransactionOutput) {
               ...(tx.blockTime === undefined ? [] : [`区块时间：${tx.blockTime}`]),
               ...(tx.feeLamports === undefined ? [] : [`手续费：${tx.feeLamports} lamports`]),
             ],
-      title,
+      title: `**${citationTitle}**`,
     };
   }
   const tx = result.analysis.transaction;
+  const failed = tx.executionStatus === 'reverted';
+  const nativeSymbol = nativeCurrencySymbol(tx.chainId);
   return {
     citations,
     confidence: result.status === 'partial' ? 0.65 : 0.8,
     lines: [
-      `执行结果：${tx.executionStatus}`,
-      `交易哈希：${tx.hash}`,
-      ...(tx.blockNumber === undefined ? [] : [`区块：${tx.blockNumber}`]),
+      ...(failed
+        ? [
+            '',
+            '**❌ 失败原因**',
+            tx.failureReason === undefined
+              ? '`execution reverted（未解析到具体原因）`'
+              : `\`${tx.failureReason}\``,
+          ]
+        : []),
+      '',
+      '**交易概览**',
+      `状态：${executionStatusLabel(tx.executionStatus)}`,
+      `交易哈希：\`${tx.hash}\``,
+      ...(tx.blockNumber === undefined ? [] : [`区块：\`${tx.blockNumber}\``]),
       ...(tx.blockTimestamp === undefined
         ? []
         : [`区块时间：${new Date(Number(tx.blockTimestamp) * 1_000).toISOString()}`]),
-      ...(tx.from === undefined ? [] : [`发送方：${tx.from}`]),
-      ...(tx.to === undefined ? [] : [`接收方：${tx.to ?? '合约创建'}`]),
-      ...(tx.valueWei === undefined ? [] : [`原生币金额：${tx.valueWei}（最小单位）`]),
-      ...(tx.feeWei === undefined ? [] : [`手续费：${tx.feeWei}（最小单位）`]),
+      '',
+      '**地址**',
+      ...(tx.from === undefined ? ['发送方：未解析'] : [`发送方：\`${tx.from}\``]),
+      ...(tx.to === undefined
+        ? ['接收方：未解析']
+        : [`接收方：${tx.to === null ? '合约创建' : `\`${tx.to}\``}`]),
+      '',
+      '**金额与费用**',
+      ...(tx.valueWei === undefined ? [] : [`原生币金额：${formatWei(tx.valueWei, nativeSymbol)}`]),
+      ...(tx.feeWei === undefined ? [] : [`手续费：${formatWei(tx.feeWei, nativeSymbol)}`]),
       `Token 转账：${result.analysis.tokenTransfers.length} 条`,
     ],
-    title,
+    title: failed
+      ? `**🚨 ${name} 交易执行失败 ${shortId(result.transactionId)}**`
+      : `**✅ ${citationTitle}**`,
   };
+}
+
+function executionStatusLabel(status: 'pending' | 'reverted' | 'success' | 'unknown'): string {
+  switch (status) {
+    case 'success':
+      return '✅ 成功';
+    case 'reverted':
+      return '❌ 失败（reverted）';
+    case 'pending':
+      return '⏳ 待确认';
+    case 'unknown':
+      return '⚠️ 未知';
+  }
+}
+
+function nativeCurrencySymbol(chainId: string): string | undefined {
+  switch (chainId) {
+    case '56':
+      return 'BNB';
+    case '1':
+    case '8453':
+      return 'ETH';
+    default:
+      return undefined;
+  }
+}
+
+function formatWei(value: string, symbol: string | undefined): string {
+  const wei = BigInt(value);
+  const base = 1_000_000_000_000_000_000n;
+  const whole = wei / base;
+  const fraction = (wei % base).toString().padStart(18, '0').replace(/0+$/u, '');
+  const amount = `${whole}${fraction.length === 0 ? '' : `.${fraction}`}`;
+  return `${amount}${symbol === undefined ? '（原生币）' : ` ${symbol}`}（\`${value}\` wei）`;
 }
 
 function clarification(status: Exclude<QueryResolution['status'], 'ready'>): ChatResponse {

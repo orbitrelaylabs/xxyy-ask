@@ -46,6 +46,36 @@ describe('browser chain analysis client', () => {
     });
   });
 
+  it('preserves the concrete execution error shown by a scan explorer', () => {
+    const hash = `0x${'3'.repeat(64)}`;
+    const from = `0x${'a'.repeat(40)}`;
+    const to = `0x${'b'.repeat(40)}`;
+    const innerText = [
+      'Status:',
+      "Fail with Custom Error 'SafeTransferFailed ()'",
+      'Warning! Error encountered during contract execution [execution reverted]',
+      'Block: 113521306',
+      '(1785630312)',
+      'From:',
+      from,
+      'To:',
+      to,
+      'Value: 0.5 BNB',
+      'Transaction Fee: 0.0208102824 BNB',
+    ].join('\n');
+    const value = Function(
+      'document',
+      'location',
+      `return ${createScanPageTransactionExpression()}`,
+    )(
+      { body: { innerText }, querySelectorAll: () => [], title: 'Bsc Transaction Hash' },
+      { origin: 'https://bscscan.com', pathname: `/tx/${hash}` },
+    ) as { failureReason?: string; status?: string };
+
+    expect(value.status).toBe('reverted');
+    expect(value.failureReason).toBe("Fail with Custom Error 'SafeTransferFailed ()'");
+  });
+
   it('classifies a hard scan block as interactive verification', async () => {
     const client = createBrowserChainAnalysisClient({
       chromeExecutable: process.execPath,
@@ -93,9 +123,91 @@ describe('browser chain analysis client', () => {
   it('keeps all explorer token links after prioritizing actor-received tokens', () => {
     const expression = createScanPageTransactionExpression();
 
+    expect(expression).toContain('actionTokenLinks.length > 0');
     expect(expression).toContain('[...actorReceivedTokens, ...tokenLinks, ...textAddresses]');
     expect(expression).toContain('text.matchAll(/\\b0x[0-9a-f]{40}\\b/gi)');
     expect(expression).not.toContain('actorReceivedTokens.length > 0 ?');
+  });
+
+  it('prioritizes the token named by the explorer transaction action', () => {
+    const hash = `0x${'4'.repeat(64)}`;
+    const from = `0x${'a'.repeat(40)}`;
+    const targetToken = `0x${'2'.repeat(40)}`;
+    const dustToken = `0x${'5'.repeat(40)}`;
+    const actionAnchor = tokenAnchor(targetToken, 'Swap 10 TARGET for 1 BNB');
+    const dustAnchor = tokenAnchor(
+      dustToken,
+      `From 0xrouter To ${from} received 0.00001 DUST`,
+      `?a=${from}`,
+    );
+    const innerText = [
+      'Status:',
+      'Success',
+      'Block: 113923921',
+      '(1785825932)',
+      'From:',
+      from,
+      'Value: 0 BNB',
+      'Transaction Fee: 0.001 BNB',
+    ].join('\n');
+    const value = Function(
+      'document',
+      'location',
+      `return ${createScanPageTransactionExpression()}`,
+    )(
+      {
+        body: { innerText },
+        querySelectorAll: (selector: string) =>
+          selector.includes('/token/') ? [actionAnchor, dustAnchor] : [],
+        title: 'Bsc Transaction Hash',
+      },
+      { origin: 'https://bscscan.com', pathname: `/tx/${hash}` },
+    ) as { tokenAddresses?: string[] };
+
+    expect(value.tokenAddresses).toEqual([targetToken]);
+  });
+
+  it('does not mistake a transfer row beneath a generic swap action for the action token', () => {
+    const hash = `0x${'6'.repeat(64)}`;
+    const from = `0x${'a'.repeat(40)}`;
+    const quoteToken = `0x${'5'.repeat(40)}`;
+    const targetToken = `0x${'2'.repeat(40)}`;
+    const misleadingQuoteAnchor = tokenAnchor(
+      quoteToken,
+      'PancakeSwap V2: TOKEN-USDT From router To pool For 583 USDT',
+    );
+    const receivedTargetAnchor = tokenAnchor(
+      targetToken,
+      `${from} received 2107091 TARGET`,
+      `?a=${from}`,
+    );
+    const innerText = [
+      'TRANSACTION ACTION',
+      'Call Swap Function',
+      'Status:',
+      'Success',
+      'Block: 113946329',
+      '(1785836017)',
+      'From:',
+      from,
+      'Value: 0 BNB',
+      'Transaction Fee: 0.001 BNB',
+    ].join('\n');
+    const value = Function(
+      'document',
+      'location',
+      `return ${createScanPageTransactionExpression()}`,
+    )(
+      {
+        body: { innerText },
+        querySelectorAll: (selector: string) =>
+          selector.includes('/token/') ? [misleadingQuoteAnchor, receivedTargetAnchor] : [],
+        title: 'Bsc Transaction Hash',
+      },
+      { origin: 'https://bscscan.com', pathname: `/tx/${hash}` },
+    ) as { tokenAddresses?: string[] };
+
+    expect(value.tokenAddresses?.[0]).toBe(targetToken);
   });
 
   it('removes browser profile locks left by a previous container', async () => {
@@ -150,3 +262,13 @@ describe('browser chain analysis client', () => {
     }
   });
 });
+
+function tokenAnchor(token: string, parentText: string, suffix = '') {
+  const grandparent = { parentElement: null, textContent: parentText };
+  const parent = { parentElement: grandparent, textContent: parentText };
+  return {
+    getAttribute: () => `/token/${token}${suffix}`,
+    parentElement: parent,
+    textContent: '',
+  };
+}

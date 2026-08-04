@@ -255,6 +255,7 @@ const transactionFactSchema = z
     blockTimestamp: evmUintSchema.optional(),
     chainId: evmChainIdSchema,
     executionStatus: z.enum(transactionExecutionStatuses),
+    failureReason: z.string().trim().min(1).max(1_000).optional(),
     feeWei: evmUintSchema.optional(),
     from: evmAddressSchema.optional(),
     hash: evmHashSchema,

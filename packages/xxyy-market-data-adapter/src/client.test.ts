@@ -107,7 +107,7 @@ describe('XXYY market data adapter', () => {
     });
   });
 
-  it('widens a timestamp search only when the narrow response misses the target hash', async () => {
+  it('keeps widening a matched timestamp search to preserve surrounding trades', async () => {
     let tradeCalls = 0;
     const fetchImpl = vi.fn<typeof fetch>(async (url) => {
       if (String(url).includes('/search/v3')) {
@@ -161,7 +161,7 @@ describe('XXYY market data adapter', () => {
       status: 'exact',
       trade: { blockNumber: '113369791', logIndex: 406 },
     });
-    expect(tradeCalls).toBe(2);
+    expect(tradeCalls).toBe(3);
     const tradeRequests = fetchImpl.mock.calls.filter(([url]) =>
       String(url).includes('/api/data/trades/search'),
     );

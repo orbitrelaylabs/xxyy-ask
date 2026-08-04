@@ -28,6 +28,8 @@ describe('xxyyPairUrl', () => {
     expect(expression).toContain("document.querySelector('.main-content .dashboard')");
     expect(expression).toContain('rowBox.top + rowBox.height / 2');
     expect(expression).toContain('targetIndex < 2');
+    expect(expression).toContain('rendered.splice(0, rendered.length, ...source)');
+    expect(expression).toContain('(nativeTargetIndex - 2) * rowHeight');
     expect(expression).toContain('inset 0 0 0 4px #ff3b30');
     expect(expression).not.toContain('row.scrollIntoView');
     expect(expression).not.toContain('createElement');
@@ -51,13 +53,20 @@ describe('xxyyPairUrl', () => {
 
     expect(expression).toContain("name === 'tradeTable'");
     expect(expression).toContain('tradeTable.updateFilters');
-    expect(expression).toContain('{...current, timeStart:1785576517057');
-    expect(expression).toContain('timeStart:1785576517057');
-    expect(expression).toContain('timeEnd:1785576521057');
+    expect(expression).toContain('{...current, timeStart:1785576399057');
+    expect(expression).toContain('timeStart:1785576399057');
+    expect(expression).toContain('timeEnd:1785576639057');
     expect(expression).toContain('document.hidden');
     expect(expression).not.toContain('createElement');
     expect(expression).not.toContain('JSON.stringify(current)');
     expect(expression).not.toContain('/api/data/trades/search');
     expect(expression).not.toContain('xxyy-verified-evidence-panel');
+  });
+
+  it('supports a narrow historical window for high-volume trade lists', () => {
+    const expression = buildNativeHistoricalFilterExpression(1_785_576_519_057, 5_000);
+
+    expect(expression).toContain('timeStart:1785576514057');
+    expect(expression).toContain('timeEnd:1785576524057');
   });
 });

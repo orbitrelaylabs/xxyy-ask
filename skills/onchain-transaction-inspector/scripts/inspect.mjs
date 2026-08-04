@@ -14893,6 +14893,7 @@ var transactionFactSchema = external_exports.object({
   blockTimestamp: evmUintSchema.optional(),
   chainId: evmChainIdSchema,
   executionStatus: external_exports.enum(transactionExecutionStatuses),
+  failureReason: external_exports.string().trim().min(1).max(1e3).optional(),
   feeWei: evmUintSchema.optional(),
   from: evmAddressSchema.optional(),
   hash: evmHashSchema,
@@ -15706,6 +15707,7 @@ var browserTransactionSchema = external_exports.object({
 var browserEvmTransactionSchema = external_exports.object({
   accountAddresses: external_exports.array(external_exports.string()).max(1024),
   blockNumber: external_exports.union([external_exports.string(), external_exports.number()]),
+  failureReason: external_exports.string().trim().min(1).max(1e3).optional(),
   feeWei: external_exports.string(),
   from: external_exports.string(),
   hash: external_exports.string(),
@@ -15950,6 +15952,7 @@ async function loadBlockscoutTransaction(input) {
       ...tokenTransfers.flatMap((transfer) => [transfer.from, transfer.to, transfer.tokenAddress])
     ]),
     blockNumber: raw.block_number,
+    ...typeof raw.revert_reason === "string" && raw.revert_reason.trim().length > 0 ? { failureReason: raw.revert_reason.trim() } : {},
     feeWei: fee ?? "0",
     from,
     hash: raw.hash,
@@ -15988,6 +15991,11 @@ function createScanPageTransactionExpression() {
     const feeEth = text.match(/(?:Transaction Fee|Txn Fee|\u4EA4\u6613\u8D39\u7528)[^0-9]*([0-9]+(?:\\.[0-9]+)?)/i)?.[1];
     const valueEth = text.match(/(?:Value|\u4EF7\u503C)[^0-9]*([0-9]+(?:\\.[0-9]+)?)/i)?.[1];
     const statusText = text.match(/(?:Status|\u72B6\u6001)\\s*[:]?\\s*([^\\n]+)/i)?.[1] || '';
+    const executionErrorText = text.match(/(?:Warning!\\s*)?Error encountered during contract execution\\s*\\[([^\\]]+)\\]/i)?.[1] || '';
+    const reverted = /fail|error|revert|\u5931\u8D25/i.test(statusText) || executionErrorText.length > 0;
+    const failureReason = reverted
+      ? (/fail|error|revert|\u5931\u8D25/i.test(statusText) ? statusText.trim() : executionErrorText.trim())
+      : '';
     const toWei = (value) => {
       if (!value) return '0';
       const [whole, fraction=''] = value.split('.');
@@ -15995,6 +16003,19 @@ function createScanPageTransactionExpression() {
     };
     const fromMatch = text.match(/(?:^|\\n)From:\\s*\\n(0x[0-9a-f]{40})/i)?.[1];
     const toMatch = text.match(/(?:^|\\n)To:\\s*\\n(0x[0-9a-f]{40})/i)?.[1];
+    const actionTokenLinks = [...document.querySelectorAll('a[href^="/token/"]')].flatMap((anchor) => {
+      const href = anchor.getAttribute('href') || '';
+      const token = href.match(/^\\/token\\/(0x[0-9a-f]{40})$/i)?.[1];
+      if (!token) return [];
+      let node = anchor;
+      for (let index = 0; index < 3 && node.parentElement; index += 1) {
+        const actionText = (node.textContent || '').replace(/\\s+/g, ' ').trim();
+        const looksLikeTransferRow = /(?:^|\\s)(?:From|To|received|sent)(?:\\s|$)/i.test(actionText);
+        if (/(?:^|\\s)Swap(?:\\s|$)/i.test(actionText) && !looksLikeTransferRow && actionText.length < 800) return [token];
+        node = node.parentElement;
+      }
+      return [];
+    });
     const actorReceivedTokens = fromMatch ? [...document.querySelectorAll('a[href^="/token/"]')].flatMap((anchor) => {
       const href = anchor.getAttribute('href') || '';
       const token = href.match(/^\\/token\\/(0x[0-9a-f]{40})/i)?.[1];
@@ -16013,12 +16034,14 @@ function createScanPageTransactionExpression() {
     const textAddresses = [...text.matchAll(/\\b0x[0-9a-f]{40}\\b/gi)]
       .map((match) => match[0])
       .filter((address) => !excludedAddresses.has(address.toLowerCase()));
-    const targetTokenLinks = [...new Set([...actorReceivedTokens, ...tokenLinks, ...textAddresses])];
+    const targetTokenLinks = actionTokenLinks.length > 0
+      ? [...new Set(actionTokenLinks)].slice(0, 1)
+      : [...new Set([...actorReceivedTokens, ...tokenLinks, ...textAddresses])];
     if (!hash || !block || (!fromMatch && addressLinks.length === 0)) return null;
     return {
       accountAddresses:[...new Set([fromMatch || addressLinks[0], toMatch || addressLinks[1]].filter(Boolean))], blockNumber:block, feeWei:toWei(feeEth),
-      from:fromMatch || addressLinks[0], hash, rawInput:'0x',
-      status:/success|\u6210\u529F/i.test(statusText)?'success':/fail|error|\u5931\u8D25/i.test(statusText)?'reverted':'unknown',
+      ...(failureReason ? {failureReason} : {}), from:fromMatch || addressLinks[0], hash, rawInput:'0x',
+      status:/success|\u6210\u529F/i.test(statusText)?'success':reverted?'reverted':'unknown',
       timestamp:unix ? new Date(Number(unix)*1000).toISOString() : timestampText ? new Date(timestampText.replace('+UTC','UTC')).toISOString() : new Date().toISOString(),
       to:toMatch || addressLinks[1] || null, tokenAddresses:targetTokenLinks, tokenTransfers:[], valueWei:toWei(valueEth)
     };
@@ -16047,6 +16070,7 @@ function projectEvmBrowserTransaction(parsed, reference, explorerUrl, source) {
         sourceUrl: explorerUrl,
         structuredData: {
           accountAddresses: parsed.accountAddresses,
+          ...parsed.failureReason === void 0 ? {} : { failureReason: parsed.failureReason },
           tokenAddresses: parsed.tokenAddresses
         },
         supports: [findingId],
@@ -16076,6 +16100,7 @@ function projectEvmBrowserTransaction(parsed, reference, explorerUrl, source) {
       blockTimestamp,
       chainId: reference.chainId,
       executionStatus: parsed.status,
+      ...parsed.failureReason === void 0 ? {} : { failureReason: parsed.failureReason },
       feeWei: parsed.feeWei,
       from: parsed.from,
       hash: reference.transactionId,
