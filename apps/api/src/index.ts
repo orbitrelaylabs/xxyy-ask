@@ -24,6 +24,7 @@ import {
 import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxyy/knowledge';
 import {
   createOpenAiAnswerProvider,
+  createPgApiObservabilityStore,
   feedbackFailureReasons,
   createPgFeedbackStore,
   createPgSupportOperationsStore,
@@ -45,6 +46,7 @@ import type {
   ChatHistoryMessage,
   ChatResponse,
   ChatStreamEvent,
+  ChatTokenUsage,
   KnowledgeRefreshStatus,
   SourceType,
 } from '@xxyy/shared';
@@ -53,6 +55,7 @@ import type {
   AnswerProvider,
   ChatService,
   QualityTracer,
+  ApiCallObservation,
   PgSupportOperationsStore,
   RagEnv,
   RecordFeedbackInput,
@@ -81,6 +84,12 @@ type ApiEnv = RagEnv &
       | 'API_MAX_BODY_BYTES'
       | 'API_RATE_LIMIT_MAX'
       | 'API_RATE_LIMIT_WINDOW_MS'
+      | 'OBSERVABILITY_PROMPT_COST_PER_1M_TOKENS'
+      | 'OBSERVABILITY_COMPLETION_COST_PER_1M_TOKENS'
+      | 'OBSERVABILITY_ALERT_COST_USD'
+      | 'OBSERVABILITY_ALERT_RATE_LIMITED_RATIO'
+      | 'OBSERVABILITY_ALERT_SERVER_ERROR_RATIO'
+      | 'OBSERVABILITY_CLIENT_HASH_SALT'
       | 'ANSWER_QUALITY_CLI_MODE'
       | 'ANSWER_QUALITY_CLI_OPTIMIZED_PERCENTAGE'
       | 'ANSWER_QUALITY_TELEGRAM_MODE'
@@ -147,6 +156,7 @@ export interface CreateRequestHandlerOptions {
   getKnowledgeRefreshStatus?: () => Promise<KnowledgeRefreshStatus>;
   getKnowledgeAdminServices?: () => Promise<KnowledgeAdminServices>;
   getSupportOperationsStore?: () => Promise<PgSupportOperationsStore>;
+  recordApiCall?: (input: ApiCallObservation) => Promise<void>;
   agentApiAuthenticator?: AgentApiAuthenticator;
   logger?: ApiLogger;
   now?: () => number;
@@ -172,6 +182,8 @@ interface ApiRuntimeConfig {
   enableDeepHealth: boolean;
   enableRolloutObservability: boolean;
   maxBodyBytes: number;
+  promptCostPerMillionTokens: number;
+  completionCostPerMillionTokens: number;
   rateLimitMax: number;
   rateLimitWindowMs: number;
   trustProxy: boolean;
@@ -183,6 +195,19 @@ interface ChatPayload {
   requestId?: string;
   sessionId?: string;
   userId?: string;
+}
+
+interface ApiObservationDraft {
+  apiKeyId?: string;
+  channel?: ChatChannel;
+  completionTokens?: number;
+  errorCode?: string;
+  estimatedCostUsd?: number;
+  modelCallCount?: number;
+  model?: string;
+  promptTokens?: number;
+  requestId?: string;
+  totalTokens?: number;
 }
 
 type FeedbackRecorder = (input: RecordFeedbackInput) => Promise<void>;
@@ -256,6 +281,9 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
   const recordFeedback =
     options.recordFeedback ??
     (isTestRuntime(env) ? noopFeedbackRecorder : createCachedFeedbackRecorder(config));
+  const recordApiCall =
+    options.recordApiCall ??
+    (isTestRuntime(env) ? noopApiCallRecorder : createCachedApiCallRecorder(config, env));
   const logger = options.logger ?? noopLogger;
   const now = options.now ?? Date.now;
   const getKnowledgeRefreshStatus =
@@ -288,6 +316,34 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
 
   return async function handleRequest(request, response): Promise<void> {
     const requestUrl = new URL(request.url ?? '/', 'http://localhost');
+    const observation: ApiObservationDraft = {};
+    const observationStartedAt = Date.now();
+    const clientIp = clientAddress(request, apiConfig);
+    const apiPrincipal = requestUrl.pathname.startsWith('/api/v1/')
+      ? agentApiAuthenticator.authenticate(headerValue(request.headers.authorization))
+      : undefined;
+    if (apiPrincipal !== undefined) observation.apiKeyId = apiPrincipal.id;
+    if (
+      config.openAiModel !== undefined &&
+      (requestUrl.pathname === '/api/chat' ||
+        requestUrl.pathname === '/api/chat/stream' ||
+        requestUrl.pathname === '/api/v1/chat' ||
+        requestUrl.pathname === '/api/v1/chat/stream')
+    ) {
+      observation.model = config.openAiModel;
+    }
+    if (request.method !== 'OPTIONS' && isObservedApiPath(requestUrl.pathname)) {
+      instrumentApiResponse({
+        draft: observation,
+        method: request.method ?? 'GET',
+        now: Date.now,
+        path: requestUrl.pathname,
+        record: recordApiCall,
+        remoteAddress: clientIp,
+        response,
+        startedAt: observationStartedAt,
+      });
+    }
     const corsResult = applyCors(request, response, requestUrl, apiConfig);
     if (corsResult === 'handled') {
       return;
@@ -296,7 +352,7 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
     if (isKnowledgeAdminApiPath(requestUrl.pathname)) {
       const adminRateLimiter =
         request.method === 'GET' ? adminReadRateLimiter : adminMutationRateLimiter;
-      const rateLimitResult = adminRateLimiter.check(clientAddress(request, apiConfig));
+      const rateLimitResult = adminRateLimiter.check(clientIp);
       if (!rateLimitResult.allowed) {
         response.setHeader('Cache-Control', 'no-store');
         response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -314,7 +370,9 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
       (isRateLimitedPostApiRoute(requestUrl.pathname) && request.method === 'POST') ||
       (requestUrl.pathname === '/api/support/status' && request.method === 'GET')
     ) {
-      const rateLimitResult = rateLimiter.check(clientAddress(request, apiConfig));
+      const rateLimitResult = rateLimiter.check(
+        apiPrincipal === undefined ? clientIp : `api-key:${apiPrincipal.id}`,
+      );
       if (!rateLimitResult.allowed) {
         response.setHeader('Retry-After', String(Math.ceil(rateLimitResult.retryAfterMs / 1000)));
         sendJson(response, 429, {
@@ -336,9 +394,7 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
         });
         return;
       }
-      if (
-        agentApiAuthenticator.authenticate(headerValue(request.headers.authorization)) === undefined
-      ) {
+      if (apiPrincipal === undefined) {
         response.setHeader('WWW-Authenticate', 'Bearer');
         sendJson(response, 401, {
           error: 'unauthorized',
@@ -438,6 +494,9 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
         await handleChatRequest({
           getChatService,
           logger,
+          observation,
+          promptCostPerMillionTokens: apiConfig.promptCostPerMillionTokens,
+          completionCostPerMillionTokens: apiConfig.completionCostPerMillionTokens,
           createRequestId,
           maxBodyBytes: apiConfig.maxBodyBytes,
           now,
@@ -458,6 +517,9 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
         await handleChatRequest({
           getChatService,
           logger,
+          observation,
+          promptCostPerMillionTokens: apiConfig.promptCostPerMillionTokens,
+          completionCostPerMillionTokens: apiConfig.completionCostPerMillionTokens,
           createRequestId,
           maxBodyBytes: apiConfig.maxBodyBytes,
           now,
@@ -554,6 +616,9 @@ interface HandleChatRequestOptions {
   getChatService: () => Promise<ChatService>;
   getSupportOperationsStore?: () => Promise<PgSupportOperationsStore>;
   logger: ApiLogger;
+  observation: ApiObservationDraft;
+  promptCostPerMillionTokens: number;
+  completionCostPerMillionTokens: number;
   maxBodyBytes: number;
   now: () => number;
   recordFeedback: FeedbackRecorder;
@@ -568,6 +633,9 @@ async function handleChatRequest(options: HandleChatRequestOptions): Promise<voi
     ...payload,
     requestId: payload.requestId ?? options.createRequestId(),
   };
+  options.observation.channel = requestPayload.channel ?? 'web';
+  options.observation.requestId = requestPayload.requestId;
+  options.response.setHeader('X-Request-Id', requestPayload.requestId);
   const startedAt = options.now();
   let chatRequest = toChatRequest(requestPayload);
   let supportConversationId: string | undefined;
@@ -600,6 +668,7 @@ async function handleChatRequest(options: HandleChatRequestOptions): Promise<voi
 
     if (options.route === '/api/chat') {
       const chatResponse = await service.ask(chatRequest);
+      enrichObservationWithTokenUsage(options, chatResponse.tokenUsage);
       await persistAssistantResponse(
         options.getSupportOperationsStore,
         supportConversationId,
@@ -620,7 +689,10 @@ async function handleChatRequest(options: HandleChatRequestOptions): Promise<voi
       return;
     }
 
-    const summary = await sendChatStream(options.response, service.stream(chatRequest));
+    const summary = await sendChatStream(options.response, service.stream(chatRequest), (event) => {
+      enrichObservationWithTokenUsage(options, event.tokenUsage);
+      if (event.errorCode !== undefined) options.observation.errorCode = event.errorCode;
+    });
     await persistAssistantStreamSummary(
       options.getSupportOperationsStore,
       supportConversationId,
@@ -827,6 +899,14 @@ function loadApiRuntimeConfig(env: ApiEnv): ApiRuntimeConfig {
     enableDeepHealth: parseBoolean(env.API_ENABLE_DEEP_HEALTH, true),
     enableRolloutObservability: parseBoolean(env.ANSWER_QUALITY_OBSERVABILITY_ENABLED, false),
     maxBodyBytes: parsePositiveInteger(env.API_MAX_BODY_BYTES, 64 * 1024),
+    promptCostPerMillionTokens: parseNonNegativeNumber(
+      env.OBSERVABILITY_PROMPT_COST_PER_1M_TOKENS,
+      0,
+    ),
+    completionCostPerMillionTokens: parseNonNegativeNumber(
+      env.OBSERVABILITY_COMPLETION_COST_PER_1M_TOKENS,
+      0,
+    ),
     rateLimitMax: parsePositiveInteger(env.API_RATE_LIMIT_MAX, 60),
     rateLimitWindowMs: parsePositiveInteger(env.API_RATE_LIMIT_WINDOW_MS, 60_000),
     trustProxy: parseBoolean(env.TRUST_PROXY, false),
@@ -851,6 +931,12 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
 
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseNonNegativeNumber(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -1661,6 +1747,26 @@ function createCachedFeedbackRecorder(config: ReturnType<typeof loadRagConfig>):
   };
 }
 
+function createCachedApiCallRecorder(
+  config: ReturnType<typeof loadRagConfig>,
+  env: ApiEnv,
+): (input: ApiCallObservation) => Promise<void> {
+  let recorder: ((input: ApiCallObservation) => Promise<void>) | undefined;
+  return async (input) => {
+    if (recorder === undefined) {
+      const pool = createPgPool(config.databaseUrl);
+      const store = createPgApiObservabilityStore({
+        client: pool,
+        ...(env.OBSERVABILITY_CLIENT_HASH_SALT === undefined
+          ? {}
+          : { hashSalt: env.OBSERVABILITY_CLIENT_HASH_SALT }),
+      });
+      recorder = (record) => store.record(record);
+    }
+    await recorder(input);
+  };
+}
+
 function createCachedSupportOperationsStoreLoader(
   config: ReturnType<typeof loadRagConfig>,
 ): () => Promise<PgSupportOperationsStore> {
@@ -2153,11 +2259,13 @@ interface ChatStreamSummary {
   error?: string;
   intent?: ChatResponse['intent'];
   sourceTypes?: SourceType[];
+  tokenUsage?: ChatTokenUsage;
 }
 
 async function sendChatStream(
   response: ApiResponseLike,
   events: AsyncIterable<ChatStreamEvent>,
+  observe?: (event: { errorCode?: string; tokenUsage?: ChatTokenUsage }) => void,
 ): Promise<ChatStreamSummary> {
   response.statusCode = 200;
   response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -2177,6 +2285,7 @@ async function sendChatStream(
       }
       if (event.type === 'metadata') {
         metadata = event;
+        observe?.(event.tokenUsage === undefined ? {} : { tokenUsage: event.tokenUsage });
       }
     }
     return {
@@ -2188,11 +2297,13 @@ async function sendChatStream(
       ...(metadata?.confidence === undefined ? {} : { confidence: metadata.confidence }),
       ...(metadata?.intent === undefined ? {} : { intent: metadata.intent }),
       ...(metadata === undefined ? {} : { sourceTypes: feedbackSourceTypes(metadata.citations) }),
+      ...(metadata?.tokenUsage === undefined ? {} : { tokenUsage: metadata.tokenUsage }),
       outcome: 'success',
       statusCode: 200,
     };
   } catch (error) {
     const payload = createApiErrorResponse(error).body;
+    observe?.({ errorCode: payload.error });
     writeSseEvent(response, 'error', payload);
     return {
       error: payload.error,
@@ -2266,6 +2377,81 @@ function createApiErrorResponse(error: unknown): {
 }
 
 function noopLogger(_entry: ApiLogEntry): void {}
+
+async function noopApiCallRecorder(_entry: ApiCallObservation): Promise<void> {}
+
+function isObservedApiPath(pathname: string): boolean {
+  return pathname.startsWith('/api/') || pathname.startsWith('/admin/api/');
+}
+
+function instrumentApiResponse(input: {
+  draft: ApiObservationDraft;
+  method: string;
+  now: () => number;
+  path: string;
+  record: (observation: ApiCallObservation) => Promise<void>;
+  remoteAddress: string;
+  response: ApiResponseLike;
+  startedAt: number;
+}): void {
+  const originalEnd = input.response.end.bind(input.response);
+  let ended = false;
+  input.response.end = (body?: string | Uint8Array): void => {
+    if (!ended) {
+      ended = true;
+      const errorCode = input.draft.errorCode ?? readErrorCode(body);
+      const statusCode = input.response.statusCode;
+      void input
+        .record({
+          ...input.draft,
+          clientAddress: input.remoteAddress,
+          durationMs: Math.max(0, input.now() - input.startedAt),
+          ...(errorCode === undefined ? {} : { errorCode }),
+          method: input.method,
+          path: input.path,
+          rateLimited: statusCode === 429,
+          statusCode,
+        })
+        .catch(() => undefined);
+    }
+    originalEnd(body);
+  };
+}
+
+function readErrorCode(body: string | Uint8Array | undefined): string | undefined {
+  if (typeof body !== 'string' || body.length > 16_384) return undefined;
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    return typeof parsed === 'object' &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as { error?: unknown }).error === 'string'
+      ? (parsed as { error: string }).error.slice(0, 160)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function enrichObservationWithTokenUsage(
+  options: Pick<
+    HandleChatRequestOptions,
+    'completionCostPerMillionTokens' | 'observation' | 'promptCostPerMillionTokens'
+  >,
+  usage: ChatTokenUsage | undefined,
+): void {
+  if (usage === undefined) return;
+  if (usage.promptTokens !== undefined) options.observation.promptTokens = usage.promptTokens;
+  if (usage.completionTokens !== undefined) {
+    options.observation.completionTokens = usage.completionTokens;
+  }
+  options.observation.totalTokens = usage.totalTokens;
+  options.observation.modelCallCount = 1;
+  options.observation.estimatedCostUsd =
+    ((usage.promptTokens ?? 0) * options.promptCostPerMillionTokens +
+      (usage.completionTokens ?? 0) * options.completionCostPerMillionTokens) /
+    1_000_000;
+}
 
 function createConsoleApiLogger(): ApiLogger {
   return (entry) => {

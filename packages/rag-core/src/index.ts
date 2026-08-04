@@ -250,6 +250,20 @@ export type {
 export { feedbackFailureReasons } from './pgvector-store.js';
 export { createInMemoryQualityTracer, noopQualityTracer } from './quality-trace.js';
 export type { QualityTraceRecord, QualityTracer } from './quality-trace.js';
+export {
+  createPgApiObservabilityStore,
+  migrateApiObservability,
+  renderPrometheusApiMetrics,
+} from './api-observability.js';
+export type {
+  ApiCallObservation,
+  ApiObservabilityBucket,
+  ApiObservabilityDimension,
+  ApiObservabilityFilters,
+  ApiObservabilitySummary,
+  PgApiObservabilityStore,
+  StoredApiCallObservation,
+} from './api-observability.js';
 export { redactSensitiveSupportText } from './redaction.js';
 export { aggregateRetrievalResults, evaluateRetrievalRanking } from './retrieval-evaluate.js';
 export { reciprocalRankFusionScore } from './hybrid-rank.js';

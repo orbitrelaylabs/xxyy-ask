@@ -14,6 +14,18 @@ API 为 `/api/chat` 和 `/api/chat/stream` 输出 JSON line 日志。核心字�
 - `sessionIdPresent`、`userIdPresent`，不记录 session id 或 user id 明文。
 - 错误时记录 `error`，例如配置缺失、vector store 不可用或 LLM 配置缺失。
 
+API 同时将 `/api/*` 和 `/admin/api/*` 的响应结果写入 PostgreSQL `api_call_observations`。该流水覆盖在聊天日志之前返回的 429、鉴权失败和管理面请求，保存请求路径、状态码、耗时、渠道、API Key 的配置 ID、request ID、模型、模型响应实际回传的 Token usage 与估算成本；客户端地址只保存使用部署私盐生成的 SHA-256 哈希，不保存原始地址。运行 `pnpm rag:migrate` 创建或升级该表。
+
+管理后台“调用监控”提供 1 小时、24 小时、7 天和 30 天窗口，展示请求数、429、5xx、P95 延迟、Token、成本以及渠道、API Key ID、模型维度汇总和最近调用流水。以下配置控制成本估算和窗口告警：
+
+- `OBSERVABILITY_PROMPT_COST_PER_1M_TOKENS`、`OBSERVABILITY_COMPLETION_COST_PER_1M_TOKENS`：按部署所用模型填写每百万 Token 的美元单价；默认 `0`，未配置时成本仅显示为零，不猜测供应商价格。
+- `OBSERVABILITY_ALERT_RATE_LIMITED_RATIO`：429 比例阈值，默认 `0.05`。
+- `OBSERVABILITY_ALERT_SERVER_ERROR_RATIO`：5xx 比例阈值，默认 `0.02`。
+- `OBSERVABILITY_ALERT_COST_USD`：窗口估算成本阈值，默认 `10`。
+- `OBSERVABILITY_CLIENT_HASH_SALT`：生产必须设置为稳定的随机私盐；修改会切断客户端哈希的历史连续性。
+
+受保护的 `/admin/api/observability/prometheus` 输出 Prometheus 文本格式快照，使用与管理后台相同的数据库 Session Bearer 鉴权；`/admin/api/observability/summary` 和 `/admin/api/observability/requests` 提供 JSON 接入面。外部告警平台可以抓取这些指标，对 429、5xx、延迟、Token 和成本设置通知规则。接口不输出原始客户端地址、API token、问题正文或回答正文。
+
 日志不打印 API key、私钥、助记词、密码、交易哈希、地址、邮箱和手机号等敏感片段。模型 prompt 侧也会对用户问题和检索片段执行同一类敏感文本脱敏；知识正文及标题/章节元数据还会执行 prompt injection 检测与隔离，避免只在日志层防护。
 
 客服链路保留 vendor-neutral 的 `QualityTracer` 接口，API、普通 CLI 和 Telegram composition root 默认使用 no-op tracer，不连接或上传到外部追踪平台。`pnpm rag:evaluate -- --provider` 会临时启用进程内 tracer，收集 `chat.request`、planner、tool、retrieval、rerank、grounding 和 answer 的结构化摘要来生成评测观察；这些记录不跨进程持久化。
@@ -25,12 +37,12 @@ API 为 `/api/chat` 和 `/api/chat/stream` 输出 JSON line 日志。核心字�
 API 内置基础保护：
 
 - `API_MAX_BODY_BYTES` 限制 JSON 请求体大小，默认 `65536` 字节。
-- `API_RATE_LIMIT_MAX` 和 `API_RATE_LIMIT_WINDOW_MS` 对 `/api/chat`、`/api/chat/stream` 和 `/api/feedback` 按客户端地址限流，默认 `60` 次 / `60000` 毫秒。
+- `API_RATE_LIMIT_MAX` 和 `API_RATE_LIMIT_WINDOW_MS` 对聊天、流式聊天、反馈、客服升级/状态及对应 `/api/v1/*` 服务接口限流，默认 `60` 次 / `60000` 毫秒；已认证 v1 请求按 API Key ID 分桶，匿名请求按客户端地址分桶。
 - `KNOWLEDGE_ADMIN_RATE_LIMIT_MAX` 和 `KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS` 独立限制 `/admin/api/*`：登录和写操作默认 `30` 次 / `60000` 毫秒，读取操作使用独立的 10 倍额度（默认 `300` 次 / `60000` 毫秒）。未认证写请求同样计数，降低密码暴力尝试风险，同时避免后台正常并行读取耗尽写操作额度。
 - `KNOWLEDGE_ADMIN_MAX_BODY_BYTES` 限制管理请求和 Telegram JSON 导入，默认 `5242880` 字节。网关限制不得高于服务端限制太多。
 - `TRUST_PROXY=false` 时只使用 socket 地址；只有在可信反向代理后才设置 `TRUST_PROXY=true` 并读取 `x-forwarded-for` / `x-real-ip`。
 
-公开部署时仍应在网关层增加共享配额，因为进程内限流不适合多实例全局控制：
+公开部署时仍应在网关层增加共享配额，因为进程内限流不适合多实例全局控制。已认证 `/api/v1/*` 请求按 API Key 配置 ID 使用独立桶；匿名请求仍按客户端地址使用桶：
 
 - 按 session、channel 和 IP 组合限流。
 - 对匿名 Web 流量设置更低 burst，对 Telegram 或可信服务端调用设置独立配额。

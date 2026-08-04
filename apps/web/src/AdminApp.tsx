@@ -12,6 +12,9 @@ import type {
   AdminPermission,
   AdminSession,
   AdminUser,
+  ApiCallObservation,
+  ApiObservabilityAlert,
+  ApiObservabilitySummary,
   CandidateDetail,
   CandidateStatus,
   KnowledgeCandidate,
@@ -47,6 +50,7 @@ type AdminTab =
   | 'groups'
   | 'graph'
   | 'imports'
+  | 'observability'
   | 'publications'
   | 'quality'
   | 'support'
@@ -203,10 +207,238 @@ export function AdminApp(): ReactElement {
           {activeTab === 'support' ? (
             <SupportPanel permissions={permissions} token={token} />
           ) : undefined}
+          {activeTab === 'observability' ? <ObservabilityPanel token={token} /> : undefined}
         </div>
       </section>
     </main>
   );
+}
+
+function ObservabilityPanel({ token }: { token: string }): ReactElement {
+  const [hours, setHours] = useState('24');
+  const [channel, setChannel] = useState('');
+  const [apiKeyId, setApiKeyId] = useState('');
+  const [summary, setSummary] = useState<ApiObservabilitySummary>();
+  const [alerts, setAlerts] = useState<ApiObservabilityAlert[]>([]);
+  const [requests, setRequests] = useState<ApiCallObservation[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const load = useCallback(async (): Promise<void> => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const from = new Date(Date.now() - Number(hours) * 60 * 60 * 1000).toISOString();
+      const filters = new URLSearchParams({ from, limit: '100' });
+      if (channel !== '') filters.set('channel', channel);
+      if (apiKeyId.trim() !== '') filters.set('apiKeyId', apiKeyId.trim());
+      const [summaryResult, requestResult] = await Promise.all([
+        knowledgeAdminRequest<{
+          alerts: ApiObservabilityAlert[];
+          summary: ApiObservabilitySummary;
+        }>(token, `/observability/summary?from=${encodeURIComponent(from)}`),
+        knowledgeAdminRequest<{ requests: ApiCallObservation[] }>(
+          token,
+          `/observability/requests?${filters.toString()}`,
+        ),
+      ]);
+      setSummary(summaryResult.summary);
+      setAlerts(summaryResult.alerts);
+      setRequests(requestResult.requests);
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    } finally {
+      setBusy(false);
+    }
+  }, [apiKeyId, channel, hours, token]);
+
+  useEffect(() => void load(), [load]);
+  useEffect(() => {
+    const timer = window.setInterval(() => void load(), 30_000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+  const activeAlerts = alerts.filter((alert) => alert.active);
+  return (
+    <div className="admin-stack">
+      <section className="admin-panel">
+        <div className="admin-panel-header">
+          <div>
+            <h2>生产调用监控</h2>
+            <span>请求、限流、服务错误、延迟、模型回传 Token 与估算成本</span>
+          </div>
+          <button
+            className="admin-secondary-button"
+            disabled={busy}
+            onClick={() => void load()}
+            type="button"
+          >
+            {busy ? '刷新中…' : '刷新'}
+          </button>
+        </div>
+        <div className="admin-form-grid">
+          <label>
+            观察窗口
+            <select onChange={(event) => setHours(event.target.value)} value={hours}>
+              <option value="1">最近 1 小时</option>
+              <option value="24">最近 24 小时</option>
+              <option value="168">最近 7 天</option>
+              <option value="720">最近 30 天</option>
+            </select>
+          </label>
+          <label>
+            渠道
+            <select onChange={(event) => setChannel(event.target.value)} value={channel}>
+              <option value="">全部</option>
+              <option value="web">Web</option>
+              <option value="telegram">Telegram</option>
+              <option value="cli">CLI</option>
+            </select>
+          </label>
+          <label>
+            API Key ID
+            <input
+              onChange={(event) => setApiKeyId(event.target.value)}
+              placeholder="例如 partner-a"
+              value={apiKeyId}
+            />
+          </label>
+        </div>
+        {error === undefined ? undefined : <div className="admin-alert error">{error}</div>}
+        {activeAlerts.length === 0 ? (
+          <div className="admin-alert success">当前窗口没有达到告警阈值。</div>
+        ) : (
+          activeAlerts.map((alert) => (
+            <div className="admin-alert error" key={alert.code}>
+              {observabilityAlertLabel(alert.code)}：当前 {formatAlertValue(alert)}，阈值{' '}
+              {formatAlertThreshold(alert)}
+            </div>
+          ))
+        )}
+        <div className="metric-grid support-metrics">
+          <Metric label="请求数" value={summary?.requestCount ?? 0} />
+          <Metric label="平均 RPS" value={averageRequestsPerSecond(summary).toFixed(3)} />
+          <Metric label="限流 429" value={summary?.rateLimitedCount ?? 0} />
+          <Metric label="服务端 5xx" value={summary?.serverErrorCount ?? 0} />
+          <Metric label="P95 延迟 ms" value={Math.round(summary?.p95DurationMs ?? 0)} />
+          <Metric label="回传 Token" value={summary?.totalTokens ?? 0} />
+          <Metric label="估算成本 USD" value={(summary?.estimatedCostUsd ?? 0).toFixed(4)} />
+        </div>
+      </section>
+      <section className="admin-panel">
+        <div className="admin-panel-header">
+          <div>
+            <h2>维度汇总</h2>
+            <span>API Key ID 与调用渠道</span>
+          </div>
+        </div>
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>维度</th>
+                <th>请求</th>
+                <th>429</th>
+                <th>5xx</th>
+                <th>Token</th>
+                <th>成本 USD</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                ...(summary?.byApiKey ?? []).map((item) => ({ ...item, key: `API · ${item.key}` })),
+                ...(summary?.byChannel ?? []).map((item) => ({
+                  ...item,
+                  key: `渠道 · ${item.key}`,
+                })),
+                ...(summary?.byModel ?? []).map((item) => ({ ...item, key: `模型 · ${item.key}` })),
+              ].map((item) => (
+                <tr key={item.key}>
+                  <td>{item.key}</td>
+                  <td>{item.requestCount}</td>
+                  <td>{item.rateLimitedCount}</td>
+                  <td>{item.serverErrorCount}</td>
+                  <td>{item.totalTokens}</td>
+                  <td>{item.estimatedCostUsd.toFixed(4)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="admin-panel">
+        <div className="admin-panel-header">
+          <div>
+            <h2>最近调用流水</h2>
+            <span>客户端地址仅保存不可逆哈希</span>
+          </div>
+          <span>{requests.length} 条</span>
+        </div>
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>接口</th>
+                <th>状态</th>
+                <th>耗时</th>
+                <th>渠道 / Key</th>
+                <th>Token / 成本</th>
+                <th>Request ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {requests.map((item) => (
+                <tr key={item.id}>
+                  <td>{formatDate(item.createdAt)}</td>
+                  <td>
+                    <strong>{item.method}</strong> {item.path}
+                  </td>
+                  <td>
+                    {item.statusCode}
+                    {item.errorCode === undefined ? '' : ` · ${item.errorCode}`}
+                  </td>
+                  <td>{item.durationMs} ms</td>
+                  <td>
+                    {item.channel ?? '—'} / {item.apiKeyId ?? 'anonymous'}
+                  </td>
+                  <td>
+                    {item.totalTokens ?? 0} / ${item.estimatedCostUsd.toFixed(4)}
+                  </td>
+                  <td>
+                    <small>{item.requestId ?? '—'}</small>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function observabilityAlertLabel(code: ApiObservabilityAlert['code']): string {
+  if (code === 'rate_limited_ratio') return '限流比例告警';
+  if (code === 'server_error_ratio') return '服务端错误比例告警';
+  return '估算成本告警';
+}
+
+function averageRequestsPerSecond(summary: ApiObservabilitySummary | undefined): number {
+  if (summary === undefined) return 0;
+  const seconds = Math.max(1, (Date.parse(summary.to) - Date.parse(summary.from)) / 1_000);
+  return summary.requestCount / seconds;
+}
+
+function formatAlertValue(alert: ApiObservabilityAlert): string {
+  return alert.code === 'estimated_cost_usd'
+    ? `$${alert.value.toFixed(4)}`
+    : `${(alert.value * 100).toFixed(2)}%`;
+}
+
+function formatAlertThreshold(alert: ApiObservabilityAlert): string {
+  return alert.code === 'estimated_cost_usd'
+    ? `$${alert.threshold.toFixed(2)}`
+    : `${(alert.threshold * 100).toFixed(2)}%`;
 }
 
 function SupportPanel({
@@ -880,6 +1112,9 @@ function AdminSidebar({
   const tabs: Array<{ id: AdminTab; label: string; meta: string }> = [
     { id: 'account', label: '我的账号', meta: '修改本人登录密码' },
     { id: 'support', label: '客服工作台', meta: '会话、工单与人工接管' },
+    ...(session.permissions.includes('observability:read')
+      ? ([{ id: 'observability', label: '调用监控', meta: '限流、错误、Token 与成本' }] as const)
+      : []),
     { id: 'groups', label: 'Telegram 群聊', meta: 'Bot 加群状态与活跃时间' },
     ...(session.permissions.includes('user:manage')
       ? ([{ id: 'users', label: '管理员用户', meta: '账号、角色与启停状态' }] as const)
@@ -3143,7 +3378,7 @@ function ContextCard({
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }): ReactElement {
+function Metric({ label, value }: { label: string; value: number | string }): ReactElement {
   return (
     <div className="metric">
       <strong>{value}</strong>
@@ -3213,6 +3448,8 @@ function tabTitle(tab: AdminTab): string {
       return '知识图谱与证据关系治理';
     case 'imports':
       return 'Telegram 知识导入';
+    case 'observability':
+      return 'API 调用监控与告警';
     case 'publications':
       return '发布任务与恢复';
     case 'quality':

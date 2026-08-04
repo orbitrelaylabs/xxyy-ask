@@ -14,6 +14,7 @@ import type {
   PgKnowledgePublicationJobStore,
   PgQualityEvaluationJobStore,
   PgSupportOperationsStore,
+  PgApiObservabilityStore,
   PgTelegramGroupMessageStore,
   PgTelegramGroupRegistryStore,
   PgTelegramCurationJobStore,
@@ -1089,6 +1090,50 @@ describe('handleKnowledgeAdminApi', () => {
       reportId: 'quality-report:1',
     });
   });
+
+  it('returns protected production API monitoring summaries and active alerts', async () => {
+    const getSummary = vi.fn(() =>
+      Promise.resolve({
+        averageDurationMs: 80,
+        byApiKey: [],
+        byChannel: [],
+        byModel: [],
+        completionTokens: 40,
+        estimatedCostUsd: 12,
+        from: '2026-08-03T00:00:00.000Z',
+        p95DurationMs: 150,
+        promptTokens: 160,
+        rateLimitedCount: 1,
+        requestCount: 10,
+        serverErrorCount: 1,
+        timeline: [],
+        to: '2026-08-04T00:00:00.000Z',
+        totalTokens: 200,
+      }),
+    );
+    const response = await callAdmin({
+      authenticator: authenticator('viewer'),
+      getServices: () =>
+        Promise.resolve(
+          knowledgeAdminServices({
+            apiObservability: apiObservabilityStore({ getSummary }),
+          }),
+        ),
+      method: 'GET',
+      token: TOKEN,
+      url: '/admin/api/observability/summary?from=2026-08-03T00%3A00%3A00.000Z',
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json).toMatchObject({
+      alerts: [
+        { active: true, code: 'rate_limited_ratio' },
+        { active: true, code: 'server_error_ratio' },
+        { active: true, code: 'estimated_cost_usd' },
+      ],
+      summary: { requestCount: 10, totalTokens: 200 },
+    });
+    expect(getSummary).toHaveBeenCalledWith({ from: '2026-08-03T00:00:00.000Z' });
+  });
 });
 
 interface CapturedResponse {
@@ -1207,6 +1252,7 @@ function knowledgeAdminServices(
 ): KnowledgeAdminServices {
   return {
     adminUsers: adminUserStore(),
+    apiObservability: apiObservabilityStore(),
     feedback: feedbackStore(),
     governance: governance(),
     knowledgeGraph: knowledgeGraphStore(),
@@ -1215,10 +1261,44 @@ function knowledgeAdminServices(
     qualityEvaluations: qualityEvaluationStore(),
     processTelegramInbox: () => Promise.reject(new Error('not used')),
     supportOperations: supportOperationsStore(),
+    observabilityThresholds: {
+      costUsd: 10,
+      rateLimitedRatio: 0.05,
+      serverErrorRatio: 0.02,
+    },
     suggestCandidate: () => Promise.reject(new Error('not used')),
     telegramGroups: telegramGroupStore(),
     telegramCurationJobs: telegramCurationJobStore(),
     telegramMessages: telegramMessageStore(),
+    ...overrides,
+  };
+}
+
+function apiObservabilityStore(
+  overrides: Partial<PgApiObservabilityStore> = {},
+): PgApiObservabilityStore {
+  return {
+    getSummary: () =>
+      Promise.resolve({
+        averageDurationMs: 0,
+        byApiKey: [],
+        byChannel: [],
+        byModel: [],
+        completionTokens: 0,
+        estimatedCostUsd: 0,
+        from: '2026-08-03T00:00:00.000Z',
+        p95DurationMs: 0,
+        promptTokens: 0,
+        rateLimitedCount: 0,
+        requestCount: 0,
+        serverErrorCount: 0,
+        timeline: [],
+        to: '2026-08-04T00:00:00.000Z',
+        totalTokens: 0,
+      }),
+    list: () => Promise.resolve([]),
+    migrate: () => Promise.resolve(),
+    record: () => Promise.resolve(),
     ...overrides,
   };
 }

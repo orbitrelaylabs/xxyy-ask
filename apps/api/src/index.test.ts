@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -15,7 +16,7 @@ import {
   VectorStoreConfigurationError,
   VectorStoreUnavailableError,
 } from '@xxyy/rag-core';
-import type { PgSupportOperationsStore } from '@xxyy/rag-core';
+import type { ApiCallObservation, PgSupportOperationsStore } from '@xxyy/rag-core';
 
 import {
   createRateLimiter,
@@ -31,6 +32,23 @@ interface CapturedResponse {
   headers: Record<string, string>;
   body: string;
   rawBody: Buffer;
+}
+
+function chatServiceResponse(overrides: Partial<ChatResponse> = {}) {
+  return {
+    ask(): Promise<ChatResponse> {
+      return Promise.resolve({
+        answer: '根据知识库，XXYY Pro 提供更多权益。',
+        citations: [],
+        confidence: 0.8,
+        intent: 'product_qa',
+        ...overrides,
+      });
+    },
+    stream(): AsyncIterable<ChatStreamEvent> {
+      throw new Error('stream should not be used for non-stream requests');
+    },
+  };
 }
 
 async function callHandler(
@@ -904,6 +922,111 @@ describe('createRequestHandler', () => {
       error: 'rate_limited',
       message: 'Too many requests. Please try again later.',
     });
+  });
+
+  it('records rate-limited responses in the persistent observability hook', async () => {
+    const observations: ApiCallObservation[] = [];
+    const handler = createRequestHandler({
+      env: { API_RATE_LIMIT_MAX: '1', API_RATE_LIMIT_WINDOW_MS: '1000' },
+      now: () => 100,
+      recordApiCall: (input) => {
+        observations.push(input);
+        return Promise.resolve();
+      },
+      getChatService: () => Promise.resolve(chatServiceResponse()),
+    });
+    await callHandler(handler, {
+      body: { message: 'XXYY Pro 有哪些权益？' },
+      method: 'POST',
+      remoteAddress: '198.51.100.10',
+      url: '/api/chat',
+    });
+    await callHandler(handler, {
+      body: { message: 'XXYY Pro 有哪些权益？' },
+      method: 'POST',
+      remoteAddress: '198.51.100.10',
+      url: '/api/chat',
+    });
+    expect(observations).toHaveLength(2);
+    expect(observations[1]).toMatchObject({
+      errorCode: 'rate_limited',
+      path: '/api/chat',
+      rateLimited: true,
+      statusCode: 429,
+    });
+  });
+
+  it('records token usage and configured estimated cost for chat requests', async () => {
+    const observations: ApiCallObservation[] = [];
+    const handler = createRequestHandler({
+      createRequestId: () => 'request-observe-1',
+      env: {
+        OBSERVABILITY_COMPLETION_COST_PER_1M_TOKENS: '10',
+        OBSERVABILITY_PROMPT_COST_PER_1M_TOKENS: '2',
+      },
+      recordApiCall: (input) => {
+        observations.push(input);
+        return Promise.resolve();
+      },
+      getChatService: () =>
+        Promise.resolve(
+          chatServiceResponse({
+            tokenUsage: { completionTokens: 20, promptTokens: 100, totalTokens: 120 },
+          }),
+        ),
+    });
+    const response = await callHandler(handler, {
+      body: { channel: 'web', message: 'XXYY Pro 有哪些权益？' },
+      method: 'POST',
+      url: '/api/chat',
+    });
+    expect(response.headers['X-Request-Id']).toBe('request-observe-1');
+    expect(observations[0]).toMatchObject({
+      channel: 'web',
+      completionTokens: 20,
+      estimatedCostUsd: 0.0004,
+      promptTokens: 100,
+      requestId: 'request-observe-1',
+      totalTokens: 120,
+    });
+  });
+
+  it('uses independent rate-limit buckets and monitoring dimensions for API key ids', async () => {
+    const firstToken = 'agent-api-token-a-with-enough-characters';
+    const secondToken = 'agent-api-token-b-with-enough-characters';
+    const observations: ApiCallObservation[] = [];
+    const handler = createRequestHandler({
+      env: {
+        API_RATE_LIMIT_MAX: '1',
+        API_RATE_LIMIT_WINDOW_MS: '1000',
+        XXYY_AGENT_API_KEYS_JSON: JSON.stringify([
+          { id: 'partner-a', tokenHash: createHash('sha256').update(firstToken).digest('hex') },
+          { id: 'partner-b', tokenHash: createHash('sha256').update(secondToken).digest('hex') },
+        ]),
+      },
+      getChatService: () => Promise.resolve(chatServiceResponse()),
+      now: () => 100,
+      recordApiCall: (input) => {
+        observations.push(input);
+        return Promise.resolve();
+      },
+    });
+    const call = (token: string) =>
+      callHandler(handler, {
+        body: { message: 'XXYY Pro 有哪些权益？' },
+        headers: { authorization: `Bearer ${token}` },
+        method: 'POST',
+        remoteAddress: '198.51.100.10',
+        url: '/api/v1/chat',
+      });
+    expect((await call(firstToken)).statusCode).toBe(200);
+    expect((await call(secondToken)).statusCode).toBe(200);
+    expect((await call(firstToken)).statusCode).toBe(429);
+    expect(observations.map((item) => item.apiKeyId)).toEqual([
+      'partner-a',
+      'partner-b',
+      'partner-a',
+    ]);
   });
 
   it('uses x-forwarded-for for rate limiting only when TRUST_PROXY is true', async () => {

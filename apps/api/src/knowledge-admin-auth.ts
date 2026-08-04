@@ -10,6 +10,7 @@ export type KnowledgeAdminPermission =
   | 'quality:baseline'
   | 'quality:read'
   | 'quality:run'
+  | 'observability:read'
   | 'support:manage'
   | 'support:read'
   | 'telegram_group:read'
@@ -31,6 +32,7 @@ const PERMISSION_LEVEL: Record<KnowledgeAdminPermission, number> = {
   'quality:baseline': ROLE_LEVEL.admin,
   'quality:read': ROLE_LEVEL.viewer,
   'quality:run': ROLE_LEVEL.publisher,
+  'observability:read': ROLE_LEVEL.viewer,
   'support:manage': ROLE_LEVEL.reviewer,
   'support:read': ROLE_LEVEL.viewer,
   'telegram_group:read': ROLE_LEVEL.viewer,

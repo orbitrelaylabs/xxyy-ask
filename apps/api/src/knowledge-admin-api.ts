@@ -14,6 +14,7 @@ import {
   understandProductQuestion,
   VectorStoreConfigurationError,
   VectorStoreUnavailableError,
+  renderPrometheusApiMetrics,
 } from '@xxyy/rag-core';
 import type {
   ImportTelegramKnowledgeResult,
@@ -30,6 +31,7 @@ import type {
   PgKnowledgeAdminUserStore,
   PgKnowledgeGraphStore,
   PgSupportOperationsStore,
+  PgApiObservabilityStore,
   PgTelegramGroupMessageStore,
   PgTelegramGroupRegistryStore,
   PgTelegramCurationJobStore,
@@ -53,6 +55,12 @@ export interface KnowledgeAdminServices {
   publicationJobs: PgKnowledgePublicationJobStore;
   qualityEvaluations: PgQualityEvaluationJobStore;
   supportOperations: PgSupportOperationsStore;
+  apiObservability: PgApiObservabilityStore;
+  observabilityThresholds: {
+    costUsd: number;
+    rateLimitedRatio: number;
+    serverErrorRatio: number;
+  };
   telegramGroups: PgTelegramGroupRegistryStore;
   telegramCurationJobs: PgTelegramCurationJobStore;
   telegramMessages: PgTelegramGroupMessageStore;
@@ -448,6 +456,11 @@ async function routeKnowledgeAdminRequest(
 
   if (segments[0] === 'support') {
     await routeSupportRequest(options, services, principal, method, segments.slice(1));
+    return;
+  }
+
+  if (segments[0] === 'observability') {
+    await routeObservabilityRequest(options, services, principal, method, segments.slice(1));
     return;
   }
 
@@ -941,6 +954,7 @@ function knowledgeAdminPermissions(principal: KnowledgeAdminPrincipal): Knowledg
     'quality:baseline',
     'quality:read',
     'quality:run',
+    'observability:read',
     'support:manage',
     'support:read',
     'telegram_group:read',
@@ -1074,6 +1088,108 @@ async function routeSupportRequest(
     return;
   }
   sendNotFound(options.response);
+}
+
+async function routeObservabilityRequest(
+  options: HandleKnowledgeAdminApiOptions,
+  services: KnowledgeAdminServices,
+  principal: KnowledgeAdminPrincipal,
+  method: string,
+  segments: string[],
+): Promise<void> {
+  requirePermission(principal, 'observability:read');
+  requireMethod(method, 'GET');
+  const from = parseOptionalObservedDate(options.requestUrl.searchParams.get('from'));
+  const to = parseOptionalObservedDate(options.requestUrl.searchParams.get('to'));
+  if (segments.length === 1 && segments[0] === 'summary') {
+    const summary = await services.apiObservability.getSummary({
+      ...(from === undefined ? {} : { from }),
+      ...(to === undefined ? {} : { to }),
+    });
+    const denominator = Math.max(1, summary.requestCount);
+    sendJson(options.response, 200, {
+      alerts: [
+        {
+          active:
+            summary.rateLimitedCount / denominator >=
+            services.observabilityThresholds.rateLimitedRatio,
+          code: 'rate_limited_ratio',
+          threshold: services.observabilityThresholds.rateLimitedRatio,
+          value: summary.rateLimitedCount / denominator,
+        },
+        {
+          active:
+            summary.serverErrorCount / denominator >=
+            services.observabilityThresholds.serverErrorRatio,
+          code: 'server_error_ratio',
+          threshold: services.observabilityThresholds.serverErrorRatio,
+          value: summary.serverErrorCount / denominator,
+        },
+        {
+          active: summary.estimatedCostUsd >= services.observabilityThresholds.costUsd,
+          code: 'estimated_cost_usd',
+          threshold: services.observabilityThresholds.costUsd,
+          value: summary.estimatedCostUsd,
+        },
+      ],
+      summary,
+    });
+    return;
+  }
+  if (segments.length === 1 && segments[0] === 'requests') {
+    const apiKeyId = parseOptionalObservedText(
+      options.requestUrl.searchParams.get('apiKeyId'),
+      160,
+    );
+    const channel = parseOptionalObservedChannel(options.requestUrl.searchParams.get('channel'));
+    const path = parseOptionalObservedText(options.requestUrl.searchParams.get('path'), 512);
+    const statusCode = parseOptionalObservedStatus(
+      options.requestUrl.searchParams.get('statusCode'),
+    );
+    sendJson(options.response, 200, {
+      requests: await services.apiObservability.list({
+        ...(apiKeyId === undefined ? {} : { apiKeyId }),
+        ...(channel === undefined ? {} : { channel }),
+        ...(from === undefined ? {} : { from }),
+        limit: parseLimit(options.requestUrl.searchParams.get('limit')),
+        ...(path === undefined ? {} : { path }),
+        ...(statusCode === undefined ? {} : { statusCode }),
+        ...(to === undefined ? {} : { to }),
+      }),
+    });
+    return;
+  }
+  if (segments.length === 1 && segments[0] === 'prometheus') {
+    const body = renderPrometheusApiMetrics(
+      await services.apiObservability.getSummary({
+        ...(from === undefined ? {} : { from }),
+        ...(to === undefined ? {} : { to }),
+      }),
+    );
+    options.response.statusCode = 200;
+    options.response.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    options.response.end(body);
+    return;
+  }
+  sendNotFound(options.response);
+}
+
+function parseOptionalObservedChannel(
+  value: string | null,
+): 'cli' | 'telegram' | 'web' | undefined {
+  return value === null ? undefined : z.enum(['cli', 'telegram', 'web']).parse(value);
+}
+
+function parseOptionalObservedDate(value: string | null): string | undefined {
+  return value === null ? undefined : z.iso.datetime({ offset: true }).parse(value);
+}
+
+function parseOptionalObservedStatus(value: string | null): number | undefined {
+  return value === null ? undefined : z.coerce.number().int().min(100).max(599).parse(value);
+}
+
+function parseOptionalObservedText(value: string | null, max: number): string | undefined {
+  return value === null ? undefined : z.string().trim().min(1).max(max).parse(value);
 }
 
 function createQualityDiagnosticSnapshot(record: FeedbackRecord) {

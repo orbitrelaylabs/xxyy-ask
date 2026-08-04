@@ -6,6 +6,7 @@ export type AdminPermission =
   | 'quality:baseline'
   | 'quality:read'
   | 'quality:run'
+  | 'observability:read'
   | 'support:manage'
   | 'support:read'
   | 'telegram_group:read'
@@ -195,6 +196,63 @@ export interface SupportOperationsMetrics {
   openTicketCount: number;
   unassignedTicketCount: number;
   waitingUserTicketCount: number;
+}
+
+export interface ApiObservabilityDimension {
+  key: string;
+  requestCount: number;
+  rateLimitedCount: number;
+  serverErrorCount: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+}
+
+export interface ApiObservabilitySummary {
+  averageDurationMs: number;
+  byApiKey: ApiObservabilityDimension[];
+  byChannel: ApiObservabilityDimension[];
+  byModel: ApiObservabilityDimension[];
+  completionTokens: number;
+  estimatedCostUsd: number;
+  from: string;
+  p95DurationMs: number;
+  promptTokens: number;
+  rateLimitedCount: number;
+  requestCount: number;
+  serverErrorCount: number;
+  timeline: Array<{
+    periodStart: string;
+    requestCount: number;
+    rateLimitedCount: number;
+    serverErrorCount: number;
+  }>;
+  to: string;
+  totalTokens: number;
+}
+
+export interface ApiObservabilityAlert {
+  active: boolean;
+  code: 'estimated_cost_usd' | 'rate_limited_ratio' | 'server_error_ratio';
+  threshold: number;
+  value: number;
+}
+
+export interface ApiCallObservation {
+  clientHash: string;
+  createdAt: string;
+  durationMs: number;
+  estimatedCostUsd: number;
+  id: string;
+  method: string;
+  model?: string;
+  path: string;
+  rateLimited: boolean;
+  statusCode: number;
+  apiKeyId?: string;
+  channel?: 'cli' | 'telegram' | 'web';
+  errorCode?: string;
+  requestId?: string;
+  totalTokens?: number;
 }
 
 export interface SupportConversation {

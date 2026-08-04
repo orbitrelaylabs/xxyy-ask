@@ -11,6 +11,7 @@ import {
   createPgKnowledgeMatchInspector,
   createPgKnowledgePublicationJobStore,
   createPgQualityEvaluationJobStore,
+  createPgApiObservabilityStore,
   createPgSupportOperationsStore,
   createPgTelegramGroupRegistryStore,
   createPgTelegramGroupMessageStore,
@@ -28,6 +29,10 @@ import type { RagConfig } from '@xxyy/rag-core';
 import type { KnowledgeAdminServices } from './knowledge-admin-api.js';
 
 export interface KnowledgeAdminServiceEnv {
+  OBSERVABILITY_ALERT_COST_USD?: string;
+  OBSERVABILITY_ALERT_RATE_LIMITED_RATIO?: string;
+  OBSERVABILITY_ALERT_SERVER_ERROR_RATIO?: string;
+  OBSERVABILITY_CLIENT_HASH_SALT?: string;
   TELEGRAM_API_BASE_URL?: string;
   TELEGRAM_BOT_TOKEN?: string;
 }
@@ -58,6 +63,12 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
     const publicationJobs = createPgKnowledgePublicationJobStore({ client: pool });
     const qualityEvaluations = createPgQualityEvaluationJobStore({ client: pool });
     const supportOperations = createPgSupportOperationsStore({ client: pool });
+    const apiObservability = createPgApiObservabilityStore({
+      client: pool,
+      ...(normalizeOptionalEnvValue(options.env.OBSERVABILITY_CLIENT_HASH_SALT) === undefined
+        ? {}
+        : { hashSalt: normalizeOptionalEnvValue(options.env.OBSERVABILITY_CLIENT_HASH_SALT)! }),
+    });
     const telegramGroups = createPgTelegramGroupRegistryStore({ client: pool });
     const telegramMessages = createPgTelegramGroupMessageStore({ client: pool });
     const telegramCurationJobs = createPgTelegramCurationJobStore({ client: pool });
@@ -134,12 +145,18 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
 
     cached = {
       adminUsers,
+      apiObservability,
       feedback,
       governance,
       knowledgeGraph,
       publicationJobs,
       qualityEvaluations,
       supportOperations,
+      observabilityThresholds: {
+        costUsd: parseNonNegativeNumber(options.env.OBSERVABILITY_ALERT_COST_USD, 10),
+        rateLimitedRatio: parseRatio(options.env.OBSERVABILITY_ALERT_RATE_LIMITED_RATIO, 0.05),
+        serverErrorRatio: parseRatio(options.env.OBSERVABILITY_ALERT_SERVER_ERROR_RATIO, 0.02),
+      },
       async suggestCandidate(input) {
         const detail = await governance.getCandidateDetail(input.id);
         if (detail === undefined) return undefined;
@@ -176,4 +193,14 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
 function normalizeOptionalEnvValue(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized === undefined || normalized.length === 0 ? undefined : normalized;
+}
+
+function parseNonNegativeNumber(value: string | undefined, fallback: number): number {
+  const parsed = value === undefined ? Number.NaN : Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function parseRatio(value: string | undefined, fallback: number): number {
+  const parsed = parseNonNegativeNumber(value, fallback);
+  return parsed <= 1 ? parsed : fallback;
 }
