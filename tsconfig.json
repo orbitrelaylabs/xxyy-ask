@@ -25,9 +25,6 @@
       "path": "./packages/transaction-analysis-core"
     },
     {
-      "path": "./packages/solana-data-adapter"
-    },
-    {
       "path": "./packages/product-support-runtime"
     },
     {

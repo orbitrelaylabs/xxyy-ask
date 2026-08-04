@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
-import { solanaTransactionSnapshotSchema } from '@xxyy/solana-data-adapter';
 import { evmChainIdSchema, transactionAnalysisResultSchema } from '@xxyy/transaction-analysis-core';
 
 import { normalizePublicNetworkIdentifier } from './network-profiles.js';
+import { solanaTransactionSnapshotSchema } from './solana-browser-contracts.js';
 
 export const publicChainNetworkSchema = z
   .string()

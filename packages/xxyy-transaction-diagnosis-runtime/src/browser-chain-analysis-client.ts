@@ -3,7 +3,6 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { access, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { solanaSignatureSchema } from '@xxyy/solana-data-adapter';
 import { transactionAnalysisResultSchema } from '@xxyy/transaction-analysis-core';
 import { z } from 'zod';
 
@@ -20,6 +19,7 @@ import {
   type PublicTransactionClient,
 } from './public-transaction-contracts.js';
 import { resolvePublicTransactionReference } from './transaction-reference.js';
+import { solanaSignatureSchema } from './solana-browser-contracts.js';
 
 const DEFAULT_TIMEOUT_MS = 45_000;
 const SOLSCAN_ORIGIN = 'https://solscan.io';

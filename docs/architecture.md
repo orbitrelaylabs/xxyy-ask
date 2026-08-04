@@ -29,7 +29,7 @@ Web / Telegram / HTTP API / CLI
 `packages/xxyy-transaction-diagnosis-runtime` 管理隔离 Chrome profile、固定 Explorer 路由、XXYY 页面定位、数据等待和截图。它组合：
 
 - `transaction-analysis-core`：EVM 浏览器快照的确定性领域投影；
-- `solana-data-adapter`：Solana 浏览器页面数据归一化；
+- runtime-local Solana contracts：Solana 浏览器页面数据校验；
 - `xxyy-market-data-adapter`：固定 XXYY 页面成交与多池数据；
 - `xxyy-transaction-diagnosis-core`：池子大小、canonical 匹配和结构性 Sandwich 四态结论。
 

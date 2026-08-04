@@ -7,7 +7,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@xxyy/solana-data-adapter": "workspace:*",
     "@xxyy/transaction-analysis-core": "workspace:*",
     "@xxyy/xxyy-market-data-adapter": "workspace:*",
     "@xxyy/xxyy-transaction-diagnosis-core": "workspace:*",

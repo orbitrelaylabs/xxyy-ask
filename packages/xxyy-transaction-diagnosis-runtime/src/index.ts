@@ -6,5 +6,6 @@ export * from './contracts.js';
 export * from './network-profiles.js';
 export * from './public-transaction-contracts.js';
 export * from './service.js';
+export * from './solana-browser-contracts.js';
 export * from './transaction-reference.js';
 export * from './transaction-cli.js';

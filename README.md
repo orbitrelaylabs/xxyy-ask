@@ -27,7 +27,6 @@ packages/
   xxyy-transaction-diagnosis-core/     池子与结构性 Sandwich 领域判断
   xxyy-market-data-adapter/            固定 XXYY 页面数据适配
   transaction-analysis-core/           EVM 浏览器快照领域分析
-  solana-data-adapter/                  Solana 页面数据归一化
   shared/          共享契约
 skills/
   xxyy-product-support/

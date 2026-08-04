@@ -194,12 +194,6 @@ importers:
         specifier: ^4.0.0
         version: 4.4.3
 
-  packages/solana-data-adapter:
-    dependencies:
-      zod:
-        specifier: ^4.0.0
-        version: 4.4.3
-
   packages/transaction-analysis-core:
     dependencies:
       '@xxyy/shared':
@@ -226,9 +220,6 @@ importers:
 
   packages/xxyy-transaction-diagnosis-runtime:
     dependencies:
-      '@xxyy/solana-data-adapter':
-        specifier: workspace:*
-        version: link:../solana-data-adapter
       '@xxyy/transaction-analysis-core':
         specifier: workspace:*
         version: link:../transaction-analysis-core

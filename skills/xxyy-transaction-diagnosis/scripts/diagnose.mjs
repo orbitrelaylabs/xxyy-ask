@@ -15345,128 +15345,6 @@ import { spawn as spawn2 } from "node:child_process";
 import { access, mkdir as mkdir2 } from "node:fs/promises";
 import path2 from "node:path";
 
-// packages/solana-data-adapter/src/contracts.ts
-var SOLANA_MAINNET_NETWORK = "solana:mainnet";
-var solanaNetworkSchema = external_exports.literal(SOLANA_MAINNET_NETWORK);
-var solanaProviderIdSchema = external_exports.string().trim().min(1).max(64).regex(/^[a-z][a-z0-9_-]*$/u, "Expected a stable lower-case provider id.");
-var solanaAddressSchema = external_exports.string().trim().min(32).max(64).regex(/^[1-9A-HJ-NP-Za-km-z]+$/u, "Expected a base58 Solana address.");
-var solanaSignatureSchema = external_exports.string().trim().min(64).max(128).regex(/^[1-9A-HJ-NP-Za-km-z]+$/u, "Expected a base58 Solana transaction signature.");
-var headerNameSchema = external_exports.string().min(1).max(128).regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u);
-var headerValueSchema = external_exports.string().max(8192).refine((value) => !/[\r\n]/u.test(value), "Header values cannot contain line breaks.");
-var forbiddenHeaders = /* @__PURE__ */ new Set([
-  "accept",
-  "connection",
-  "content-length",
-  "content-type",
-  "host",
-  "proxy-authorization",
-  "transfer-encoding"
-]);
-var providerHeadersSchema = external_exports.record(headerNameSchema, headerValueSchema).superRefine((headers, context) => {
-  if (Object.keys(headers).length > 32) {
-    context.addIssue({
-      code: "custom",
-      message: "A provider can define at most 32 headers.",
-      path: []
-    });
-  }
-  const normalized = /* @__PURE__ */ new Set();
-  for (const name of Object.keys(headers)) {
-    const lower = name.toLowerCase();
-    if (normalized.has(lower) || forbiddenHeaders.has(lower)) {
-      context.addIssue({
-        code: "custom",
-        message: `Header is duplicated or controlled by the adapter: ${name}`,
-        path: [name]
-      });
-    }
-    normalized.add(lower);
-  }
-}).transform(
-  (headers) => Object.fromEntries(Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]))
-);
-var solanaRpcProviderConfigSchema = external_exports.object({
-  endpoint: external_exports.string().trim().max(2048).url(),
-  headers: providerHeadersSchema.optional(),
-  id: solanaProviderIdSchema
-}).strict();
-var solanaDataAdapterConfigSchema = external_exports.object({
-  network: solanaNetworkSchema,
-  providers: external_exports.array(solanaRpcProviderConfigSchema).min(1).max(8).refine(
-    (providers) => new Set(providers.map((provider) => provider.id)).size === providers.length,
-    { message: "Provider ids must be unique." }
-  )
-}).strict();
-var loadSolanaTransactionInputSchema = external_exports.object({
-  network: solanaNetworkSchema,
-  providerIds: external_exports.array(solanaProviderIdSchema).min(1).max(8).refine((ids) => new Set(ids).size === ids.length, {
-    message: "Provider ids must be unique."
-  }).optional(),
-  transactionId: solanaSignatureSchema
-}).strict();
-var decimalIntegerSchema = external_exports.string().regex(/^-?(?:0|[1-9]\d*)$/u);
-var unsignedDecimalSchema2 = external_exports.string().regex(/^(?:0|[1-9]\d*)$/u);
-var fingerprintSchema = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/u);
-var solanaNativeBalanceChangeSchema = external_exports.object({
-  account: solanaAddressSchema,
-  accountIndex: external_exports.number().int().nonnegative().max(511),
-  deltaLamports: decimalIntegerSchema
-}).strict();
-var solanaTokenBalanceChangeSchema = external_exports.object({
-  account: solanaAddressSchema.optional(),
-  accountIndex: external_exports.number().int().nonnegative().max(511),
-  decimals: external_exports.number().int().nonnegative().max(255),
-  deltaRaw: decimalIntegerSchema,
-  mint: solanaAddressSchema,
-  owner: solanaAddressSchema.optional(),
-  programId: solanaAddressSchema.optional()
-}).strict();
-var solanaTransactionSourceSchema = external_exports.object({
-  id: solanaProviderIdSchema,
-  kind: external_exports.enum(["rpc", "explorer_browser"]),
-  observedAt: external_exports.string().datetime({ offset: true }),
-  payloadHash: fingerprintSchema,
-  provenanceUrl: external_exports.string().url()
-}).strict();
-var solanaTransactionSnapshotSchema = external_exports.object({
-  accountKeys: external_exports.array(solanaAddressSchema).max(512),
-  blockTime: external_exports.string().datetime({ offset: true }).optional(),
-  computeUnitsConsumed: unsignedDecimalSchema2.optional(),
-  executionStatus: external_exports.enum(["reverted", "success", "unknown"]),
-  feeLamports: unsignedDecimalSchema2.optional(),
-  logCount: external_exports.number().int().nonnegative().max(2048),
-  nativeBalanceChanges: external_exports.array(solanaNativeBalanceChangeSchema).max(512),
-  network: solanaNetworkSchema,
-  programIds: external_exports.array(solanaAddressSchema).max(512),
-  slot: unsignedDecimalSchema2,
-  sources: external_exports.array(solanaTransactionSourceSchema).min(1).max(8),
-  tokenBalanceChanges: external_exports.array(solanaTokenBalanceChangeSchema).max(1024),
-  transactionId: solanaSignatureSchema
-}).strict();
-var solanaDataAdapterDiagnosticCodes = [
-  "balance_length_mismatch",
-  "http_error",
-  "invalid_transaction_payload",
-  "provider_conflict",
-  "request_aborted",
-  "request_timeout",
-  "response_too_large",
-  "rpc_error",
-  "transaction_not_found",
-  "transport_error"
-];
-var solanaDataAdapterDiagnosticSchema = external_exports.object({
-  code: external_exports.enum(solanaDataAdapterDiagnosticCodes),
-  httpStatus: external_exports.number().int().min(100).max(599).optional(),
-  providerId: solanaProviderIdSchema,
-  retryable: external_exports.boolean()
-}).strict();
-var solanaDataAdapterResultSchema = external_exports.object({
-  diagnostics: external_exports.array(solanaDataAdapterDiagnosticSchema).max(100),
-  snapshot: solanaTransactionSnapshotSchema.optional(),
-  status: external_exports.enum(["insufficient_data", "partial", "success"])
-}).strict();
-
 // packages/shared/src/domain-contract.ts
 var evidenceKinds = [
   "document",
@@ -15951,8 +15829,8 @@ var BUILT_IN_EVM_NETWORKS = [
     name: "Stable Chain"
   }
 ];
-var SOLANA_MAINNET_NETWORK2 = "solana:mainnet";
-var SOLANA_MAINNET_ALIASES = /* @__PURE__ */ new Set(["sol", "solana", SOLANA_MAINNET_NETWORK2]);
+var SOLANA_MAINNET_NETWORK = "solana:mainnet";
+var SOLANA_MAINNET_ALIASES = /* @__PURE__ */ new Set(["sol", "solana", SOLANA_MAINNET_NETWORK]);
 function findBuiltInEvmNetworkByAlias(value) {
   const normalized = value.toLowerCase();
   return BUILT_IN_EVM_NETWORKS.find((network) => network.aliases.includes(normalized));
@@ -15969,9 +15847,55 @@ function normalizePublicNetworkIdentifier(value) {
   const builtIn = findBuiltInEvmNetworkByAlias(normalized);
   if (builtIn !== void 0) return builtIn.canonicalNetwork;
   if (/^eip155:[1-9]\d*$/u.test(normalized)) return normalized;
-  if (SOLANA_MAINNET_ALIASES.has(normalized)) return SOLANA_MAINNET_NETWORK2;
+  if (SOLANA_MAINNET_ALIASES.has(normalized)) return SOLANA_MAINNET_NETWORK;
   return void 0;
 }
+
+// packages/xxyy-transaction-diagnosis-runtime/src/solana-browser-contracts.ts
+var solanaAddressSchema = external_exports.string().trim().min(32).max(64).regex(/^[1-9A-HJ-NP-Za-km-z]+$/u, "Expected a base58 Solana address.");
+var solanaSignatureSchema = external_exports.string().trim().min(64).max(128).regex(/^[1-9A-HJ-NP-Za-km-z]+$/u, "Expected a base58 Solana transaction signature.");
+var decimalIntegerSchema = external_exports.string().regex(/^-?(?:0|[1-9]\d*)$/u);
+var unsignedDecimalSchema2 = external_exports.string().regex(/^(?:0|[1-9]\d*)$/u);
+var fingerprintSchema = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/u);
+var solanaTransactionSnapshotSchema = external_exports.object({
+  accountKeys: external_exports.array(solanaAddressSchema).max(512),
+  blockTime: external_exports.string().datetime({ offset: true }).optional(),
+  computeUnitsConsumed: unsignedDecimalSchema2.optional(),
+  executionStatus: external_exports.enum(["reverted", "success", "unknown"]),
+  feeLamports: unsignedDecimalSchema2.optional(),
+  logCount: external_exports.number().int().nonnegative().max(2048),
+  nativeBalanceChanges: external_exports.array(
+    external_exports.object({
+      account: solanaAddressSchema,
+      accountIndex: external_exports.number().int().nonnegative().max(511),
+      deltaLamports: decimalIntegerSchema
+    }).strict()
+  ).max(512),
+  network: external_exports.literal("solana:mainnet"),
+  programIds: external_exports.array(solanaAddressSchema).max(512),
+  slot: unsignedDecimalSchema2,
+  sources: external_exports.array(
+    external_exports.object({
+      id: external_exports.string().trim().min(1).max(64),
+      kind: external_exports.literal("explorer_browser"),
+      observedAt: external_exports.string().datetime({ offset: true }),
+      payloadHash: fingerprintSchema,
+      provenanceUrl: external_exports.string().url()
+    }).strict()
+  ).min(1).max(8),
+  tokenBalanceChanges: external_exports.array(
+    external_exports.object({
+      account: solanaAddressSchema.optional(),
+      accountIndex: external_exports.number().int().nonnegative().max(511),
+      decimals: external_exports.number().int().nonnegative().max(255),
+      deltaRaw: decimalIntegerSchema,
+      mint: solanaAddressSchema,
+      owner: solanaAddressSchema.optional(),
+      programId: solanaAddressSchema.optional()
+    }).strict()
+  ).max(1024),
+  transactionId: solanaSignatureSchema
+}).strict();
 
 // packages/xxyy-transaction-diagnosis-runtime/src/public-transaction-contracts.ts
 var publicChainNetworkSchema = external_exports.string().trim().min(2).max(96).refine(
@@ -16640,12 +16564,12 @@ function resolveExplorerUrl(reference, explicitNetwork) {
     if (cluster !== void 0 && cluster !== "mainnet" && cluster !== "mainnet-beta") {
       throw invalidReference();
     }
-    assertNetworkMatch(explicitNetwork, SOLANA_MAINNET_NETWORK2);
+    assertNetworkMatch(explicitNetwork, SOLANA_MAINNET_NETWORK);
     const transactionId = parseSolanaTransactionId(parts[1]);
     return {
       explorerUrl: `https://solscan.io/tx/${transactionId}`,
       family: "solana",
-      network: SOLANA_MAINNET_NETWORK2,
+      network: SOLANA_MAINNET_NETWORK,
       transactionId
     };
   }
@@ -16664,7 +16588,7 @@ function resolveRawTransactionId(reference, explicitNetwork) {
       transactionId
     };
   }
-  if (explicitNetwork === SOLANA_MAINNET_NETWORK2) {
+  if (explicitNetwork === SOLANA_MAINNET_NETWORK) {
     const transactionId = parseSolanaTransactionId(reference);
     return {
       explorerUrl: `https://solscan.io/tx/${transactionId}`,

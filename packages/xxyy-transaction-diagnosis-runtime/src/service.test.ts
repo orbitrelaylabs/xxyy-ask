@@ -34,7 +34,7 @@ function transactionOutput() {
       sources: [
         {
           id: 'solana_primary',
-          kind: 'rpc' as const,
+          kind: 'explorer_browser' as const,
           observedAt: '2026-08-03T01:02:04.000Z',
           payloadHash: `sha256:${'a'.repeat(64)}`,
           provenanceUrl: 'https://rpc.example.invalid',

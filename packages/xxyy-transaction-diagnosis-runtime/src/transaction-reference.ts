@@ -1,4 +1,3 @@
-import { solanaSignatureSchema } from '@xxyy/solana-data-adapter';
 import { evmHashSchema } from '@xxyy/transaction-analysis-core';
 
 import type { GetTransactionInput } from './public-transaction-contracts.js';
@@ -8,6 +7,7 @@ import {
   findBuiltInEvmNetworkByExplorerHost,
   normalizePublicNetworkIdentifier,
 } from './network-profiles.js';
+import { solanaSignatureSchema } from './solana-browser-contracts.js';
 
 export class PublicTransactionReferenceError extends Error {
   readonly code = 'invalid_reference';

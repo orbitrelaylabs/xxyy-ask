@@ -43,7 +43,6 @@
 - `packages/xxyy-market-data-adapter`：固定访问 `https://www.xxyy.io` 的只读成交/多池适配器；保留受限时间窗内的周边成交，完整哈希和完整 maker 冲突时失败关闭，不接受调用方 endpoint。
 - `packages/xxyy-transaction-diagnosis-runtime`：固定 Explorer/XXYY 浏览器查询、公开交易解析和隔离 Chrome 截图提供器；Web/Telegram 直接调用，交易 Skill CLI 由它打包生成。
 - `packages/transaction-analysis-core`：浏览器 EVM 交易快照使用的无网络领域分析。
-- `packages/solana-data-adapter`：浏览器页面内容的 Solana 交易归一化工具；公开运行时不调用 RPC。
 - `apps/cli`：`rag:ingest`、`rag:sync:x`、`rag:migrate`、`rag:stats`、`rag:evaluate`、`rag:ask`。
 - `apps/api`：HTTP API 和 Web UI 服务入口。
 - `apps/telegram-bot`：Telegram Bot long polling 与独立群知识整理 Worker；群消息实时写入本地 PostgreSQL 审计缓冲并入持久化队列，群内保持静默，Worker 自动生成待审候选，管理员批准后才进入发布队列，Bot 和整理 Worker 都不执行 pgvector 发布。
