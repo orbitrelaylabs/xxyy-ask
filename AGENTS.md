@@ -39,14 +39,15 @@
 - `packages/rag-core`：意图分类、检索接口、pgvector store、LLM answer provider、边界回复和配置错误类型。
 - `packages/agent-core`：LangGraph 客服 Agent runtime、planner、tool registry、Capability Registry，以及内部产品能力和两个公开交易 Skill 的显式授权 bridge。
 - `packages/product-support-runtime`：产品知识检索的直接 runtime 与输入输出契约。
-- `@orbitrelaylabs/xxyy-transaction-agent-kit`：固定提交依赖的外部交易能力包；包含 EVM/Solana 浏览器查询、XXYY 成交/多池适配、小池和 Sandwich 判断、截图、SDK、JSON CLI 与两个 Skills。实现只在独立仓库维护。
+- `packages/transaction-skill-bridge`：只执行固定提交依赖中的两个 Skill JSON CLI，校验输入输出、限制超时和输出大小，并只向子进程传递浏览器/XXYY 配置环境变量；不暴露浏览器内部 API 或模型/数据库密钥。
+- `@orbitrelaylabs/xxyy-transaction-skills`：固定提交依赖的外部 Skill 仓库；包含自包含的 EVM/Solana 浏览器查询与 XXYY 成交/池子/Sandwich/截图 JSON CLI，不提供 SDK。
 - `apps/cli`：`rag:ingest`、`rag:sync:x`、`rag:migrate`、`rag:stats`、`rag:evaluate`、`rag:ask`。
 - `apps/api`：HTTP API 和 Web UI 服务入口。
 - `apps/telegram-bot`：Telegram Bot long polling 与独立群知识整理 Worker；群消息实时写入本地 PostgreSQL 审计缓冲并入持久化队列，群内保持静默，Worker 自动生成待审候选，管理员批准后才进入发布队列，Bot 和整理 Worker 都不执行 pgvector 发布。
 - `apps/web`：静态聊天 UI。
 - `scripts/rag-refresh.mjs`：供外部 scheduler 调用的固定知识刷新 Job；提供 dry-run、同工作区锁和脱敏回执，并在最后自动对账、重试和执行群聊知识发布，不嵌入 API/Telegram 进程。
-- 外部 Agent Kit 的 `onchain-transaction-inspector`：通用 EVM / Solana 单交易查询与证据解释 Skill；默认禁止隐式调用。
-- 外部 Agent Kit 的 `xxyy-transaction-diagnosis`：单笔公开交易的 XXYY 成交、池子与 Sandwich 证据诊断；默认禁止隐式调用。
+- 外部仓库的 `onchain-transaction-inspector`：通用 EVM / Solana 单交易查询与证据解释 Skill；默认禁止隐式调用。
+- 外部仓库的 `xxyy-transaction-diagnosis`：单笔公开交易的 XXYY 成交、池子与 Sandwich 证据诊断；默认禁止隐式调用。
 - `docs/product-features`：知识库种子文档和静态资产。
 
 ## 运行模式

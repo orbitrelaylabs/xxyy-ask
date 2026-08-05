@@ -25,6 +25,9 @@
       "path": "./packages/product-support-runtime"
     },
     {
+      "path": "./packages/transaction-skill-bridge"
+    },
+    {
       "path": "./apps/cli"
     },
     {

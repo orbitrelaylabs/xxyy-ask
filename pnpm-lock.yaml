@@ -11,9 +11,9 @@ importers:
 
   .:
     dependencies:
-      '@orbitrelaylabs/xxyy-transaction-agent-kit':
-        specifier: github:orbitrelaylabs/xxyy-transaction-agent-kit#d5a4e073b587fa7cf74031fc17860d9eeea5fed2
-        version: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2
+      '@orbitrelaylabs/xxyy-transaction-skills':
+        specifier: github:orbitrelaylabs/xxyy-transaction-skills#de6ce15ba1d3dbb40a8ce71f255a49dda5ed27df
+        version: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-skills/tar.gz/de6ce15ba1d3dbb40a8ce71f255a49dda5ed27df
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -36,9 +36,6 @@ importers:
 
   apps/api:
     dependencies:
-      '@orbitrelaylabs/xxyy-transaction-agent-kit':
-        specifier: github:orbitrelaylabs/xxyy-transaction-agent-kit#d5a4e073b587fa7cf74031fc17860d9eeea5fed2
-        version: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2
       '@xxyy/agent-core':
         specifier: workspace:*
         version: link:../../packages/agent-core
@@ -51,6 +48,9 @@ importers:
       '@xxyy/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@xxyy/transaction-skill-bridge':
+        specifier: workspace:*
+        version: link:../../packages/transaction-skill-bridge
       '@xxyy/web':
         specifier: workspace:*
         version: link:../web
@@ -75,9 +75,6 @@ importers:
 
   apps/telegram-bot:
     dependencies:
-      '@orbitrelaylabs/xxyy-transaction-agent-kit':
-        specifier: github:orbitrelaylabs/xxyy-transaction-agent-kit#d5a4e073b587fa7cf74031fc17860d9eeea5fed2
-        version: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2
       '@xxyy/agent-core':
         specifier: workspace:*
         version: link:../../packages/agent-core
@@ -90,6 +87,9 @@ importers:
       '@xxyy/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@xxyy/transaction-skill-bridge':
+        specifier: workspace:*
+        version: link:../../packages/transaction-skill-bridge
 
   apps/web:
     dependencies:
@@ -124,9 +124,6 @@ importers:
       '@langchain/langgraph':
         specifier: ^1.4.4
         version: 1.4.4(@langchain/core@1.2.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod-to-json-schema@3.25.2(zod@4.4.3))(zod@4.4.3)
-      '@orbitrelaylabs/xxyy-transaction-agent-kit':
-        specifier: github:orbitrelaylabs/xxyy-transaction-agent-kit#d5a4e073b587fa7cf74031fc17860d9eeea5fed2
-        version: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2
       '@xxyy/product-support-runtime':
         specifier: workspace:*
         version: link:../product-support-runtime
@@ -136,6 +133,9 @@ importers:
       '@xxyy/shared':
         specifier: workspace:*
         version: link:../shared
+      '@xxyy/transaction-skill-bridge':
+        specifier: workspace:*
+        version: link:../transaction-skill-bridge
       zod:
         specifier: ^4.0.0
         version: 4.4.3
@@ -191,6 +191,15 @@ importers:
 
   packages/shared:
     dependencies:
+      zod:
+        specifier: ^4.0.0
+        version: 4.4.3
+
+  packages/transaction-skill-bridge:
+    dependencies:
+      '@orbitrelaylabs/xxyy-transaction-skills':
+        specifier: github:orbitrelaylabs/xxyy-transaction-skills#de6ce15ba1d3dbb40a8ce71f255a49dda5ed27df
+        version: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-skills/tar.gz/de6ce15ba1d3dbb40a8ce71f255a49dda5ed27df
       zod:
         specifier: ^4.0.0
         version: 4.4.3
@@ -433,8 +442,8 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
-  '@orbitrelaylabs/xxyy-transaction-agent-kit@https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2':
-    resolution: {gitHosted: true, integrity: sha512-YSAkpup2Tvb+1puptsT1SV2kqoE41TVjRtwMRvLi9tMoYQyug1I7haNU0VLKMmUSw92iowIy8/QkcDlRb4MIaQ==, tarball: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2}
+  '@orbitrelaylabs/xxyy-transaction-skills@https://codeload.github.com/orbitrelaylabs/xxyy-transaction-skills/tar.gz/de6ce15ba1d3dbb40a8ce71f255a49dda5ed27df':
+    resolution: {gitHosted: true, integrity: sha512-6H9ZGgIDkKuEKdT9yp5SqGINjhi/6OXMmXk5/iDTBEXaj4L3LkjqwKcPYPchMFm00gGm0CAuTd4NRJkqpmvdXQ==, tarball: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-skills/tar.gz/de6ce15ba1d3dbb40a8ce71f255a49dda5ed27df}
     version: 0.1.0
     engines: {node: '>=24.16.0'}
     hasBin: true
@@ -1242,7 +1251,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.3
     optional: true
 
-  '@orbitrelaylabs/xxyy-transaction-agent-kit@https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2':
+  '@orbitrelaylabs/xxyy-transaction-skills@https://codeload.github.com/orbitrelaylabs/xxyy-transaction-skills/tar.gz/de6ce15ba1d3dbb40a8ce71f255a49dda5ed27df':
     dependencies:
       zod: 4.4.3
 

@@ -12,15 +12,11 @@ import {
   type AnswerQualityRolloutObservation,
   type AnswerQualityRolloutObserver,
 } from '@xxyy/agent-core';
-import { createXxyyMarketDataClient } from '@orbitrelaylabs/xxyy-transaction-agent-kit';
 import {
-  createChromeXxyyScreenshotProvider,
-  createBrowserChainAnalysisClient,
-  createConfiguredCanonicalPoolResolver,
-  createEgoBrowserPageEvaluator,
-  createXxyyTransactionDiagnosisService,
+  createTransactionSkillDiagnosisHandler,
+  createTransactionSkillPublicClient,
   resolveEgoBrowserExecutable,
-} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
+} from '@xxyy/transaction-skill-bridge';
 import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxyy/knowledge';
 import {
   createOpenAiAnswerProvider,
@@ -1647,22 +1643,15 @@ function createCachedChatServiceLoader(
         throw error;
       }
     });
-    const publicTransactionClient = await createOptionalBrowserChainAnalysisClient(env);
-    const screenshotProvider = createOptionalXxyyScreenshotProvider(env);
-    const canonicalPoolResolver =
-      env.XXYY_CANONICAL_POOL_CONFIG_JSON?.trim() === undefined ||
-      env.XXYY_CANONICAL_POOL_CONFIG_JSON.trim().length === 0
-        ? undefined
-        : createConfiguredCanonicalPoolResolver(env.XXYY_CANONICAL_POOL_CONFIG_JSON);
+    const publicTransactionClient = await createOptionalTransactionSkillClient(env);
     const xxyyTransactionDiagnosis =
       publicTransactionClient === undefined
         ? undefined
-        : createXxyyTransactionDiagnosisService({
-            chainAnalysis: publicTransactionClient,
-            ...(canonicalPoolResolver === undefined ? {} : { canonicalPoolResolver }),
-            marketData: createXxyyMarketDataClient(),
-            poolPolicy: loadXxyyPoolPolicy(env),
-            ...(screenshotProvider === undefined ? {} : { screenshotProvider }),
+        : createTransactionSkillDiagnosisHandler({
+            env,
+            ...(env.XXYY_SCREENSHOT_DIRECTORY?.trim()
+              ? { outputDirectory: env.XXYY_SCREENSHOT_DIRECTORY.trim() }
+              : {}),
           });
     cachedService = createCustomerAgentChatService({
       answerQualityRollout: loadAnswerQualityRolloutConfig(env),
@@ -1698,83 +1687,11 @@ function createCachedChatServiceLoader(
   };
 }
 
-function loadXxyyPoolPolicy(env: ApiEnv) {
-  return {
-    maxSmallPoolLiquidityUsd: parseNonnegativeDecimal(
-      env.XXYY_SMALL_POOL_MAX_LIQUIDITY_USD,
-      '10000',
-      'XXYY_SMALL_POOL_MAX_LIQUIDITY_USD',
-    ),
-    maxSmallPoolRelativeLiquidityPpm: parseBoundedInteger(
-      env.XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM,
-      100_000,
-      0,
-      1_000_000,
-      'XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM',
-    ),
-    version: '1.0.0',
-  };
-}
-
-function createOptionalXxyyScreenshotProvider(env: ApiEnv) {
-  const profileDirectory = env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim();
-  const values = [
-    env.XXYY_SCREENSHOT_CHROME_EXECUTABLE?.trim(),
-    env.XXYY_SCREENSHOT_DIRECTORY?.trim(),
-  ];
-  if (values.every((value) => value === undefined || value.length === 0)) return undefined;
-  if (
-    values.some((value) => value === undefined || value.length === 0) ||
-    profileDirectory === undefined ||
-    profileDirectory.length === 0
-  ) {
-    throw new TypeError(
-      'XXYY screenshot capture requires Chrome executable and artifact directory together.',
-    );
-  }
-  return createChromeXxyyScreenshotProvider({
-    artifactDirectory: values[1]!,
-    chromeExecutable: values[0]!,
-    profileDirectory: path.join(profileDirectory, 'screenshots'),
-  });
-}
-
-function parseNonnegativeDecimal(
-  value: string | undefined,
-  fallback: string,
-  label: string,
-): string {
-  const resolved = value?.trim() || fallback;
-  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(resolved)) {
-    throw new TypeError(`${label} must be a nonnegative decimal.`);
-  }
-  return resolved;
-}
-
-function parseBoundedInteger(
-  value: string | undefined,
-  fallback: number,
-  minimum: number,
-  maximum: number,
-  label: string,
-): number {
-  const resolved = value === undefined || value.trim() === '' ? fallback : Number(value);
-  if (!Number.isSafeInteger(resolved) || resolved < minimum || resolved > maximum) {
-    throw new TypeError(`${label} must be an integer from ${minimum} to ${maximum}.`);
-  }
-  return resolved;
-}
-
-async function createOptionalBrowserChainAnalysisClient(env: ApiEnv) {
+async function createOptionalTransactionSkillClient(env: ApiEnv) {
   const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH ?? process.env.PATH);
   return egoBrowserExecutable === undefined
     ? undefined
-    : createBrowserChainAnalysisClient({
-        pageEvaluator: createEgoBrowserPageEvaluator({
-          command: egoBrowserExecutable,
-          taskName: 'xxyy-api-explorer',
-        }),
-      });
+    : createTransactionSkillPublicClient({ env });
 }
 
 function createCachedFeedbackRecorder(config: ReturnType<typeof loadRagConfig>): FeedbackRecorder {

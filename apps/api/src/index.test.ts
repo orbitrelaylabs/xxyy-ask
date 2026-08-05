@@ -1506,9 +1506,9 @@ describe('createRequestHandler', () => {
       close: vi.fn(() => Promise.resolve()),
       getTransaction: vi.fn(),
     };
-    const createBrowserChainAnalysisClient = vi.fn(() => publicTransactionClient);
-    const pageEvaluator = vi.fn();
-    const createEgoBrowserPageEvaluator = vi.fn(() => pageEvaluator);
+    const xxyyTransactionDiagnosis = { diagnoseXxyyTransaction: vi.fn() };
+    const createTransactionSkillPublicClient = vi.fn(() => publicTransactionClient);
+    const createTransactionSkillDiagnosisHandler = vi.fn(() => xxyyTransactionDiagnosis);
     const resolveEgoBrowserExecutable = vi.fn(() => Promise.resolve('/usr/local/bin/ego-browser'));
 
     vi.doMock('@xxyy/agent-core', async (importOriginal) => {
@@ -1525,12 +1525,12 @@ describe('createRequestHandler', () => {
         createOpenAiEmbeddingProvider: vi.fn(() => ({ embedTexts: vi.fn() })),
       };
     });
-    vi.doMock('@orbitrelaylabs/xxyy-transaction-agent-kit/runtime', async (importOriginal) => {
+    vi.doMock('@xxyy/transaction-skill-bridge', async (importOriginal) => {
       const actual = await importOriginal<Record<string, unknown>>();
       return {
         ...actual,
-        createBrowserChainAnalysisClient,
-        createEgoBrowserPageEvaluator,
+        createTransactionSkillDiagnosisHandler,
+        createTransactionSkillPublicClient,
         resolveEgoBrowserExecutable,
       };
     });
@@ -1602,15 +1602,10 @@ describe('createRequestHandler', () => {
         channel: 'web',
         principal: 'anonymous',
       });
-      expect(serviceOptions.xxyyTransactionDiagnosis).toBeDefined();
+      expect(serviceOptions.xxyyTransactionDiagnosis).toBe(xxyyTransactionDiagnosis);
       expect(resolveEgoBrowserExecutable).toHaveBeenCalledWith(process.env.PATH);
-      expect(createEgoBrowserPageEvaluator).toHaveBeenCalledWith({
-        command: '/usr/local/bin/ego-browser',
-        taskName: 'xxyy-api-explorer',
-      });
-      expect(createBrowserChainAnalysisClient).toHaveBeenCalledWith({
-        pageEvaluator,
-      });
+      expect(createTransactionSkillPublicClient).toHaveBeenCalledTimes(1);
+      expect(createTransactionSkillDiagnosisHandler).toHaveBeenCalledTimes(1);
       expect(serviceOptions.retriever).toBe(retriever);
       expect(typeof serviceOptions.answerProvider.answer).toBe('function');
       expect(createLazyRetriever).toHaveBeenCalledTimes(1);
@@ -1623,7 +1618,7 @@ describe('createRequestHandler', () => {
       vi.doUnmock('@xxyy/agent-core');
       vi.doUnmock('@xxyy/knowledge');
       vi.doUnmock('@xxyy/rag-core');
-      vi.doUnmock('@orbitrelaylabs/xxyy-transaction-agent-kit/runtime');
+      vi.doUnmock('@xxyy/transaction-skill-bridge');
     }
   });
 

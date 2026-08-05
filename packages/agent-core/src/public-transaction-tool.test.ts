@@ -6,7 +6,7 @@ import {
   ExplorerBrowserVerificationError,
   getTransactionOutputSchema,
   type GetTransactionOutput,
-} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
+} from '@xxyy/transaction-skill-bridge';
 
 import { createPublicChainAnalysisCapabilityRegistry } from './chain-analysis-capabilities.js';
 import {

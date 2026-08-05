@@ -16,7 +16,7 @@ Web / Telegram / HTTP API / CLI
  Postgres + pgvector   Explorer pages  XXYY pages/screenshots
 ```
 
-这是 pnpm workspace monorepo。应用入口位于 `apps/`，客服共享实现位于 `packages/`。可分发交易 SDK、CLI 和 Skills 位于独立的 [xxyy-transaction-agent-kit](https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit)。
+这是 pnpm workspace monorepo。应用入口位于 `apps/`，客服共享实现位于 `packages/`。可分发交易 CLI 和 Skills 位于独立的 [xxyy-transaction-skills](https://github.com/orbitrelaylabs/xxyy-transaction-skills)。
 
 ## 产品问答
 
@@ -26,14 +26,14 @@ Web / Telegram / HTTP API / CLI
 
 ## 公开交易查询
 
-外部依赖 `@orbitrelaylabs/xxyy-transaction-agent-kit` 管理统一 ego-browser Explorer 路由、XXYY 页面定位、数据等待和隔离 Chrome 截图。它组合：
+外部依赖 `@orbitrelaylabs/xxyy-transaction-skills` 的两个自包含 bundle 管理统一 ego-browser Explorer 路由、XXYY 页面定位、数据等待和隔离 Chrome 截图。其维护源码组合：
 
 - `transaction-analysis-core`：EVM 浏览器快照的确定性领域投影；
 - runtime-local Solana contracts：Solana 浏览器页面数据校验；
 - `xxyy-market-data-adapter`：固定 XXYY 页面成交与多池数据；
 - `xxyy-transaction-diagnosis-core`：池子大小、canonical 匹配和结构性 Sandwich 四态结论。
 
-两个交易 Skill 和 JSON CLI 在独立仓库构建并发布，无需启动常驻服务。本仓库通过固定提交依赖其 runtime，不接受 endpoint，不调用 RPC，不读取账户私有数据。
+两个交易 Skill 和 JSON CLI 在独立仓库构建，无需启动常驻服务，也不暴露 SDK。`packages/transaction-skill-bridge` 只执行固定路径脚本、校验 JSON、限制超时与输出大小，并用环境变量 allowlist 隔离模型与数据库密钥；它不接受 endpoint，不调用 RPC，不读取账户私有数据。
 
 ## 授权与失败模式
 

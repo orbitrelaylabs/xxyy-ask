@@ -4,11 +4,11 @@
 
 ## 当前能力
 
-| 能力                            | 应用内实现                                     | 外部接入                        | 数据来源                   |
-| ------------------------------- | ---------------------------------------------- | ------------------------------- | -------------------------- |
-| Product Support                 | `product-support-runtime` 直接调用 Product RAG | 不提供独立 Skill                | 正式产品知识库             |
-| `onchain-transaction-inspector` | 外部 Agent Kit 浏览器客户端                    | 独立仓库 SDK / JSON CLI / Skill | 固定 Explorer 页面         |
-| `xxyy-transaction-diagnosis`    | 外部 Agent Kit 交易诊断 runtime                | 独立仓库 SDK / JSON CLI / Skill | 固定 Explorer 与 XXYY 页面 |
+| 能力                            | 应用内实现                                     | 外部接入                  | 数据来源                   |
+| ------------------------------- | ---------------------------------------------- | ------------------------- | -------------------------- |
+| Product Support                 | `product-support-runtime` 直接调用 Product RAG | 不提供独立 Skill          | 正式产品知识库             |
+| `onchain-transaction-inspector` | 固定 Skill CLI 子进程桥接                      | 独立仓库 JSON CLI / Skill | 固定 Explorer 页面         |
+| `xxyy-transaction-diagnosis`    | 固定 Skill CLI 子进程桥接                      | 独立仓库 JSON CLI / Skill | 固定 Explorer 与 XXYY 页面 |
 
 ## 调用原则
 

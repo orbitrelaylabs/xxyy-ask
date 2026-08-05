@@ -6,7 +6,7 @@
 - Web、HTTP API、Telegram Bot、流式回答、引用、反馈和管理后台。
 - 官方产品文档、媒体、X / Twitter 更新的同步、审计、摄取和知识治理。
 - Product Support capability：当前 Agent 在应用内直接调用 Product RAG，不维护独立对外 Skill 包装。
-- 独立 [xxyy-transaction-agent-kit](https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit) 提供 `onchain-transaction-inspector`、`xxyy-transaction-diagnosis`、SDK 和 JSON CLI；本仓库固定版本集成。
+- 独立 [xxyy-transaction-skills](https://github.com/orbitrelaylabs/xxyy-transaction-skills) 提供 `onchain-transaction-inspector`、`xxyy-transaction-diagnosis` 和自包含 JSON CLI；不提供 SDK，本仓库通过固定版本子进程桥接集成。
 - Capability Registry：固定 manifest/grant、schema、超时、输出限制和脱敏审计；Skill 目录不会自动注册 Planner 工具。
 - 交易运行面不要求单独服务、不调用 RPC，也不接受调用方 endpoint。
 

@@ -6,7 +6,7 @@ import {
 import type {
   PublicTransactionClient,
   XxyyTransactionDiagnosisHandler,
-} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
+} from '@xxyy/transaction-skill-bridge';
 import { createOpenAiEmbeddingProvider } from '@xxyy/knowledge';
 import type {
   ChatHistoryMessage,
