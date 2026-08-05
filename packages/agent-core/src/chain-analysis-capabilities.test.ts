@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createPublicTransactionClientStub,
   type GetTransactionOutput,
-} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
+} from '@xxyy/transaction-skill-bridge';
 import { createInMemoryQualityTracer } from '@xxyy/rag-core';
 
 import { CapabilityPolicyDeniedError } from './capability-registry.js';

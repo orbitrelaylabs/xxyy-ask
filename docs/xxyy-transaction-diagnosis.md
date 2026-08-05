@@ -4,16 +4,16 @@
 
 该能力处理用户明确提供的一笔公开交易，回答两个问题：是否具备 Sandwich 证据，以及实际成交池是否匹配已声明 canonical pool、是否属于版本化阈值下的小流动性池。它不查询钱包历史、余额、账户或私有订单，不推断地址真实归属，也不提供交易建议。
 
-基础公开交易查询与 XXYY 产品诊断保持解耦。XXYY 页面/API、成交行交叉验证、截图、SDK、JSON CLI 和 Skills 位于独立仓库 [orbitrelaylabs/xxyy-transaction-agent-kit](https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit)。本仓库通过固定提交依赖其公开 runtime。
+基础公开交易查询与 XXYY 产品诊断保持解耦。XXYY 页面/API、成交行交叉验证、截图、JSON CLI 和 Skills 位于独立仓库 [orbitrelaylabs/xxyy-transaction-skills](https://github.com/orbitrelaylabs/xxyy-transaction-skills)。该仓库不提供 SDK；本仓库通过固定提交依赖和受限 JSON CLI 子进程桥接集成。
 
 ## 包边界
 
-- `@orbitrelaylabs/xxyy-transaction-agent-kit/core`：无网络 I/O；执行精确十进制流动性比较和 Sandwich 四态投影。
-- Agent Kit market-data 模块：只访问固定 `https://www.xxyy.io/api/data/search/v3` 和 `/api/data/trades/search`；输入不接受 endpoint、任意 HTTP 方法或任意页面。
-- `@orbitrelaylabs/xxyy-transaction-agent-kit/runtime`：组合固定 Explorer 浏览器证据、XXYY 市场适配器、判定 core 和截图提供器。
-- Agent Kit `skills/xxyy-transaction-diagnosis`：禁止隐式调用的自包含 Skill；`scripts/diagnose.mjs` 是已打包 JSON CLI。
+- 独立仓库维护源码中的 diagnosis core：无网络 I/O；执行精确十进制流动性比较和 Sandwich 四态投影。
+- 独立仓库维护源码中的 market-data 模块：只访问固定 `https://www.xxyy.io/api/data/search/v3` 和 `/api/data/trades/search`；输入不接受 endpoint、任意 HTTP 方法或任意页面。
+- `skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs`：组合固定 Explorer 浏览器证据、XXYY 市场适配器、判定 core 和截图提供器的自包含 JSON CLI。
+- `packages/transaction-skill-bridge`：本仓库内部固定路径调用、输入输出校验、取消、超时与输出上限边界。
 
-Web 和 Telegram 在本机发现 `ego-browser` 后注册固定 Explorer 浏览器证据模式，不存在 RPC 回退。两者分别为固定 `web/anonymous`、`telegram/service` 创建 `xxyy.skill.diagnose_transaction` 精确授权，并直接调用同一 runtime。
+Web 和 Telegram 在本机发现 `ego-browser` 后注册固定 Explorer 浏览器证据模式，不存在 RPC 回退。两者分别为固定 `web/anonymous`、`telegram/service` 创建 `xxyy.skill.diagnose_transaction` 精确授权，并通过同一 CLI bridge 调用固定 Skill bundle。
 
 浏览器模式只打开固定 Explorer 页面并读取页面自身的受限响应，整体交易状态固定为 `partial`。当前覆盖 Solana、Ethereum、BNB Smart Chain、Base、Robinhood Chain 和 Stable Chain；六条链全部通过本机 `ego-browser` 复用同一用户验证状态，不再按站点分流到隔离 Chrome。代码只根据已校验交易哈希构造固定 allowlist 页面/API URL，不接受任意 chain ID、用户 endpoint 或页面脚本。EVM 深度 trace、池状态、反事实损失与攻击者收益不在公开路径采集，因此不会给出 `confirmed`。
 
@@ -59,7 +59,7 @@ EVM 或 Solana 的 XXYY 周边行若在时间上包围目标、解析到同区�
 - 小池要求实际流动性同时低于绝对阈值和相对主导池 PPM 阈值；默认 policy v1.0.0 为 `10000 USD` 与 `100000 ppm`，可由环境变量覆盖；
 - 缺 canonical 声明返回 `unknown`，缺流动性返回 `liquidityClass=unknown`。
 
-canonical 声明通过启动时 `XXYY_CANONICAL_POOL_CONFIG_JSON={"entries":[...]}` 注入，每项固定 `chain`、`tokenAddress` 与 `pairAddress`；同一 chain/token 重复声明会使启动失败。
+canonical 声明通过 `XXYY_CANONICAL_POOL_CONFIG_JSON={"entries":[...]}` 注入，每项固定 `chain`、`tokenAddress` 与 `pairAddress`；同一 chain/token 重复声明会使该次诊断失败关闭。
 
 ## 截图证据
 
@@ -71,7 +71,7 @@ XXYY 历史成交请求固定带页面使用的 `X-CHAIN`、`X-LANGUAGE` 与 `X-
 
 截图保存前还会检查 TradingView iframe 已返回有效 OHLC 数值，并从原生 K 线 canvas 中检测到实际行情颜色像素；条件必须连续三次稳定。首次超时会强制刷新固定 XXYY 页面，再完整重做历史筛选、目标行居中和 K 线校验；第二次仍未就绪时返回截图 unavailable，不交付空白 K 线图片。
 
-截图默认关闭。启用时配置 Chrome 和一个隔离目录：
+独立 Skill CLI 默认要求截图；本仓库只有在配置可交付目录时启用截图，否则显式传递 `--screenshot disabled` 并返回 `not_configured`。启用时配置 Chrome 和一个隔离目录：
 
 ```bash
 XXYY_SCREENSHOT_CHROME_EXECUTABLE=/absolute/path/to/chrome

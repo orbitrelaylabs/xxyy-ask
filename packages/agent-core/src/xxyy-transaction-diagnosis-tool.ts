@@ -4,7 +4,7 @@ import {
   diagnoseXxyyTransactionOutputSchema,
   findBuiltInEvmNetworkByChainId,
   type DiagnoseXxyyTransactionOutput,
-} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
+} from '@xxyy/transaction-skill-bridge';
 
 import type { CapabilityRegistry } from './capability-registry.js';
 import type { PublicChainAnalysisCaller } from './chain-analysis-capabilities.js';
@@ -102,7 +102,7 @@ export function formatXxyyTransactionDiagnosis(
         `候选池（${candidates.length} 个，最多展示 5 个）：${candidates
           .slice(0, 5)
           .map(
-            (candidate) =>
+            (candidate: { liquidityUsd?: string; pairAddress: string }) =>
               `${candidate.pairAddress}${candidate.liquidityUsd === undefined ? '' : ` / $${candidate.liquidityUsd}`}`,
           )
           .join('；')}`,
@@ -341,14 +341,18 @@ function transactionFactLines(transaction: DiagnoseXxyyTransactionOutput['transa
   const fact = transaction.analysis;
   if (fact === undefined) return ['Solana 交易详情：当前 Provider 未返回可验证快照。'];
   return [
-    ...(fact.sources.some((source) => source.kind === 'explorer_browser')
+    ...(fact.sources.some((source: { kind: string }) => source.kind === 'explorer_browser')
       ? ['交易证据源：固定 Explorer 浏览器页面（部分证据）']
       : []),
     `执行状态：${fact.executionStatus}`,
     `Slot：${fact.slot}`,
     ...(fact.blockTime === undefined ? [] : [`区块时间：${fact.blockTime}`]),
     ...(fact.feeLamports === undefined ? [] : [`手续费：${fact.feeLamports} lamports`]),
-    `涉及 Token mint：${[...new Set(fact.tokenBalanceChanges.map((item) => item.mint))].join('、') || '未解析'}`,
+    `涉及 Token mint：${
+      [...new Set(fact.tokenBalanceChanges.map((item: { mint: string }) => item.mint))].join(
+        '、',
+      ) || '未解析'
+    }`,
   ];
 }
 
@@ -367,8 +371,10 @@ function formatEvmWei(value: string, chainId: string): string {
 export function extractEvmTokenAddresses(
   transaction: Extract<DiagnoseXxyyTransactionOutput['transaction'], { family: 'evm' }>,
 ): string[] {
-  const addresses = new Set(
-    transaction.analysis.tokenTransfers.map((item) => item.tokenAddress.toLowerCase()),
+  const addresses = new Set<string>(
+    transaction.analysis.tokenTransfers.map((item: { tokenAddress: string }) =>
+      item.tokenAddress.toLowerCase(),
+    ),
   );
   for (const evidence of transaction.analysis.evidence) {
     const structuredData = evidence.structuredData;

@@ -5,22 +5,16 @@ import {
   resolveWorkspaceCwd,
   type RagEnv,
 } from '@xxyy/rag-core';
-import { createXxyyMarketDataClient } from '@orbitrelaylabs/xxyy-transaction-agent-kit';
 import {
-  createChromeXxyyScreenshotProvider,
-  createBrowserChainAnalysisClient,
-  createConfiguredCanonicalPoolResolver,
-  createEgoBrowserPageEvaluator,
-  createXxyyTransactionDiagnosisService,
+  createTransactionSkillDiagnosisHandler,
+  createTransactionSkillPublicClient,
   resolveEgoBrowserExecutable,
-} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
+} from '@xxyy/transaction-skill-bridge';
 import {
   loadAnswerQualityRolloutConfig,
   type AnswerQualityRolloutEnv,
   type AnswerQualityRolloutObservation,
 } from '@xxyy/agent-core';
-import path from 'node:path';
-
 import {
   TelegramBotConfigurationError,
   TELEGRAM_BOT_COMMANDS,
@@ -80,24 +74,10 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
   const botConfig = loadTelegramBotConfig(workspaceEnv);
   const dailyChatLimitHashSalt =
     workspaceEnv.DAILY_CHAT_LIMIT_HASH_SALT ?? workspaceEnv.OBSERVABILITY_CLIENT_HASH_SALT;
-  const publicTransactionClient = await resolveEgoBrowserExecutable(
-    workspaceEnv.PATH ?? process.env.PATH,
-  ).then((egoBrowserExecutable) =>
-    egoBrowserExecutable === undefined
+  const publicTransactionClient =
+    (await resolveEgoBrowserExecutable(workspaceEnv.PATH ?? process.env.PATH)) === undefined
       ? undefined
-      : createBrowserChainAnalysisClient({
-          pageEvaluator: createEgoBrowserPageEvaluator({
-            command: egoBrowserExecutable,
-            taskName: 'xxyy-telegram-explorer',
-          }),
-        }),
-  );
-  const screenshotProvider = createOptionalScreenshotProvider(workspaceEnv);
-  const canonicalPoolResolver =
-    workspaceEnv.XXYY_CANONICAL_POOL_CONFIG_JSON?.trim() === undefined ||
-    workspaceEnv.XXYY_CANONICAL_POOL_CONFIG_JSON.trim().length === 0
-      ? undefined
-      : createConfiguredCanonicalPoolResolver(workspaceEnv.XXYY_CANONICAL_POOL_CONFIG_JSON);
+      : createTransactionSkillPublicClient({ env: workspaceEnv });
   const runtime = createTelegramChatRuntime(config, undefined, {
     answerQualityRollout: loadAnswerQualityRolloutConfig(workspaceEnv as AnswerQualityRolloutEnv),
     dailyChatLimit: parsePositiveInteger(workspaceEnv.DAILY_CHAT_LIMIT, 10),
@@ -114,19 +94,11 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
     ...(publicTransactionClient === undefined
       ? {}
       : {
-          xxyyTransactionDiagnosis: createXxyyTransactionDiagnosisService({
-            chainAnalysis: publicTransactionClient,
-            ...(canonicalPoolResolver === undefined ? {} : { canonicalPoolResolver }),
-            marketData: createXxyyMarketDataClient(),
-            poolPolicy: {
-              maxSmallPoolLiquidityUsd:
-                workspaceEnv.XXYY_SMALL_POOL_MAX_LIQUIDITY_USD?.trim() || '10000',
-              maxSmallPoolRelativeLiquidityPpm: Number(
-                workspaceEnv.XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM ?? '100000',
-              ),
-              version: '1.0.0',
-            },
-            ...(screenshotProvider === undefined ? {} : { screenshotProvider }),
+          xxyyTransactionDiagnosis: createTransactionSkillDiagnosisHandler({
+            env: workspaceEnv,
+            ...(workspaceEnv.XXYY_SCREENSHOT_DIRECTORY?.trim()
+              ? { outputDirectory: workspaceEnv.XXYY_SCREENSHOT_DIRECTORY.trim() }
+              : {}),
           }),
         }),
   });
@@ -195,26 +167,6 @@ async function logExplorerBrowserStartup(env: TelegramEnv): Promise<void> {
       ? 'Explorer browser: ego-browser not found. Install ego lite from https://lite.ego.app/ for public transaction queries; product Q&A remains available.'
       : `Explorer browser: ego-browser ready for all supported chains (${executable}).`,
   );
-}
-
-function createOptionalScreenshotProvider(env: TelegramEnv) {
-  const chromeExecutable = env.XXYY_SCREENSHOT_CHROME_EXECUTABLE?.trim();
-  const artifactDirectory = env.XXYY_SCREENSHOT_DIRECTORY?.trim();
-  const profileDirectory = env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim();
-  const values = [chromeExecutable, artifactDirectory];
-  if (values.every((value) => value === undefined || value.length === 0)) return undefined;
-  if (
-    values.some((value) => value === undefined || value.length === 0) ||
-    profileDirectory === undefined ||
-    profileDirectory.length === 0
-  ) {
-    throw new TypeError('XXYY screenshot configuration must be provided as one complete set.');
-  }
-  return createChromeXxyyScreenshotProvider({
-    artifactDirectory: artifactDirectory!,
-    chromeExecutable: chromeExecutable!,
-    profileDirectory: path.join(profileDirectory!, 'screenshots'),
-  });
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {

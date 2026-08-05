@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { DiagnoseXxyyTransactionOutput } from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
+import type { DiagnoseXxyyTransactionOutput } from '@xxyy/transaction-skill-bridge';
 
 import {
   extractEvmTokenAddresses,

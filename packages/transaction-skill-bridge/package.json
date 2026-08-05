@@ -1,0 +1,17 @@
+{
+  "name": "@xxyy/transaction-skill-bridge",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@orbitrelaylabs/xxyy-transaction-skills": "github:orbitrelaylabs/xxyy-transaction-skills#de6ce15ba1d3dbb40a8ce71f255a49dda5ed27df",
+    "zod": "^4.0.0"
+  },
+  "scripts": {
+    "test": "vitest run src",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

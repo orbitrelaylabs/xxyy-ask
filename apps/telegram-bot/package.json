@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@orbitrelaylabs/xxyy-transaction-agent-kit": "github:orbitrelaylabs/xxyy-transaction-agent-kit#d5a4e073b587fa7cf74031fc17860d9eeea5fed2",
     "@xxyy/agent-core": "workspace:*",
     "@xxyy/knowledge": "workspace:*",
     "@xxyy/rag-core": "workspace:*",
-    "@xxyy/shared": "workspace:*"
+    "@xxyy/shared": "workspace:*",
+    "@xxyy/transaction-skill-bridge": "workspace:*"
   },
   "scripts": {
     "curation-worker": "tsx src/curation-worker.ts",

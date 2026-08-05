@@ -2,7 +2,7 @@
 
 XXYY 客服 Agentic RAG monorepo。系统用 LangGraph JS 编排产品问答，并对用户明确提供的公开交易执行浏览器只读查询与 XXYY 成交诊断。
 
-产品问答由当前 Agent 在进程内直接调用 Product RAG。交易能力由独立仓库 [orbitrelaylabs/xxyy-transaction-agent-kit](https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit) 提供：
+产品问答由当前 Agent 在进程内直接调用 Product RAG。交易能力由独立仓库 [orbitrelaylabs/xxyy-transaction-skills](https://github.com/orbitrelaylabs/xxyy-transaction-skills) 提供：
 
 - `onchain-transaction-inspector`：通过自包含浏览器 CLI 查询单笔 EVM/Solana 交易基础事实。
 - `xxyy-transaction-diagnosis`：通过自包含浏览器 CLI 查询 XXYY 成交、池子和结构性 Sandwich 模式，返回真实 XXYY 标注截图。
@@ -23,10 +23,11 @@ packages/
   knowledge/       文档加载、切分和 embedding
   rag-core/        检索、向量库、回答和边界回复
   shared/          共享契约
+  transaction-skill-bridge/  固定 Skill JSON CLI 子进程桥接
 docs/              架构、状态和产品知识
 
 external dependency:
-  @orbitrelaylabs/xxyy-transaction-agent-kit
+  @orbitrelaylabs/xxyy-transaction-skills
 ```
 
 ## 环境
@@ -123,7 +124,7 @@ pnpm xxyy:diagnose -- \
 
 诊断会访问固定 Explorer 和 XXYY 页面，等待关键页面数据，定位目标成交及相邻行，并生成真实整页标注截图。页面字段不完整时返回 `partial` 或 `insufficient_data`。
 
-SDK、JSON CLI、Codex Skill 的安装与独立维护说明见 [xxyy-transaction-agent-kit](https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit)。本仓库固定依赖经过验证的提交，不再维护交易实现副本。
+JSON CLI 和 Skill 的安装与独立维护说明见 [xxyy-transaction-skills](https://github.com/orbitrelaylabs/xxyy-transaction-skills)。该仓库不提供 SDK；本仓库固定依赖经过验证的提交，并只通过受限子进程桥接调用两个 bundle。
 
 ## 知识库命令
 

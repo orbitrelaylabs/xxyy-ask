@@ -2,7 +2,7 @@ import {
   getTransactionInputSchema,
   getTransactionOutputSchema,
   type PublicTransactionClient,
-} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
+} from '@xxyy/transaction-skill-bridge';
 import type { QualityTracer } from '@xxyy/rag-core';
 
 import { parseCapabilityManifest } from './capability-contract.js';
