@@ -45,6 +45,14 @@ describe('formatXxyyTransactionDiagnosis', () => {
             pairAddress: dominantPair,
             quoteToken: 'So11111111111111111111111111111111111111112',
           },
+          ...['a', 'b', 'c', 'd'].map((character) => ({
+            baseToken: mint,
+            chain: 'solana:mainnet',
+            dexId: 'orca',
+            liquidityUsd: '1',
+            pairAddress: character.repeat(44),
+            quoteToken: 'So11111111111111111111111111111111111111112',
+          })),
         ],
         diagnostics: [],
         matchedPair: {
@@ -167,8 +175,13 @@ describe('formatXxyyTransactionDiagnosis', () => {
         url: `/xxyy-evidence/${'a'.repeat(64)}.png`,
       }),
     ]);
-    expect(response.answer).toContain('实际池流动性：$100');
-    expect(response.answer).toContain(`主导池：${dominantPair}，流动性 $10000`);
+    expect(response.answer).toContain('本笔池流动性：约 $100');
+    expect(response.answer).toContain(`当前主导池：\`${dominantPair}\`，约 $10,000`);
+    expect(response.answer).toContain(`本笔成交池：\`${pairAddress}\``);
+    expect(response.answer).toContain('XXYY 当前发现 6 个池子：');
+    expect(response.answer).toContain(`✅ 本笔成交 · DEX 未标注 · 约 $100`);
+    expect(response.answer).toContain(`池：\`${'d'.repeat(44)}\``);
+    expect(response.answer).not.toContain('最多展示');
     expect(response.answer).toContain(`前后交易候选地址：${attacker}`);
     expect(response.answer).toContain('前置交易：front-transaction');
     expect(response.answer).toContain('后置交易：back-transaction');

@@ -912,13 +912,16 @@ async function sendChatResponse(
     api.sendVideo !== undefined,
   );
   const htmlMessage = formatTelegramChatResponse(response, attachmentLines);
-  if (htmlMessage.length <= TELEGRAM_MESSAGE_LIMIT) {
-    await api.sendMessage({
-      chatId,
-      parseMode: 'HTML',
-      ...(replyToMessageId === undefined ? {} : { replyToMessageId }),
-      text: htmlMessage,
-    });
+  const htmlChunks = splitTelegramHtmlMessage(htmlMessage, TELEGRAM_MESSAGE_LIMIT);
+  if (htmlChunks !== undefined) {
+    for (const chunk of htmlChunks) {
+      await api.sendMessage({
+        chatId,
+        parseMode: 'HTML',
+        ...(replyToMessageId === undefined ? {} : { replyToMessageId }),
+        text: chunk,
+      });
+    }
   } else {
     const plainText = formatTelegramPlainTextResponse(response, attachmentLines);
     for (const chunk of splitTelegramMessage(plainText, TELEGRAM_MESSAGE_LIMIT)) {
@@ -1094,6 +1097,32 @@ export function splitTelegramMessage(text: string, limit = TELEGRAM_MESSAGE_LIMI
     chunks.push(remaining);
   }
 
+  return chunks;
+}
+
+export function splitTelegramHtmlMessage(
+  text: string,
+  limit = TELEGRAM_MESSAGE_LIMIT,
+): string[] | undefined {
+  const lines = text.split('\n');
+  if (lines.some((line) => line.length > limit)) {
+    return undefined;
+  }
+
+  const chunks: string[] = [];
+  let current = '';
+  for (const line of lines) {
+    const candidate = current.length === 0 ? line : `${current}\n${line}`;
+    if (candidate.length <= limit) {
+      current = candidate;
+      continue;
+    }
+    chunks.push(current);
+    current = line;
+  }
+  if (current.length > 0 || chunks.length === 0) {
+    chunks.push(current);
+  }
   return chunks;
 }
 

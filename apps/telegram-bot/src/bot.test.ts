@@ -9,6 +9,7 @@ import {
   isGroupCustomerRequest,
   loadTelegramBotConfig,
   resolveTelegramAttachmentUrl,
+  splitTelegramHtmlMessage,
   splitTelegramMessage,
   stripTelegramBotMention,
   type TelegramKnowledgeLearningStatus,
@@ -1589,6 +1590,14 @@ describe('message formatting helpers', () => {
   it('splits long Telegram messages without exceeding the requested size', () => {
     expect(splitTelegramMessage('abc\ndefgh', 5)).toEqual(['abc', 'defgh']);
     expect(splitTelegramMessage('abcdef', 3)).toEqual(['abc', 'def']);
+  });
+
+  it('splits Telegram HTML only between balanced lines', () => {
+    expect(splitTelegramHtmlMessage('<b>one</b>\n<code>two</code>', 16)).toEqual([
+      '<b>one</b>',
+      '<code>two</code>',
+    ]);
+    expect(splitTelegramHtmlMessage(`<code>${'x'.repeat(20)}</code>`, 10)).toBeUndefined();
   });
 });
 
