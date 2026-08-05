@@ -5,7 +5,7 @@
 - LangGraph 客服 Agent、Product RAG、Postgres + pgvector、OpenAI-compatible chat/embedding。
 - Web、HTTP API、Telegram Bot、流式回答、引用、反馈和管理后台。
 - 官方产品文档、媒体、X / Twitter 更新的同步、审计、摄取和知识治理。
-- `xxyy-product-support` Skill：应用内直接调用 Product RAG；外部 Agent 通过受保护 Chat API 接入。
+- Product Support capability：当前 Agent 在应用内直接调用 Product RAG，不维护独立对外 Skill 包装。
 - `onchain-transaction-inspector` Skill：用自包含浏览器 JSON CLI 查询用户提供的 EVM/Solana 单笔公开交易基础事实。
 - `xxyy-transaction-diagnosis` Skill：用固定 Explorer 与 XXYY 页面分析成交、池子和结构性 Sandwich 模式，并返回用户可见标注截图。
 - Capability Registry：固定 manifest/grant、schema、超时、输出限制和脱敏审计；Skill 目录不会自动注册 Planner 工具。

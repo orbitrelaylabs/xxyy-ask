@@ -11,7 +11,7 @@ XXYY Agent 面向 Web、Telegram、HTTP API 和其他 Agent，提供两类证据
 
 - 证据优先：重要结论附来源；证据不足明确降级。
 - 默认拒绝：Skill 只有被显式注册和授权后才能进入 Planner。
-- 单一接入：使用者只安装需要的 Skill，不需要同时部署配套协议服务。
+- 单一接入：外部使用者只安装需要的交易 Skill，不需要同时部署配套协议服务。
 - 浏览器只读：公开交易路径只访问固定 Explorer 与 XXYY 页面，不调用 RPC。
 - 用户可见截图：精确定位目标成交时返回真实整页 XXYY 截图，目标行居中并标注。
 - 领域逻辑与入口解耦：Product RAG、浏览器采集、诊断 core 和 Agent 编排保持独立可测试。
@@ -22,7 +22,7 @@ XXYY Agent 面向 Web、Telegram、HTTP API 和其他 Agent，提供两类证据
 
 - 支持中英文问答、引用、流式输出和证据不足回复。
 - 知识来源只包括正式产品文档、官方社交更新和通过治理门禁的客服知识。
-- 外部 Agent 通过 `xxyy-product-support` Skill 调用受保护 Chat API。
+- 当前 Agent 在进程内直接调用 Product RAG，不维护独立的对外 Product Support Skill。
 
 ### 基础交易查询
 
@@ -49,7 +49,7 @@ XXYY Agent 面向 Web、Telegram、HTTP API 和其他 Agent，提供两类证据
 
 ## 成功标准
 
-- 接入方只需一个 Skill 和其明确依赖的现有 HTTP API或本地浏览器，不需部署第二套服务。
+- 交易接入方只需一个 Skill 和本地浏览器，不需部署第二套服务；产品问答由当前 Agent 内部提供。
 - 相同已验证输入产生稳定结构化输出。
 - 页面变更、阻断和冲突安全降级，不生成伪造数据或伪造网站截图。
 - `pnpm check` 覆盖 build、format、typecheck、tests 和 deterministic QA。

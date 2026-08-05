@@ -1,6 +1,0 @@
-interface:
-  display_name: 'XXYY Product Support'
-  short_description: 'Answer XXYY product questions with governed citations'
-  default_prompt: 'Use $xxyy-product-support to answer this XXYY product question with official citations.'
-policy:
-  allow_implicit_invocation: true

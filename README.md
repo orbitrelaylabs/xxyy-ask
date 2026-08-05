@@ -2,9 +2,8 @@
 
 XXYY 客服 Agentic RAG monorepo。系统用 LangGraph JS 编排产品问答，并对用户明确提供的公开交易执行浏览器只读查询与 XXYY 成交诊断。
 
-项目提供三个可独立接入的 Agent Skills：
+产品问答由当前 Agent 在进程内直接调用 Product RAG。项目另提供两个可独立接入的交易 Agent Skills：
 
-- `xxyy-product-support`：通过受保护 Chat API 使用正式 Product RAG。
 - `onchain-transaction-inspector`：通过自包含浏览器 CLI 查询单笔 EVM/Solana 交易基础事实。
 - `xxyy-transaction-diagnosis`：通过自包含浏览器 CLI 查询 XXYY 成交、池子和结构性 Sandwich 模式，返回真实 XXYY 标注截图。
 
@@ -29,7 +28,6 @@ packages/
   transaction-analysis-core/           EVM 浏览器快照领域分析
   shared/          共享契约
 skills/
-  xxyy-product-support/
   onchain-transaction-inspector/
   xxyy-transaction-diagnosis/
 docs/              架构、状态和产品知识
@@ -109,24 +107,7 @@ pnpm telegram:curation:worker
 
 生产模式下 `NODE_ENV=production pnpm run app:dev` 不自动启动本地 Docker，也不默认刷新知识库。
 
-## 使用 Skills
-
-### 产品支持
-
-先为 `/api/v1` 创建集成 key，并启动 API：
-
-```bash
-pnpm agent:api-key:create -- partner-agent
-```
-
-外部 Agent 安装 `skills/xxyy-product-support` 后可执行：
-
-```bash
-XXYY_SUPPORT_API_BASE_URL=http://127.0.0.1:3000 \
-XXYY_SUPPORT_API_KEY=... \
-node skills/xxyy-product-support/scripts/ask.mjs \
-  --question "XXYY Pro 有哪些权益？" --pretty
-```
+## 使用交易 Skills
 
 ### 基础交易查询
 

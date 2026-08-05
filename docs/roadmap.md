@@ -3,8 +3,8 @@
 ## 已完成
 
 - Product RAG、LangGraph Agent、Web/API/Telegram 和知识治理运行面。
-- 三个显式 Skill：产品支持、浏览器基础交易查询、XXYY 交易诊断。
-- 外部 Agent 的单 Skill 接入方式：产品支持走受保护 HTTP API，交易查询走自包含浏览器 JSON CLI。
+- 当前 Agent 的内部 Product Support capability，以及两个显式交易 Skill：浏览器基础交易查询、XXYY 交易诊断。
+- 外部 Agent 的交易单 Skill 接入方式：交易查询走自包含浏览器 JSON CLI。
 - 真实 XXYY 页面截图、目标行标注和周边成交证据返回。
 - 浏览器页面 readiness 等待、K 线/成交加载检查和失败降级。
 - 清除未部署、未被当前产品使用的深度链节点数据面与常驻服务架构。

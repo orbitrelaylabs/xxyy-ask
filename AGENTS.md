@@ -17,7 +17,7 @@
 
 - 可以回答 XXYY 产品功能、配置步骤、权益说明和官方更新相关问题。
 - Web 与 Telegram 可以对用户提供的公开交易哈希/Explorer 链接执行浏览器基础查询与 XXYY 交易诊断。公开路径不提供 EVM call trace 或 archive MEV；被夹判断只基于浏览器交易事实和 XXYY 前后成交结构，证据不足时必须返回部分数据或数据不足，不能编造结论。
-- 已提供三个可独立接入的 project Skills：`xxyy-product-support`、`onchain-transaction-inspector` 和 `xxyy-transaction-diagnosis`。产品支持通过 HTTP API，交易查询通过自包含浏览器 JSON CLI 接入，不要求配套常驻服务。
+- 产品问答由当前 Agent 在进程内直接调用 Product RAG；另提供两个可独立接入的交易 project Skills：`onchain-transaction-inspector` 和 `xxyy-transaction-diagnosis`。交易查询通过自包含浏览器 JSON CLI 接入，不要求配套常驻服务。
 - 不直接查询用户账户、订单、钱包余额或私有交易记录。
 - 不提供投资建议。
 - 对边界问题必须返回边界回复，不要编造实时数据。
@@ -37,7 +37,7 @@
 - `packages/shared`：共享类型和聊天契约。
 - `packages/knowledge`：产品文档加载、Markdown chunk、tokenize 和 OpenAI embedding provider。
 - `packages/rag-core`：意图分类、检索接口、pgvector store、LLM answer provider、边界回复和配置错误类型。
-- `packages/agent-core`：LangGraph 客服 Agent runtime、planner、tool registry、Capability Registry，以及三个公开 Skill 的显式授权 bridge。
+- `packages/agent-core`：LangGraph 客服 Agent runtime、planner、tool registry、Capability Registry，以及内部产品能力和两个公开交易 Skill 的显式授权 bridge。
 - `packages/product-support-runtime`：产品知识检索的直接 runtime 与输入输出契约。
 - `packages/xxyy-transaction-diagnosis-core`：无网络依赖的 XXYY 池子匹配/小池与 Sandwich 四态投影；canonical 与流动性判断严格分离。
 - `packages/xxyy-market-data-adapter`：固定访问 `https://www.xxyy.io` 的只读成交/多池适配器；保留受限时间窗内的周边成交，完整哈希和完整 maker 冲突时失败关闭，不接受调用方 endpoint。
@@ -48,7 +48,6 @@
 - `apps/telegram-bot`：Telegram Bot long polling 与独立群知识整理 Worker；群消息实时写入本地 PostgreSQL 审计缓冲并入持久化队列，群内保持静默，Worker 自动生成待审候选，管理员批准后才进入发布队列，Bot 和整理 Worker 都不执行 pgvector 发布。
 - `apps/web`：静态聊天 UI。
 - `scripts/rag-refresh.mjs`：供外部 scheduler 调用的固定知识刷新 Job；提供 dry-run、同工作区锁和脱敏回执，并在最后自动对账、重试和执行群聊知识发布，不嵌入 API/Telegram 进程。
-- `skills/xxyy-product-support`：通过受保护 Chat API 使用产品知识的独立 Skill。
 - `skills/onchain-transaction-inspector`：通用 EVM / Solana 单交易查询与证据解释 Skill；默认禁止隐式调用。
 - `skills/xxyy-transaction-diagnosis`：单笔公开交易的 XXYY 成交、池子与 Sandwich 证据诊断；默认禁止隐式调用。
 - `docs/product-features`：知识库种子文档和静态资产。
@@ -96,7 +95,6 @@ TRUST_PROXY=false
 - `pnpm run app:dev -- --full-sync`：启动前全量同步 `docs.xxyy.io` 中英文页面、图片 OCR、视频字幕/关键帧和 `x.com/useXXYYio` 更新，经审计后重建知识库。
 - `pnpm run app:dev -- --ingest`：启动前只执行知识库 ingest。
 - `pnpm rag:refresh`：独立增量刷新 Job；`--full` 执行官网/媒体/X 全量重建，两种模式最后都会运行严格自动知识治理与发布队列；`--dry-run` 只验证固定计划。生产定时任务优先使用该入口。
-- `node skills/xxyy-product-support/scripts/ask.mjs --question "XXYY Pro 有哪些权益？"`：外部 Agent 通过现有 Chat API 使用产品支持 Skill；配置 `XXYY_SUPPORT_API_BASE_URL` 和 `XXYY_SUPPORT_API_KEY`。
 - `pnpm onchain:inspect -- --reference <tx>`：运行自包含的浏览器基础交易查询 Skill JSON CLI；不启动 daemon 或端口。
 - `pnpm xxyy:diagnose -- --reference <tx> --checks sandwich,pool`：运行自包含 XXYY Skill JSON CLI；不启动 daemon 或端口，不接受 RPC endpoint 或 RPC 配置。
 - `NODE_ENV=production pnpm run app:dev`：生产模式跳过本地 Docker，默认不刷新知识库；可加 `--sync` 或 `--full-sync` 显式更新。
@@ -178,7 +176,7 @@ env -u DATABASE_URL -u POSTGRES_DB -u POSTGRES_USER -u POSTGRES_PASSWORD OPENAI_
 - 不要在 `docker-compose.yml` 写死数据库密码；使用 `.env` 注入。
 - 不要把真实 API key 写入测试、README 或日志。
 - 生产 API 服务端不负责迁移；迁移和正式知识写库由独立 `pnpm rag:refresh` Job、`pnpm rag:knowledge:automation:work`、`pnpm run app:dev -- --sync`、`pnpm run app:dev -- --full-sync`、`pnpm rag:ingest` 或 `pnpm rag:sync:x` 完成。本地 `pnpm run app:dev -- --sync` 可以为空知识库做首次 bootstrap。Telegram Bot 只允许创建、自动决定候选和排队，不直接写 pgvector。
-- Product Skill 只能读取正式产品知识；公开交易 Skill runtime 只能通过固定 Explorer 与 XXYY 页面读取用户明确提供的公开交易，不接受 endpoint、任意请求方法、任意区块范围或私有账户输入。新增 Skill 必须固定 manifest/source/version、配置精确 grant，再通过显式 Tool bridge 暴露，禁止把目录发现结果自动注册到 Planner。
+- Product RAG capability 只能读取正式产品知识；公开交易 Skill runtime 只能通过固定 Explorer 与 XXYY 页面读取用户明确提供的公开交易，不接受 endpoint、任意请求方法、任意区块范围或私有账户输入。新增 Skill 必须固定 manifest/source/version、配置精确 grant，再通过显式 Tool bridge 暴露，禁止把目录发现结果自动注册到 Planner。
 - 公开运行时不得发起 RPC。浏览器必须使用隔离、持久的 Profile，页面来源固定在代码 allowlist 中；页面验证失败、字段缺失或来源冲突时返回 partial/insufficient_data。浏览器与 XXYY 前后成交行只能支持结构性 Sandwich 判断，不能伪装成深度 trace、池状态、盈亏证明或 production-ready 证据。
 - Chain Capability bridge 只接受 composition root 固定的可信 caller。Web/API 使用 `web/anonymous`、Telegram 使用 `telegram/service`；公开路径只接浏览器客户端。
 - 新增行为需要加测试；风险较高的改动跑 `pnpm check`。

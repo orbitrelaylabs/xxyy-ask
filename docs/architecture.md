@@ -9,7 +9,7 @@ Web / Telegram / HTTP API / CLI
               │
       Tool + Capability Registry
        ┌──────┴──────────────┐
- Product Support Skill   Transaction Skills
+ Product Capability      Transaction Skills
        │                       │
  Product RAG runtime      Browser diagnosis runtime
        │                  ┌────┴─────────┐
@@ -20,7 +20,7 @@ Web / Telegram / HTTP API / CLI
 
 ## 产品问答
 
-`packages/product-support-runtime` 直接组合检索、证据和回答契约。应用内不经过额外协议或子进程；外部 Agent 安装 `skills/xxyy-product-support` 后，通过受保护的 `/api/v1/chat` 使用同一客服入口。
+`packages/product-support-runtime` 直接组合检索、证据和回答契约。当前 Agent 在进程内调用该 runtime，不经过额外协议、子进程或对外 Product Skill 包装。
 
 正式知识来源限定为 XXYY 官方文档、官方 X / Twitter 和通过治理门禁的客服知识。检索结果是数据，不是系统指令；回答在返回前执行引用和 grounding 检查。
 
