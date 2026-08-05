@@ -1,6 +1,6 @@
 # Transaction Analysis Core
 
-`packages/transaction-analysis-core` 是无网络依赖的 EVM 交易快照领域包。浏览器 runtime 从固定 Explorer 页面提取有限事实，校验后交给 core 生成稳定的交易状态、发送方、接收方、区块、时间、原生价值、gas fee、资产变化、warnings 和 evidence。
+`@orbitrelaylabs/xxyy-transaction-agent-kit` 中的 transaction-analysis 模块是无网络依赖的 EVM 交易快照领域实现。浏览器 runtime 从固定 Explorer 页面提取有限事实，校验后交给 core 生成稳定的交易状态、发送方、接收方、区块、时间、原生价值、gas fee、资产变化、warnings 和 evidence。实现位于独立的 [xxyy-transaction-agent-kit](https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit)。
 
 核心不负责：
 

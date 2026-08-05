@@ -22,9 +22,6 @@
       "path": "./packages/agent-sdk"
     },
     {
-      "path": "./packages/transaction-analysis-core"
-    },
-    {
       "path": "./packages/product-support-runtime"
     },
     {

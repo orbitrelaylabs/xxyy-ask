@@ -4,7 +4,7 @@ import {
   diagnoseXxyyTransactionOutputSchema,
   findBuiltInEvmNetworkByChainId,
   type DiagnoseXxyyTransactionOutput,
-} from '@xxyy/xxyy-transaction-diagnosis-runtime';
+} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
 
 import type { CapabilityRegistry } from './capability-registry.js';
 import type { PublicChainAnalysisCaller } from './chain-analysis-capabilities.js';

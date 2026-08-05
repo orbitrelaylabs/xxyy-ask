@@ -12,7 +12,7 @@ import {
   type AnswerQualityRolloutObservation,
   type AnswerQualityRolloutObserver,
 } from '@xxyy/agent-core';
-import { createXxyyMarketDataClient } from '@xxyy/xxyy-market-data-adapter';
+import { createXxyyMarketDataClient } from '@orbitrelaylabs/xxyy-transaction-agent-kit';
 import {
   createChromeXxyyScreenshotProvider,
   createBrowserChainAnalysisClient,
@@ -20,7 +20,7 @@ import {
   createEgoBrowserPageEvaluator,
   createXxyyTransactionDiagnosisService,
   resolveEgoBrowserExecutable,
-} from '@xxyy/xxyy-transaction-diagnosis-runtime';
+} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
 import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxyy/knowledge';
 import {
   createOpenAiAnswerProvider,

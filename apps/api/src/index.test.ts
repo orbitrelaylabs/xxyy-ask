@@ -1525,7 +1525,7 @@ describe('createRequestHandler', () => {
         createOpenAiEmbeddingProvider: vi.fn(() => ({ embedTexts: vi.fn() })),
       };
     });
-    vi.doMock('@xxyy/xxyy-transaction-diagnosis-runtime', async (importOriginal) => {
+    vi.doMock('@orbitrelaylabs/xxyy-transaction-agent-kit/runtime', async (importOriginal) => {
       const actual = await importOriginal<Record<string, unknown>>();
       return {
         ...actual,
@@ -1623,7 +1623,7 @@ describe('createRequestHandler', () => {
       vi.doUnmock('@xxyy/agent-core');
       vi.doUnmock('@xxyy/knowledge');
       vi.doUnmock('@xxyy/rag-core');
-      vi.doUnmock('@xxyy/xxyy-transaction-diagnosis-runtime');
+      vi.doUnmock('@orbitrelaylabs/xxyy-transaction-agent-kit/runtime');
     }
   });
 

@@ -2,7 +2,7 @@
 
 XXYY 客服 Agentic RAG monorepo。系统用 LangGraph JS 编排产品问答，并对用户明确提供的公开交易执行浏览器只读查询与 XXYY 成交诊断。
 
-产品问答由当前 Agent 在进程内直接调用 Product RAG。项目另提供两个可独立接入的交易 Agent Skills：
+产品问答由当前 Agent 在进程内直接调用 Product RAG。交易能力由独立仓库 [orbitrelaylabs/xxyy-transaction-agent-kit](https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit) 提供：
 
 - `onchain-transaction-inspector`：通过自包含浏览器 CLI 查询单笔 EVM/Solana 交易基础事实。
 - `xxyy-transaction-diagnosis`：通过自包含浏览器 CLI 查询 XXYY 成交、池子和结构性 Sandwich 模式，返回真实 XXYY 标注截图。
@@ -22,15 +22,11 @@ packages/
   product-support-runtime/  Product RAG 直接检索 runtime
   knowledge/       文档加载、切分和 embedding
   rag-core/        检索、向量库、回答和边界回复
-  xxyy-transaction-diagnosis-runtime/  浏览器交易查询、XXYY 诊断和截图
-  xxyy-transaction-diagnosis-core/     池子与结构性 Sandwich 领域判断
-  xxyy-market-data-adapter/            固定 XXYY 页面数据适配
-  transaction-analysis-core/           EVM 浏览器快照领域分析
   shared/          共享契约
-skills/
-  onchain-transaction-inspector/
-  xxyy-transaction-diagnosis/
 docs/              架构、状态和产品知识
+
+external dependency:
+  @orbitrelaylabs/xxyy-transaction-agent-kit
 ```
 
 ## 环境
@@ -107,7 +103,7 @@ pnpm telegram:curation:worker
 
 生产模式下 `NODE_ENV=production pnpm run app:dev` 不自动启动本地 Docker，也不默认刷新知识库。
 
-## 使用交易 Skills
+## 使用交易能力
 
 ### 基础交易查询
 
@@ -127,12 +123,7 @@ pnpm xxyy:diagnose -- \
 
 诊断会访问固定 Explorer 和 XXYY 页面，等待关键页面数据，定位目标成交及相邻行，并生成真实整页标注截图。页面字段不完整时返回 `partial` 或 `insufficient_data`。
 
-重新构建自包含交易脚本：
-
-```bash
-pnpm onchain:skill:build
-pnpm xxyy:skill:build
-```
+SDK、JSON CLI、Codex Skill 的安装与独立维护说明见 [xxyy-transaction-agent-kit](https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit)。本仓库固定依赖经过验证的提交，不再维护交易实现副本。
 
 ## 知识库命令
 
