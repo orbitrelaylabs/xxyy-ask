@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@orbitrelaylabs/xxyy-transaction-skills": "github:orbitrelaylabs/xxyy-transaction-skills#de6ce15ba1d3dbb40a8ce71f255a49dda5ed27df"
+    "@orbitrelaylabs/xxyy-transaction-skills": "github:orbitrelaylabs/xxyy-transaction-skills#88f9bb7a89ad594dfec8a108e56c089daff298b6"
   },
   "scripts": {
     "agent:smoke": "node scripts/agent-smoke.mjs",
@@ -24,8 +24,8 @@
     "docs:sync:external": "node scripts/sync-xxyy-external-docs.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}\" \".vscode/*.json\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}\" \".vscode/*.json\"",
-    "xxyy:diagnose": "pnpm exec xxyy-diagnose",
-    "onchain:inspect": "pnpm exec onchain-inspect",
+    "xxyy:diagnose": "xxyy-diagnose",
+    "onchain:inspect": "onchain-inspect",
     "rag:ask": "pnpm --filter @xxyy/cli rag:ask",
     "rag:evaluate": "pnpm --filter @xxyy/cli rag:evaluate",
     "rag:feedback:backlog": "pnpm --filter @xxyy/cli rag:feedback:backlog",

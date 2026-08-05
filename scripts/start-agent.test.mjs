@@ -294,9 +294,9 @@ describe('root package scripts', () => {
       'pnpm --filter @xxyy/telegram-bot curation-worker',
     );
     expect(packageJson.scripts['onchain:query:production']).toBeUndefined();
-    expect(packageJson.scripts['xxyy:diagnose']).toBe('pnpm exec xxyy-diagnose');
+    expect(packageJson.scripts['xxyy:diagnose']).toBe('xxyy-diagnose');
     expect(packageJson.scripts['xxyy:skill:build']).toBeUndefined();
-    expect(packageJson.scripts['onchain:inspect']).toBe('pnpm exec onchain-inspect');
+    expect(packageJson.scripts['onchain:inspect']).toBe('onchain-inspect');
     expect(packageJson.scripts.start).toBeUndefined();
     expect(packageJson.scripts.dev).toBeUndefined();
     expect(packageJson.scripts.sync).toBeUndefined();
