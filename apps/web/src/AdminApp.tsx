@@ -1,5 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactElement } from 'react';
+import {
+  BellOutlined,
+  BranchesOutlined,
+  CloudUploadOutlined,
+  CustomerServiceOutlined,
+  FileSearchOutlined,
+  FundProjectionScreenOutlined,
+  KeyOutlined,
+  LoadingOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  MessageOutlined,
+  MonitorOutlined,
+  QuestionCircleOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  SendOutlined,
+  TeamOutlined,
+  UserSwitchOutlined,
+} from '@ant-design/icons';
 
 import {
   KnowledgeAdminApiError,
@@ -63,6 +83,7 @@ export function AdminApp(): ReactElement {
   const [authError, setAuthError] = useState<string | undefined>();
   const [setupRequired, setSetupRequired] = useState<boolean>();
   const [activeTab, setActiveTab] = useState<AdminTab>('candidates');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const authenticate = useCallback(async (id: string, password: string): Promise<void> => {
     if (id.trim().length === 0 || password.length === 0) {
@@ -152,6 +173,10 @@ export function AdminApp(): ReactElement {
     setAuthError(undefined);
   };
 
+  if (session === undefined && authBusy && setupRequired === undefined) {
+    return <AdminAuthLoading restoringSession={token.length > 0} />;
+  }
+
   if (session === undefined) {
     if (setupRequired === true) {
       return <AdminSetup busy={authBusy} error={authError} onSetup={setup} />;
@@ -161,22 +186,60 @@ export function AdminApp(): ReactElement {
 
   const permissions = new Set(session.permissions);
   return (
-    <main className="admin-shell">
+    <main className={sidebarCollapsed ? 'admin-shell sidebar-collapsed' : 'admin-shell'}>
       <AdminSidebar
         activeTab={activeTab}
+        collapsed={sidebarCollapsed}
         onLogout={logout}
         onSelectTab={setActiveTab}
+        onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
         session={session}
       />
       <section className="admin-workbench">
         <header className="admin-header">
-          <div>
-            <div className="admin-eyebrow">Knowledge Governance</div>
-            <h1>{tabTitle(activeTab)}</h1>
+          <div className="admin-breadcrumbs">
+            <button
+              aria-label={sidebarCollapsed ? '展开导航' : '收起导航'}
+              className="admin-header-icon-button desktop-only"
+              onClick={() => setSidebarCollapsed((current) => !current)}
+              type="button"
+            >
+              {sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            </button>
+            <span>知识库管理</span>
+            <i>/</i>
+            <strong>{tabTitle(activeTab)}</strong>
           </div>
-          <div className="admin-boundary-badge">受保护管理面 · 严格策略自动治理</div>
+          <div className="admin-header-actions">
+            <button aria-label="帮助" className="admin-header-icon-button" type="button">
+              <QuestionCircleOutlined />
+            </button>
+            <button
+              aria-label="通知"
+              className="admin-header-icon-button has-indicator"
+              type="button"
+            >
+              <BellOutlined />
+            </button>
+            <div className="admin-header-profile">
+              <span className="admin-avatar">
+                {session.principal.displayName.slice(0, 1).toUpperCase()}
+              </span>
+              <div>
+                <strong>{session.principal.displayName}</strong>
+                <span>{session.principal.role}</span>
+              </div>
+            </div>
+          </div>
         </header>
-        <div className="admin-content">
+        <div className="admin-content" key={activeTab}>
+          <div className="admin-page-heading">
+            <div>
+              <h1>{tabTitle(activeTab)}</h1>
+              <p>{tabDescription(activeTab)}</p>
+            </div>
+            <div className="admin-boundary-badge">受保护管理面</div>
+          </div>
           {activeTab === 'candidates' ? (
             <CandidatesPanel permissions={permissions} token={token} />
           ) : undefined}
@@ -208,6 +271,42 @@ export function AdminApp(): ReactElement {
             <SupportPanel permissions={permissions} token={token} />
           ) : undefined}
           {activeTab === 'observability' ? <ObservabilityPanel token={token} /> : undefined}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function AdminAuthLoading({ restoringSession }: { restoringSession: boolean }): ReactElement {
+  return (
+    <main aria-live="polite" aria-busy="true" className="admin-shell admin-shell-loading">
+      <aside aria-hidden="true" className="admin-sidebar admin-loading-sidebar">
+        <div className="admin-brand">
+          <div className="admin-brand-mark">XY</div>
+          <div>
+            <strong>XXYY</strong>
+            <span>知识库管理后台</span>
+          </div>
+        </div>
+        <nav>
+          <div className="admin-loading-nav-line wide" />
+          <div className="admin-loading-nav-line" />
+          <div className="admin-loading-nav-line medium" />
+          <div className="admin-loading-nav-line" />
+          <div className="admin-loading-nav-line wide" />
+        </nav>
+      </aside>
+      <section className="admin-workbench">
+        <header className="admin-header admin-loading-header">
+          <div className="admin-loading-header-line" />
+          <div className="admin-loading-avatar" />
+        </header>
+        <div className="admin-auth-loading-content">
+          <section className="admin-auth-loading-card">
+            <LoadingOutlined aria-hidden="true" spin />
+            <strong>{restoringSession ? '正在恢复管理会话' : '正在检查后台状态'}</strong>
+            <span>请稍候，正在安全验证访问权限…</span>
+          </section>
         </div>
       </section>
     </main>
@@ -1100,52 +1199,134 @@ function AdminLogin({
 
 function AdminSidebar({
   activeTab,
+  collapsed,
   onLogout,
   onSelectTab,
+  onToggleCollapsed,
   session,
 }: {
   activeTab: AdminTab;
+  collapsed: boolean;
   onLogout: () => void;
   onSelectTab: (tab: AdminTab) => void;
+  onToggleCollapsed: () => void;
   session: AdminSession;
 }): ReactElement {
-  const tabs: Array<{ id: AdminTab; label: string; meta: string }> = [
-    { id: 'account', label: '我的账号', meta: '修改本人登录密码' },
-    { id: 'support', label: '客服工作台', meta: '会话、工单与人工接管' },
-    ...(session.permissions.includes('observability:read')
-      ? ([{ id: 'observability', label: '调用监控', meta: '限流、错误、Token 与成本' }] as const)
-      : []),
-    { id: 'groups', label: 'Telegram 群聊', meta: 'Bot 加群状态与活跃时间' },
-    ...(session.permissions.includes('user:manage')
-      ? ([{ id: 'users', label: '管理员用户', meta: '账号、角色与启停状态' }] as const)
-      : []),
-    { id: 'candidates', label: '知识候选', meta: '群聊审核与冲突检查' },
-    { id: 'graph', label: '知识图谱', meta: '实体关系、证据与启停治理' },
-    { id: 'publications', label: '发布任务', meta: '自动队列与故障观察' },
-    { id: 'quality', label: '回答质量', meta: '评测指标、失败案例与基线' },
-    { id: 'authors', label: '可信作者', meta: 'Telegram 角色有效期' },
-    { id: 'imports', label: 'Telegram 导入', meta: '自动清洗、决策与入队' },
+  const groups: Array<{
+    label: string;
+    tabs: Array<{ icon: ReactElement; id: AdminTab; label: string; meta: string }>;
+  }> = [
+    {
+      label: '运营中心',
+      tabs: [
+        {
+          icon: <CustomerServiceOutlined />,
+          id: 'support',
+          label: '客服工作台',
+          meta: '会话、工单与人工接管',
+        },
+        ...(session.permissions.includes('observability:read')
+          ? [
+              {
+                icon: <MonitorOutlined />,
+                id: 'observability' as const,
+                label: '调用监控',
+                meta: '限流、错误、Token 与成本',
+              },
+            ]
+          : []),
+        {
+          icon: <MessageOutlined />,
+          id: 'groups',
+          label: 'Telegram 群聊',
+          meta: 'Bot 加群状态与活跃时间',
+        },
+      ],
+    },
+    {
+      label: '知识管理',
+      tabs: [
+        {
+          icon: <FileSearchOutlined />,
+          id: 'candidates',
+          label: '知识候选',
+          meta: '修改、批准或拒绝候选知识',
+        },
+        {
+          icon: <BranchesOutlined />,
+          id: 'graph',
+          label: '知识图谱',
+          meta: '实体关系、证据与启停治理',
+        },
+        {
+          icon: <SendOutlined />,
+          id: 'publications',
+          label: '发布任务',
+          meta: '自动队列与故障观察',
+        },
+        {
+          icon: <FundProjectionScreenOutlined />,
+          id: 'quality',
+          label: '回答质量',
+          meta: '评测指标、失败案例与基线',
+        },
+        {
+          icon: <UserSwitchOutlined />,
+          id: 'authors',
+          label: '可信作者',
+          meta: 'Telegram 角色有效期',
+        },
+        {
+          icon: <CloudUploadOutlined />,
+          id: 'imports',
+          label: 'Telegram 导入',
+          meta: '自动清洗、决策与入队',
+        },
+      ],
+    },
+    {
+      label: '系统管理',
+      tabs: [
+        ...(session.permissions.includes('user:manage')
+          ? [
+              {
+                icon: <TeamOutlined />,
+                id: 'users' as const,
+                label: '管理员用户',
+                meta: '账号、角色与启停状态',
+              },
+            ]
+          : []),
+        { icon: <KeyOutlined />, id: 'account', label: '我的账号', meta: '修改本人登录密码' },
+      ],
+    },
   ];
   return (
     <aside className="admin-sidebar">
       <div className="admin-brand">
         <div className="admin-brand-mark">XY</div>
         <div>
-          <strong>XXYY Admin</strong>
-          <span>Knowledge Control Plane</span>
+          <strong>XXYY</strong>
+          <span>知识库管理后台</span>
         </div>
       </div>
       <nav aria-label="知识库管理导航">
-        {tabs.map((tab) => (
-          <button
-            className={activeTab === tab.id ? 'admin-nav-item active' : 'admin-nav-item'}
-            key={tab.id}
-            onClick={() => onSelectTab(tab.id)}
-            type="button"
-          >
-            <strong>{tab.label}</strong>
-            <span>{tab.meta}</span>
-          </button>
+        {groups.map((group) => (
+          <section className="admin-nav-group" key={group.label}>
+            <div className="admin-nav-group-label">{group.label}</div>
+            {group.tabs.map((tab) => (
+              <button
+                className={activeTab === tab.id ? 'admin-nav-item active' : 'admin-nav-item'}
+                key={tab.id}
+                onClick={() => onSelectTab(tab.id)}
+                title={collapsed ? `${tab.label} · ${tab.meta}` : tab.meta}
+                type="button"
+              >
+                <span className="admin-nav-icon">{tab.icon}</span>
+                <strong>{tab.label}</strong>
+              </button>
+            ))}
+          </section>
         ))}
       </nav>
       <div className="admin-profile">
@@ -1159,6 +1340,10 @@ function AdminSidebar({
           退出
         </button>
       </div>
+      <button className="admin-sidebar-toggle" onClick={onToggleCollapsed} type="button">
+        {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+        <span>{collapsed ? '展开菜单' : '收起菜单'}</span>
+      </button>
     </aside>
   );
 }
@@ -2252,10 +2437,13 @@ function CandidatesPanel({
   token: string;
 }): ReactElement {
   const [status, setStatus] = useState<CandidateStatus | ''>('pending');
+  const [keyword, setKeyword] = useState('');
+  const [source, setSource] = useState<KnowledgeCandidate['sourceChannel'] | ''>('');
   const [candidates, setCandidates] = useState<KnowledgeCandidate[]>([]);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [detail, setDetail] = useState<CandidateDetail | undefined>();
   const [busy, setBusy] = useState(false);
+  const [reviewingId, setReviewingId] = useState<string>();
   const [message, setMessage] = useState<{ kind: 'error' | 'success'; text: string }>();
 
   const loadCandidates = useCallback(async (): Promise<void> => {
@@ -2270,7 +2458,7 @@ function CandidatesPanel({
       setSelectedId((current) =>
         current !== undefined && result.candidates.some((candidate) => candidate.id === current)
           ? current
-          : result.candidates[0]?.id,
+          : undefined,
       );
       if (result.candidates.length === 0) {
         setDetail(undefined);
@@ -2311,69 +2499,364 @@ function CandidatesPanel({
     setMessage({ kind: 'success', text: successMessage });
   };
 
+  const visibleCandidates = candidates.filter((candidate) => {
+    const normalizedKeyword = keyword.trim().toLocaleLowerCase('zh-CN');
+    const matchesKeyword =
+      normalizedKeyword.length === 0 ||
+      candidate.question.toLocaleLowerCase('zh-CN').includes(normalizedKeyword) ||
+      candidate.canonicalAnswer.toLocaleLowerCase('zh-CN').includes(normalizedKeyword);
+    return matchesKeyword && (source === '' || candidate.sourceChannel === source);
+  });
+
+  const reviewCandidate = async (
+    candidate: KnowledgeCandidate,
+    decision: 'approve' | 'reject',
+  ): Promise<void> => {
+    if (!permissions.has('candidate:review') || candidate.status !== 'pending') return;
+    setReviewingId(candidate.id);
+    setMessage(undefined);
+    try {
+      const body =
+        decision === 'approve'
+          ? {
+              effectiveAt: candidate.effectiveAt ?? new Date().toISOString(),
+              ...(candidate.sourceUrl === undefined ? {} : { sourceUrl: candidate.sourceUrl }),
+              ...(candidate.supersedes === undefined ? {} : { supersedes: candidate.supersedes }),
+            }
+          : {};
+      await knowledgeAdminRequest(
+        token,
+        `/candidates/${encodeURIComponent(candidate.id)}/${decision}`,
+        { body, method: 'POST' },
+      );
+      await loadCandidates();
+      if (selectedId === candidate.id) await loadDetail();
+      setMessage({
+        kind: 'success',
+        text: decision === 'approve' ? '候选已批准并进入发布队列。' : '候选已拒绝并保留审核记录。',
+      });
+    } catch (error) {
+      setMessage({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setReviewingId(undefined);
+    }
+  };
+
   return (
-    <div className="candidate-layout">
-      <section className="admin-panel candidate-list-panel">
-        <div className="admin-panel-header">
-          <div>
-            <h2>候选队列</h2>
-            <span>{candidates.length} 条</span>
-          </div>
-          <select
-            aria-label="候选状态"
-            onChange={(event) => setStatus(event.target.value as CandidateStatus | '')}
-            value={status}
-          >
-            <option value="">全部</option>
-            <option value="pending">自动处理中</option>
-            <option value="approved">已批准</option>
-            <option value="rejected">已拒绝</option>
-            <option value="published">已发布</option>
-          </select>
-        </div>
-        <div className="candidate-list">
-          {busy ? <div className="admin-empty">正在加载候选…</div> : undefined}
-          {!busy && candidates.length === 0 ? (
-            <div className="admin-empty">当前筛选条件下没有候选。</div>
-          ) : undefined}
-          {candidates.map((candidate) => (
-            <button
-              className={candidate.id === selectedId ? 'candidate-card selected' : 'candidate-card'}
-              key={candidate.id}
-              onClick={() => setSelectedId(candidate.id)}
-              type="button"
+    <div className="admin-stack candidate-workspace">
+      {message === undefined ? undefined : (
+        <div className={`admin-alert ${message.kind}`}>{message.text}</div>
+      )}
+      <section className="admin-panel candidate-table-panel">
+        <div className="candidate-filter-bar">
+          <label>
+            <span>关键词</span>
+            <div className="admin-input-with-icon">
+              <SearchOutlined />
+              <input
+                aria-label="搜索候选问题或答案"
+                onChange={(event) => setKeyword(event.target.value)}
+                placeholder="搜索问题或答案"
+                value={keyword}
+              />
+            </div>
+          </label>
+          <label>
+            <span>来源</span>
+            <select
+              aria-label="候选来源"
+              onChange={(event) =>
+                setSource(event.target.value as KnowledgeCandidate['sourceChannel'] | '')
+              }
+              value={source}
             >
-              <div className="candidate-card-topline">
-                <StatusBadge status={candidate.status} />
-                <span>{formatDate(candidate.createdAt)}</span>
-              </div>
-              <strong>{candidate.proposedTitle ?? candidate.question}</strong>
-              <p>{candidate.canonicalAnswer}</p>
-              <div className="candidate-card-meta">
-                <span>{candidate.proposedModule ?? '未分类'}</span>
-                <span>{formatScore(candidate.qualityScore)}</span>
-              </div>
-            </button>
-          ))}
+              <option value="">全部来源</option>
+              <option value="telegram">Telegram</option>
+              <option value="telegram_export">Telegram 导入</option>
+              <option value="web">Web</option>
+            </select>
+          </label>
+          <label>
+            <span>状态</span>
+            <select
+              aria-label="候选状态"
+              onChange={(event) => setStatus(event.target.value as CandidateStatus | '')}
+              value={status}
+            >
+              <option value="">全部状态</option>
+              <option value="pending">待审核</option>
+              <option value="approved">已批准</option>
+              <option value="rejected">已拒绝</option>
+              <option value="published">已发布</option>
+            </select>
+          </label>
+          <button
+            className="admin-secondary-button candidate-filter-reset"
+            onClick={() => {
+              setKeyword('');
+              setSource('');
+              setStatus('pending');
+            }}
+            type="button"
+          >
+            <ReloadOutlined />
+            重置
+          </button>
         </div>
+        <div className="candidate-table-heading">
+          <strong>共 {visibleCandidates.length} 条</strong>
+          <span>候选知识在批准后仍需通过发布门禁</span>
+        </div>
+        <CandidateTable
+          actionBusyId={reviewingId}
+          canReview={permissions.has('candidate:review')}
+          candidates={visibleCandidates}
+          loading={busy}
+          onEdit={setSelectedId}
+          onReview={(candidate, decision) => void reviewCandidate(candidate, decision)}
+        />
       </section>
-      <section className="candidate-detail-column">
-        {message === undefined ? undefined : (
-          <div className={`admin-alert ${message.kind}`}>{message.text}</div>
-        )}
-        {detail === undefined ? (
-          <div className="admin-panel admin-empty detail-empty">选择一个候选查看治理详情。</div>
-        ) : (
-          <CandidateDetailPanel
-            detail={detail}
-            key={`${detail.candidate.id}:${detail.candidate.currentRevision ?? 1}`}
-            onError={(text) => setMessage({ kind: 'error', text })}
-            onRefresh={refresh}
-            permissions={permissions}
-            token={token}
+      {selectedId === undefined ? undefined : (
+        <div className="candidate-drawer-backdrop" role="presentation">
+          <aside
+            aria-label="编辑候选知识"
+            aria-modal="true"
+            className="candidate-drawer"
+            role="dialog"
+          >
+            <div className="candidate-drawer-header">
+              <div>
+                <div className="admin-eyebrow">Knowledge candidate</div>
+                <h2>编辑 Q/A</h2>
+              </div>
+              <button
+                aria-label="关闭候选编辑"
+                className="candidate-drawer-close"
+                onClick={() => setSelectedId(undefined)}
+                type="button"
+              >
+                关闭
+              </button>
+            </div>
+            {detail === undefined ? (
+              <div className="admin-empty">正在加载候选…</div>
+            ) : (
+              <CandidateQuickEditor
+                detail={detail}
+                key={`${detail.candidate.id}:${detail.candidate.currentRevision ?? 1}`}
+                onClose={() => setSelectedId(undefined)}
+                onError={(text) => setMessage({ kind: 'error', text })}
+                onRefresh={refresh}
+                permissions={permissions}
+                token={token}
+              />
+            )}
+          </aside>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function CandidateTable({
+  actionBusyId,
+  canReview,
+  candidates,
+  loading,
+  onEdit,
+  onReview,
+}: {
+  actionBusyId?: string | undefined;
+  canReview: boolean;
+  candidates: KnowledgeCandidate[];
+  loading: boolean;
+  onEdit: (id: string) => void;
+  onReview: (candidate: KnowledgeCandidate, decision: 'approve' | 'reject') => void;
+}): ReactElement {
+  return (
+    <div className="candidate-table-wrap">
+      <table className="admin-table candidate-table">
+        <thead>
+          <tr>
+            <th>问题 / 答案</th>
+            <th>来源</th>
+            <th>状态</th>
+            <th>创建时间</th>
+            <th className="candidate-actions-heading">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading ? (
+            <tr>
+              <td className="candidate-table-empty" colSpan={5}>
+                正在加载候选…
+              </td>
+            </tr>
+          ) : undefined}
+          {!loading && candidates.length === 0 ? (
+            <tr>
+              <td className="candidate-table-empty" colSpan={5}>
+                当前筛选条件下没有候选。
+              </td>
+            </tr>
+          ) : undefined}
+          {!loading
+            ? candidates.map((candidate) => {
+                const pending = candidate.status === 'pending';
+                const actionBusy = actionBusyId === candidate.id;
+                return (
+                  <tr key={candidate.id}>
+                    <td className="candidate-qa-cell">
+                      <strong>{candidate.question}</strong>
+                      <p>{candidate.canonicalAnswer}</p>
+                    </td>
+                    <td>
+                      <strong>{candidate.proposedModule ?? '未分类'}</strong>
+                      <small>{candidate.sourceChannel}</small>
+                    </td>
+                    <td>
+                      <CandidateStatusBadge status={candidate.status} />
+                    </td>
+                    <td>{formatDate(candidate.createdAt)}</td>
+                    <td className="candidate-action-cell">
+                      <button
+                        className="admin-link-button"
+                        onClick={() => onEdit(candidate.id)}
+                        type="button"
+                      >
+                        编辑 Q/A
+                      </button>
+                      {canReview && pending ? (
+                        <>
+                          <button
+                            className="admin-link-button approve"
+                            disabled={actionBusy}
+                            onClick={() => onReview(candidate, 'approve')}
+                            type="button"
+                          >
+                            {actionBusy ? '处理中…' : '批准'}
+                          </button>
+                          <button
+                            className="admin-link-button reject"
+                            disabled={actionBusy}
+                            onClick={() => onReview(candidate, 'reject')}
+                            type="button"
+                          >
+                            拒绝
+                          </button>
+                        </>
+                      ) : undefined}
+                    </td>
+                  </tr>
+                );
+              })
+            : undefined}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CandidateStatusBadge({ status }: { status: CandidateStatus }): ReactElement {
+  const labels: Record<CandidateStatus, string> = {
+    approved: '已批准',
+    pending: '待审核',
+    published: '已发布',
+    rejected: '已拒绝',
+  };
+  return <span className={`status-badge status-${status}`}>{labels[status]}</span>;
+}
+
+function CandidateQuickEditor({
+  detail,
+  onClose,
+  onError,
+  onRefresh,
+  permissions,
+  token,
+}: {
+  detail: CandidateDetail;
+  onClose: () => void;
+  onError: (message: string) => void;
+  onRefresh: (message: string) => Promise<void>;
+  permissions: ReadonlySet<AdminPermission>;
+  token: string;
+}): ReactElement {
+  const candidate = detail.candidate;
+  const canReview = permissions.has('candidate:review') && candidate.status === 'pending';
+  const [question, setQuestion] = useState(candidate.question);
+  const [answer, setAnswer] = useState(candidate.canonicalAnswer);
+  const [saving, setSaving] = useState(false);
+
+  const save = async (): Promise<void> => {
+    setSaving(true);
+    try {
+      await knowledgeAdminRequest(token, `/candidates/${encodeURIComponent(candidate.id)}`, {
+        body: { canonicalAnswer: answer, question, reason: '管理后台修订 Q/A' },
+        method: 'PATCH',
+      });
+      await onRefresh('Q/A 已保存。现在可以在操作列批准或拒绝。');
+    } catch (error) {
+      onError(errorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="candidate-drawer-body">
+      <div className="candidate-editor-status">
+        <CandidateStatusBadge status={candidate.status} />
+        <span>
+          {candidate.proposedModule ?? '未分类'} · {formatDate(candidate.createdAt)}
+        </span>
+      </div>
+      <div className="admin-form-grid single candidate-quick-form">
+        <label>
+          标准问题
+          <textarea
+            disabled={!canReview}
+            onChange={(event) => setQuestion(event.target.value)}
+            rows={4}
+            value={question}
           />
-        )}
-      </section>
+        </label>
+        <label>
+          标准答案
+          <textarea
+            disabled={!canReview}
+            onChange={(event) => setAnswer(event.target.value)}
+            rows={10}
+            value={answer}
+          />
+        </label>
+      </div>
+      {canReview ? (
+        <div className="admin-actions candidate-editor-actions">
+          <button className="admin-secondary-button" onClick={onClose} type="button">
+            取消
+          </button>
+          <button
+            className="admin-primary-button"
+            disabled={saving || question.trim().length === 0 || answer.trim().length === 0}
+            onClick={() => void save()}
+            type="button"
+          >
+            {saving ? '保存中…' : '保存 Q/A'}
+          </button>
+        </div>
+      ) : undefined}
+      <details className="candidate-advanced-details">
+        <summary>查看高级治理信息</summary>
+        <p>冲突、来源上下文、知识图谱、Revision、审批备注和发布任务。</p>
+        <CandidateDetailPanel
+          detail={detail}
+          onError={onError}
+          onRefresh={onRefresh}
+          permissions={permissions}
+          token={token}
+        />
+      </details>
     </div>
   );
 }
@@ -3437,27 +3920,54 @@ function errorMessage(error: unknown): string {
 function tabTitle(tab: AdminTab): string {
   switch (tab) {
     case 'account':
-      return '我的账号与登录安全';
+      return '我的账号';
     case 'authors':
-      return '可信作者与角色有效期';
+      return '可信作者';
     case 'candidates':
-      return '知识候选审核与治理';
+      return '知识候选';
     case 'groups':
-      return 'Telegram 群聊与读取状态';
+      return 'Telegram 群聊';
     case 'graph':
-      return '知识图谱与证据关系治理';
+      return '知识图谱';
     case 'imports':
       return 'Telegram 知识导入';
     case 'observability':
-      return 'API 调用监控与告警';
+      return 'API 调用监控';
     case 'publications':
-      return '发布任务与恢复';
+      return '发布任务';
     case 'quality':
-      return '回答质量评测与基线';
+      return '回答质量';
     case 'support':
-      return '客服会话与工单';
+      return '客服工作台';
     case 'users':
-      return '管理员用户与权限';
+      return '管理员用户';
+  }
+}
+
+function tabDescription(tab: AdminTab): string {
+  switch (tab) {
+    case 'account':
+      return '维护当前管理员的登录密码与账号安全。';
+    case 'authors':
+      return '管理 Telegram 可信作者、角色和授权有效期。';
+    case 'candidates':
+      return '审核和管理知识候选内容，确保知识库内容准确、合规。';
+    case 'groups':
+      return '查看 Bot 加群状态、消息活跃时间和知识整理队列。';
+    case 'graph':
+      return '检查实体关系、来源证据和知识冲突。';
+    case 'imports':
+      return '导入 Telegram 数据，并启动自动清洗和知识候选识别。';
+    case 'observability':
+      return '查看调用量、错误、限流、Token 消耗和成本告警。';
+    case 'publications':
+      return '跟踪知识发布队列、执行状态和安全重试。';
+    case 'quality':
+      return '运行回答质量评测，查看失败案例并维护质量基线。';
+    case 'support':
+      return '处理客服会话、工单和人工接管任务。';
+    case 'users':
+      return '维护管理员账号、角色、权限和启停状态。';
   }
 }
 
