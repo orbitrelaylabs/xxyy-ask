@@ -12,8 +12,8 @@ importers:
   .:
     dependencies:
       '@orbitrelaylabs/xxyy-transaction-skills':
-        specifier: github:orbitrelaylabs/xxyy-transaction-skills#88f9bb7a89ad594dfec8a108e56c089daff298b6
-        version: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-skills/tar.gz/88f9bb7a89ad594dfec8a108e56c089daff298b6
+        specifier: github:orbitrelaylabs/skills#88f9bb7a89ad594dfec8a108e56c089daff298b6
+        version: https://codeload.github.com/orbitrelaylabs/skills/tar.gz/88f9bb7a89ad594dfec8a108e56c089daff298b6
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -198,8 +198,8 @@ importers:
   packages/transaction-skill-bridge:
     dependencies:
       '@orbitrelaylabs/xxyy-transaction-skills':
-        specifier: github:orbitrelaylabs/xxyy-transaction-skills#88f9bb7a89ad594dfec8a108e56c089daff298b6
-        version: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-skills/tar.gz/88f9bb7a89ad594dfec8a108e56c089daff298b6
+        specifier: github:orbitrelaylabs/skills#88f9bb7a89ad594dfec8a108e56c089daff298b6
+        version: https://codeload.github.com/orbitrelaylabs/skills/tar.gz/88f9bb7a89ad594dfec8a108e56c089daff298b6
       zod:
         specifier: ^4.0.0
         version: 4.4.3
@@ -442,8 +442,8 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
-  '@orbitrelaylabs/xxyy-transaction-skills@https://codeload.github.com/orbitrelaylabs/xxyy-transaction-skills/tar.gz/88f9bb7a89ad594dfec8a108e56c089daff298b6':
-    resolution: {gitHosted: true, integrity: sha512-sU7kqP1Ntb6W4skeWAVvO60/SfiGpT9J69Rps+SVtracWC6RbCj7+LenOSD462pASdN9fCoXBobX+bVpM6kI7A==, tarball: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-skills/tar.gz/88f9bb7a89ad594dfec8a108e56c089daff298b6}
+  '@orbitrelaylabs/xxyy-transaction-skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/88f9bb7a89ad594dfec8a108e56c089daff298b6':
+    resolution: {gitHosted: true, integrity: sha512-f0Hsq9EV09sK7PrAM0DLkrRX4k6jdb8hFrGNg1vIbQlQlOZYdTZoiSNE26jRFMTcmmR0RFbVO6tQq6fvMXGH/Q==, tarball: https://codeload.github.com/orbitrelaylabs/skills/tar.gz/88f9bb7a89ad594dfec8a108e56c089daff298b6}
     version: 0.1.0
     engines: {node: '>=24.16.0'}
     hasBin: true
@@ -1251,7 +1251,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.3
     optional: true
 
-  '@orbitrelaylabs/xxyy-transaction-skills@https://codeload.github.com/orbitrelaylabs/xxyy-transaction-skills/tar.gz/88f9bb7a89ad594dfec8a108e56c089daff298b6':
+  '@orbitrelaylabs/xxyy-transaction-skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/88f9bb7a89ad594dfec8a108e56c089daff298b6':
     dependencies:
       zod: 4.4.3
 

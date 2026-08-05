@@ -16,7 +16,7 @@ Web / Telegram / HTTP API / CLI
  Postgres + pgvector   Explorer pages  XXYY pages/screenshots
 ```
 
-这是 pnpm workspace monorepo。应用入口位于 `apps/`，客服共享实现位于 `packages/`。可分发交易 CLI 和 Skills 位于独立的 [xxyy-transaction-skills](https://github.com/orbitrelaylabs/xxyy-transaction-skills)。
+这是 pnpm workspace monorepo。应用入口位于 `apps/`，客服共享实现位于 `packages/`。可分发交易 CLI 和 Skills 位于独立的 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills)。
 
 ## 产品问答
 

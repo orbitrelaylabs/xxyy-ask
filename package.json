@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@orbitrelaylabs/xxyy-transaction-skills": "github:orbitrelaylabs/xxyy-transaction-skills#88f9bb7a89ad594dfec8a108e56c089daff298b6"
+    "@orbitrelaylabs/xxyy-transaction-skills": "github:orbitrelaylabs/skills#88f9bb7a89ad594dfec8a108e56c089daff298b6"
   },
   "scripts": {
     "agent:smoke": "node scripts/agent-smoke.mjs",
