@@ -47,21 +47,26 @@ export function formatXxyyTransactionDiagnosis(
   const lines = [
     `**${headline.icon} ${headline.text}**`,
     '',
-    '**交易概览**',
+    '**📌 交易概览**',
     `交易：\`${output.transaction.transactionId}\``,
     `链：${transactionNetworkLabel(output.transaction)}`,
     ...transactionFactLines(output.transaction),
   ];
+  if (transactionWasNotFound(output.transaction)) {
+    lines.push(
+      '⚠️ Explorer 查无这笔交易。Solana 签名区分大小写，请从钱包重新复制完整签名后再查。',
+      '在交易被公开 Explorer 精确解析前，无法安全确认目标合约、本笔成交池或该合约的池子清单。',
+    );
+  }
   if (output.market?.status === 'exact') {
     const trade = output.market.trade!;
     const pair = output.market.matchedPair!;
     lines.push(
       '',
-      '**XXYY 成交**',
+      '**🧾 XXYY 成交**',
       `买卖方向：${trade.type === 'buy' ? '买入' : '卖出'}`,
       `交易者：\`${trade.maker}\``,
       `XXYY 成交时间：${new Date(trade.timestamp).toISOString()}`,
-      `实际成交池：\`${pair.pairAddress}\`${pair.dexId === undefined ? '' : `（DEX: ${pair.dexId}）`}`,
       `交易币：\`${pair.baseToken}\``,
       `报价币：\`${pair.quoteToken}\``,
       `成交数量：代币 ${formatDecimal(trade.tokenAmount, 6)}；原生币 ${formatDecimal(trade.nativeAmount, 8)}${trade.usdAmount === undefined ? '' : `；约 $${formatDecimal(trade.usdAmount, 2)}`}`,
@@ -72,48 +77,57 @@ export function formatXxyyTransactionDiagnosis(
   } else {
     lines.push(
       '',
-      '**XXYY 成交**',
+      '**🧾 XXYY 成交**',
       output.market?.status === 'conflict'
         ? '发现多个相互冲突的成交候选，无法安全选定目标记录。'
-        : '未能按完整交易哈希匹配到目标成交，因此暂时无法判断是否被夹。',
+        : '未能按完整交易哈希匹配到目标成交，因此无法确认本笔成交池，也暂时无法判断是否被夹。',
     );
   }
-  if (output.poolAssessment !== undefined) {
+  const candidatePools = sortedCandidatePools(output.market?.candidatePairs ?? []);
+  if (output.poolAssessment !== undefined || candidatePools.length > 0) {
     const pool = output.poolAssessment;
     lines.push(
       '',
-      '**池子检查**',
-      `池子结论：${canonicalMatchLabel(pool.canonicalMatch)}；${liquidityClassLabel(pool.liquidityClass)}。`,
-      ...(pool.actualLiquidityUsd === undefined
-        ? []
-        : [`实际池流动性：$${pool.actualLiquidityUsd}`]),
-      ...(pool.dominantPoolAddress === undefined
+      '**🏊 合约与池子**',
+      ...(candidatePools[0] === undefined ? [] : [`目标合约：\`${candidatePools[0].baseToken}\``]),
+      ...(output.market?.matchedPair === undefined
+        ? ['本笔成交池：未能按完整交易哈希确认。']
+        : [
+            `本笔成交池：\`${output.market.matchedPair.pairAddress}\`（${dexLabel(output.market.matchedPair.dexId)}）`,
+          ]),
+      ...(pool === undefined
         ? []
         : [
-            `主导池：${pool.dominantPoolAddress}${pool.dominantLiquidityUsd === undefined ? '' : `，流动性 $${pool.dominantLiquidityUsd}`}`,
+            `池子结论：${canonicalMatchLabel(pool.canonicalMatch)}；${liquidityClassLabel(pool.liquidityClass)}。`,
           ]),
-      ...(pool.relativeLiquidityPpm === undefined
+      ...(pool?.actualLiquidityUsd === undefined
+        ? []
+        : [`本笔池流动性：约 $${formatDecimal(pool.actualLiquidityUsd, 2)}`]),
+      ...(pool?.dominantPoolAddress === undefined
+        ? []
+        : [
+            `当前主导池：\`${pool.dominantPoolAddress}\`${pool.dominantLiquidityUsd === undefined ? '' : `，约 $${formatDecimal(pool.dominantLiquidityUsd, 2)}`}`,
+          ]),
+      ...(pool?.relativeLiquidityPpm === undefined
         ? []
         : [`实际池约为主导池流动性的 ${ppmPercent(pool.relativeLiquidityPpm)}。`]),
     );
-    const candidates = output.market?.candidatePairs ?? [];
-    if (candidates.length > 0) {
-      lines.push(
-        `候选池（${candidates.length} 个，最多展示 5 个）：${candidates
-          .slice(0, 5)
-          .map(
-            (candidate: { liquidityUsd?: string; pairAddress: string }) =>
-              `${candidate.pairAddress}${candidate.liquidityUsd === undefined ? '' : ` / $${candidate.liquidityUsd}`}`,
-          )
-          .join('；')}`,
-      );
+    if (candidatePools.length > 0) {
+      lines.push(`XXYY 当前发现 ${candidatePools.length} 个池子：`);
+      candidatePools.forEach((candidate, index) => {
+        const isActual = candidate.pairAddress === output.market?.matchedPair?.pairAddress;
+        lines.push(
+          `${index + 1}. ${isActual ? '✅ 本笔成交 · ' : ''}${dexLabel(candidate.dexId)} · ${candidate.liquidityUsd === undefined ? '流动性未知' : `约 $${formatDecimal(candidate.liquidityUsd, 2)}`}`,
+          `   池：\`${candidate.pairAddress}\`｜报价：\`${candidate.quoteToken}\``,
+        );
+      });
     }
   }
   if (output.sandwichAssessment !== undefined) {
     const sandwich = output.sandwichAssessment;
     lines.push(
       '',
-      '**Sandwich 检查**',
+      '**🥪 Sandwich 检查**',
       `Sandwich 结论：${sandwichVerdictLabel(sandwich.verdict)}。`,
       `判定条件：${sandwichCriteriaLine(sandwich.criteria)}。`,
     );
@@ -141,14 +155,14 @@ export function formatXxyyTransactionDiagnosis(
     }
   }
   if ((output.surroundingTrades?.length ?? 0) > 0) {
-    lines.push('', '**目标交易前后成交**');
+    lines.push('', '**↔️ 目标交易前后成交**');
     for (const trade of nearestSurroundingTrades(output.surroundingTrades!)) {
       lines.push(formatSurroundingTrade(trade));
     }
   }
   if (output.warnings.length > 0) {
     const limits = [...new Set(output.warnings.map(evidenceLimitLabel))];
-    lines.push('', '**证据范围**', ...limits.map((warning) => `- ${warning}`));
+    lines.push('', '**ℹ️ 证据范围**', ...limits.map((warning) => `• ${warning}`));
   }
   lines.push(
     output.screenshotEvidence.status === 'ready'
@@ -197,6 +211,47 @@ function diagnosisHeadline(output: DiagnoseXxyyTransactionOutput): {
   if (verdict === 'likely') return { icon: '⚠️', text: '疑似被夹，仍需补充证据' };
   if (verdict === 'unlikely') return { icon: '✅', text: '当前证据不支持被夹' };
   return { icon: '🔎', text: '被夹检查：证据不足' };
+}
+
+function transactionWasNotFound(
+  transaction: DiagnoseXxyyTransactionOutput['transaction'],
+): boolean {
+  return transaction.diagnostics.some(
+    (diagnostic) =>
+      typeof diagnostic === 'object' &&
+      diagnostic !== null &&
+      'code' in diagnostic &&
+      diagnostic.code === 'transaction_not_found',
+  );
+}
+
+function sortedCandidatePools(
+  pools: readonly NonNullable<DiagnoseXxyyTransactionOutput['market']>['candidatePairs'][number][],
+) {
+  return [...pools].sort((left, right) => {
+    const liquidityDifference =
+      numericLiquidity(right.liquidityUsd) - numericLiquidity(left.liquidityUsd);
+    return liquidityDifference === 0
+      ? left.pairAddress.localeCompare(right.pairAddress)
+      : liquidityDifference;
+  });
+}
+
+function numericLiquidity(value: string | undefined): number {
+  if (value === undefined) return Number.NEGATIVE_INFINITY;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+}
+
+function dexLabel(dexId: string | undefined): string {
+  if (dexId === undefined) return 'DEX 未标注';
+  const labels: Record<string, string> = {
+    dammv2: 'Meteora DYN2',
+    dlmm: 'Meteora DLMM',
+    orca: 'Orca',
+    pfamm: 'Pump AMM',
+  };
+  return labels[dexId.toLowerCase()] ?? dexId;
 }
 
 function transactionNetworkLabel(
