@@ -471,7 +471,7 @@ describe('createRequestHandler', () => {
     });
   });
 
-  it('reports the Chromium fallback when ego-browser is unavailable', async () => {
+  it('reports disabled Explorer queries when ego-browser is unavailable', async () => {
     const handler = createRequestHandler({
       env: {
         PATH: '',
@@ -488,8 +488,8 @@ describe('createRequestHandler', () => {
 
     expect(payload.checks.browser).toEqual({
       configured: true,
-      driver: 'chromium-fallback',
-      message: 'ego-browser is unavailable; Explorer queries may require interactive verification.',
+      driver: 'ego-browser-unavailable',
+      message: 'ego-browser is unavailable; public Explorer queries are disabled.',
       status: 'error',
     });
   });
@@ -991,6 +991,47 @@ describe('createRequestHandler', () => {
     });
   });
 
+  it('returns 429 without invoking the model after the daily user quota is exhausted', async () => {
+    const ask = vi.fn(() =>
+      Promise.resolve({
+        answer: '不应调用',
+        citations: [],
+        confidence: 1,
+        intent: 'unknown' as const,
+      }),
+    );
+    const handler = createRequestHandler({
+      consumeDailyChatQuota: () =>
+        Promise.resolve({
+          allowed: false,
+          limit: 10,
+          quotaDate: '2026-08-04',
+          remaining: 0,
+          used: 10,
+        }),
+      getChatService: () =>
+        Promise.resolve({
+          ask,
+          async *stream() {
+            throw new Error('not used');
+          },
+        }),
+    });
+    const response = await callHandler(handler, {
+      body: { message: '第十一次提问', sessionId: 'session-with-enough-entropy-123456' },
+      method: 'POST',
+      url: '/api/chat',
+    });
+    expect(response.statusCode).toBe(429);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'daily_chat_limit_exceeded',
+      limit: 10,
+      message: 'Daily chat limit reached. Each user can start at most 10 conversations per day.',
+      quotaDate: '2026-08-04',
+    });
+    expect(ask).not.toHaveBeenCalled();
+  });
+
   it('uses independent rate-limit buckets and monitoring dimensions for API key ids', async () => {
     const firstToken = 'agent-api-token-a-with-enough-characters';
     const secondToken = 'agent-api-token-b-with-enough-characters';
@@ -1466,9 +1507,9 @@ describe('createRequestHandler', () => {
       getTransaction: vi.fn(),
     };
     const createBrowserChainAnalysisClient = vi.fn(() => publicTransactionClient);
-    const resolveBrowserChromeExecutable = vi.fn(() =>
-      Promise.resolve('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
-    );
+    const pageEvaluator = vi.fn();
+    const createEgoBrowserPageEvaluator = vi.fn(() => pageEvaluator);
+    const resolveEgoBrowserExecutable = vi.fn(() => Promise.resolve('/usr/local/bin/ego-browser'));
 
     vi.doMock('@xxyy/agent-core', async (importOriginal) => {
       const actual = await importOriginal<Record<string, unknown>>();
@@ -1489,7 +1530,8 @@ describe('createRequestHandler', () => {
       return {
         ...actual,
         createBrowserChainAnalysisClient,
-        resolveBrowserChromeExecutable,
+        createEgoBrowserPageEvaluator,
+        resolveEgoBrowserExecutable,
       };
     });
     vi.doMock('@xxyy/rag-core', async (importOriginal) => {
@@ -1561,10 +1603,13 @@ describe('createRequestHandler', () => {
         principal: 'anonymous',
       });
       expect(serviceOptions.xxyyTransactionDiagnosis).toBeDefined();
-      expect(resolveBrowserChromeExecutable).toHaveBeenCalledWith(undefined);
+      expect(resolveEgoBrowserExecutable).toHaveBeenCalledWith(process.env.PATH);
+      expect(createEgoBrowserPageEvaluator).toHaveBeenCalledWith({
+        command: '/usr/local/bin/ego-browser',
+        taskName: 'xxyy-api-explorer',
+      });
       expect(createBrowserChainAnalysisClient).toHaveBeenCalledWith({
-        chromeExecutable: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-        profileDirectory: '/tmp/xxyy-browser-profile',
+        pageEvaluator,
       });
       expect(serviceOptions.retriever).toBe(retriever);
       expect(typeof serviceOptions.answerProvider.answer).toBe('function');

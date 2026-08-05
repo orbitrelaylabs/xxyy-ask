@@ -36,6 +36,7 @@ API 同时将 `/api/*` 和 `/admin/api/*` 的响应结果写入 PostgreSQL `api_
 
 API 内置基础保护：
 
+- `DAILY_CHAT_LIMIT` 默认限制每个用户每个自然日最多发起 `10` 次客服对话，Web/API 与 Telegram 共用 PostgreSQL 原子配额表；`DAILY_CHAT_LIMIT_TIME_ZONE` 默认 `Asia/Shanghai`，`DAILY_CHAT_LIMIT_HASH_SALT` 可设置独立身份哈希盐，未设置时回退到 `OBSERVABILITY_CLIENT_HASH_SALT`。Telegram 优先按用户 ID、其次按会话计数；Web/API 优先按显式用户 ID、已认证 API Key ID、会话 ID，最后按客户端地址计数。公开 Web 没有登录认证时，调用方提供的 user/session ID 不是强身份边界，生产网关仍应结合账号或设备凭证。
 - `API_MAX_BODY_BYTES` 限制 JSON 请求体大小，默认 `65536` 字节。
 - `API_RATE_LIMIT_MAX` 和 `API_RATE_LIMIT_WINDOW_MS` 对聊天、流式聊天、反馈、客服升级/状态及对应 `/api/v1/*` 服务接口限流，默认 `60` 次 / `60000` 毫秒；已认证 v1 请求按 API Key ID 分桶，匿名请求按客户端地址分桶。
 - `KNOWLEDGE_ADMIN_RATE_LIMIT_MAX` 和 `KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS` 独立限制 `/admin/api/*`：登录和写操作默认 `30` 次 / `60000` 毫秒，读取操作使用独立的 10 倍额度（默认 `300` 次 / `60000` 毫秒）。未认证写请求同样计数，降低密码暴力尝试风险，同时避免后台正常并行读取耗尽写操作额度。

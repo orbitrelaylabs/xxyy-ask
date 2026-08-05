@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import { access, mkdir, readlink, unlink } from 'node:fs/promises';
 import { hostname } from 'node:os';
@@ -8,13 +8,6 @@ import path from 'node:path';
 import { transactionAnalysisResultSchema } from '@xxyy/transaction-analysis-core';
 import { z } from 'zod';
 
-import {
-  createCdpClient,
-  delay,
-  findPageDebuggerUrl,
-  readDebuggerUrl,
-  type CdpClient,
-} from './chrome-screenshot-provider.js';
 import {
   getTransactionOutputSchema,
   type GetTransactionOutput,
@@ -25,7 +18,7 @@ import { solanaSignatureSchema } from './solana-browser-contracts.js';
 
 const DEFAULT_TIMEOUT_MS = 45_000;
 const EXPLORER_VERIFICATION_EXPRESSION = `(() => {
-  const state = ((document.title || '') + '\n' + (document.body?.innerText || '')).trim();
+  const state = ((document.title || '') + '\\n' + (document.body?.innerText || '')).trim();
   return /Just a moment|security verification|安全验证|Checking your browser|Verify you are human|Attention Required|Sorry, you have been blocked/i.test(state);
 })()`;
 const SOLSCAN_ORIGIN = 'https://solscan.io';
@@ -43,11 +36,11 @@ const SCAN_ORIGINS: Readonly<Record<string, string>> = {
 export class ExplorerBrowserVerificationError extends Error {
   readonly code = 'explorer_verification_required';
 
-  constructor(host?: string) {
+  constructor(host?: string, taskName?: string) {
     super(
       host === undefined
         ? 'Explorer browser requires interactive verification.'
-        : `Explorer browser requires interactive verification for ${host}.`,
+        : `Explorer browser requires interactive verification for ${host}${taskName === undefined ? '' : ` in ego-browser task ${taskName}`}.`,
     );
     this.name = 'ExplorerBrowserVerificationError';
   }
@@ -58,7 +51,7 @@ export class EgoBrowserUnavailableError extends Error {
 
   constructor() {
     super(
-      'ego-browser is required for protected Explorer pages. Install ego lite from https://lite.ego.app/ and complete onboarding.',
+      'ego-browser is required for public Explorer queries. Install ego lite from https://lite.ego.app/ and complete onboarding.',
     );
     this.name = 'EgoBrowserUnavailableError';
   }
@@ -122,32 +115,28 @@ const browserEvmTransactionSchema = z
   .strict();
 
 export interface CreateBrowserChainAnalysisClientOptions {
-  chromeExecutable: string;
-  profileDirectory: string;
-  scanPageEvaluator?: BrowserPageEvaluator;
+  pageEvaluator?: BrowserPageEvaluator;
   timeoutMs?: number;
 }
 
 export type BrowserPageEvaluator = (input: {
-  chromeExecutable: string;
-  expression: string;
-  profileDirectory: string;
+  expression?: string;
+  fetchUrl?: string;
   signal?: AbortSignal;
   timeoutMs: number;
   url: string;
 }) => Promise<unknown>;
 
 /**
- * Fixed-origin, read-only Explorer evidence for XXYY diagnosis. This deliberately exposes only
- * getTransaction; trace and MEV calls remain unavailable because browser pages are partial evidence.
+ * Fixed-origin, read-only Explorer evidence for every XXYY-supported chain. This deliberately
+ * exposes only getTransaction; trace and MEV calls remain unavailable because browser pages are
+ * partial evidence.
  */
 export function createBrowserChainAnalysisClient(
   options: CreateBrowserChainAnalysisClientOptions,
 ): PublicTransactionClient {
-  const chromeExecutable = path.resolve(options.chromeExecutable);
-  const profileDirectory = path.resolve(options.profileDirectory);
   const timeoutMs = positiveInteger(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 'timeoutMs');
-  const scanPageEvaluator = options.scanPageEvaluator ?? createEgoBrowserPageEvaluator();
+  const pageEvaluator = options.pageEvaluator ?? createEgoBrowserPageEvaluator();
   let browserQueue: Promise<void> = Promise.resolve();
   return {
     async close() {},
@@ -156,19 +145,15 @@ export function createBrowserChainAnalysisClient(
       const load = browserQueue.then(
         () =>
           loadBrowserTransaction({
-            chromeExecutable,
-            profileDirectory,
             reference,
-            scanPageEvaluator,
+            pageEvaluator,
             timeoutMs,
             ...(requestOptions.signal === undefined ? {} : { signal: requestOptions.signal }),
           }),
         () =>
           loadBrowserTransaction({
-            chromeExecutable,
-            profileDirectory,
             reference,
-            scanPageEvaluator,
+            pageEvaluator,
             timeoutMs,
             ...(requestOptions.signal === undefined ? {} : { signal: requestOptions.signal }),
           }),
@@ -183,21 +168,13 @@ export function createBrowserChainAnalysisClient(
 }
 
 async function loadBrowserTransaction(input: {
-  chromeExecutable: string;
-  profileDirectory: string;
   reference: ReturnType<typeof resolvePublicTransactionReference>;
-  scanPageEvaluator: BrowserPageEvaluator;
+  pageEvaluator: BrowserPageEvaluator;
   signal?: AbortSignal;
   timeoutMs: number;
 }): Promise<GetTransactionOutput> {
   if (input.reference.family === 'solana') {
-    return await loadSolscanTransaction(
-      input.chromeExecutable,
-      input.profileDirectory,
-      input.reference.transactionId,
-      input.timeoutMs,
-      input.signal,
-    );
+    return await loadSolscanTransaction({ ...input, reference: input.reference });
   }
   const blockscoutOrigin = BLOCKSCOUT_ORIGINS[input.reference.network];
   if (blockscoutOrigin !== undefined) {
@@ -265,12 +242,14 @@ export async function resolveEgoBrowserExecutable(
 export function createEgoBrowserPageEvaluator(
   options: {
     command?: string;
+    taskName?: string;
   } = {},
 ): BrowserPageEvaluator {
   const command = options.command?.trim() || 'ego-browser';
+  const taskName = options.taskName?.trim() || 'xxyy-public-explorer';
   return async (input) => {
     try {
-      return await evaluateEgoBrowserPage(command, input);
+      return await evaluateEgoBrowserPage(command, taskName, input);
     } catch (error) {
       if (isRecord(error) && error.code === 'ENOENT') {
         throw new EgoBrowserUnavailableError();
@@ -282,11 +261,14 @@ export function createEgoBrowserPageEvaluator(
 
 async function evaluateEgoBrowserPage(
   command: string,
+  taskName: string,
   input: Parameters<BrowserPageEvaluator>[0],
 ): Promise<unknown> {
+  if ((input.expression === undefined) === (input.fetchUrl === undefined)) {
+    throw new TypeError('Browser page evaluation requires exactly one expression or fetchUrl.');
+  }
   const nonce = randomUUID();
   const marker = '__XXYY_EGO_RESULT_' + nonce + '__:';
-  const taskName = 'xxyy-diagnosis-' + nonce;
   const timeoutSeconds = Math.max(5, Math.ceil(input.timeoutMs / 1_000));
   const script = [
     'const task = await useOrCreateTaskSpace(' + JSON.stringify(taskName) + ')',
@@ -297,21 +279,30 @@ async function evaluateEgoBrowserPage(
       ', {wait:true, timeout:' +
       timeoutSeconds +
       '})',
-    '  const deadline = Date.now() + ' + input.timeoutMs,
-    '  let value',
-    '  while (Date.now() < deadline) {',
-    '    value = await js(' + JSON.stringify(input.expression) + ')',
-    '    if (value !== null && value !== undefined) break',
-    '    await wait(0.25)',
-    '  }',
+    '  const verificationRequiredBeforeRead = await js(' +
+      JSON.stringify(EXPLORER_VERIFICATION_EXPRESSION) +
+      ')',
+    "  if (verificationRequiredBeforeRead) throw new Error('verification_required')",
+    ...(input.fetchUrl === undefined
+      ? [
+          '  const deadline = Date.now() + ' + input.timeoutMs,
+          '  let value',
+          '  while (Date.now() < deadline) {',
+          '    value = await js(' + JSON.stringify(input.expression) + ')',
+          '    if (value !== null && value !== undefined) break',
+          '    await wait(0.25)',
+          '  }',
+        ]
+      : [
+          '  const responseBody = await browserFetch(' + JSON.stringify(input.fetchUrl) + ')',
+          "  const value = typeof responseBody === 'string' ? JSON.parse(responseBody) : responseBody",
+        ]),
     '  const verificationRequired = value === null || value === undefined ? await js(' +
       JSON.stringify(EXPLORER_VERIFICATION_EXPRESSION) +
       ') : false',
     "  payload = value === null || value === undefined ? {ok:false, error:verificationRequired ? 'verification_required' : 'page_evidence_timeout'} : {ok:true, value}",
-    '} catch {',
-    "  payload = {ok:false, error:'page_evaluation_failed'}",
-    '} finally {',
-    '  await completeTaskSpace(task.id, {keep:false})',
+    '} catch (error) {',
+    "  payload = {ok:false, error:error?.message === 'verification_required' ? 'verification_required' : 'page_evaluation_failed'}",
     '}',
     'const serialized = JSON.stringify(payload)',
     'const totalChunks = Math.max(1, Math.ceil(serialized.length / 400))',
@@ -390,7 +381,7 @@ async function evaluateEgoBrowserPage(
   const payloadText = chunks.map((chunk) => chunk.value).join('');
   const payload = JSON.parse(payloadText) as unknown;
   if (isRecord(payload) && payload.error === 'verification_required') {
-    throw new ExplorerBrowserVerificationError(new URL(input.url).hostname);
+    throw new ExplorerBrowserVerificationError(new URL(input.url).hostname, taskName);
   }
   if (!isRecord(payload) || payload.ok !== true || !('value' in payload)) {
     throw new Error('ego-browser page evaluation returned no evidence.');
@@ -399,16 +390,15 @@ async function evaluateEgoBrowserPage(
 }
 
 async function loadBlockscoutTransaction(input: {
-  chromeExecutable: string;
   origin: string;
-  profileDirectory: string;
+  pageEvaluator: BrowserPageEvaluator;
   reference: Extract<ReturnType<typeof resolvePublicTransactionReference>, { family: 'evm' }>;
   signal?: AbortSignal;
   timeoutMs: number;
 }): Promise<GetTransactionOutput> {
   const apiUrl = `${input.origin}/api/v2/transactions/${input.reference.transactionId}`;
   const explorerUrl = `${input.origin}/tx/${input.reference.transactionId}`;
-  const raw = await readJsonBrowserPage({ ...input, url: apiUrl });
+  const raw = await input.pageEvaluator({ ...input, fetchUrl: apiUrl, url: explorerUrl });
   if (!isRecord(raw)) throw new Error('Blockscout browser page returned invalid JSON.');
   const transfers = Array.isArray(raw.token_transfers) ? raw.token_transfers : [];
   const tokenTransfers = transfers.flatMap((item) => {
@@ -461,25 +451,25 @@ async function loadBlockscoutTransaction(input: {
     tokenTransfers,
     valueWei: typeof raw.value === 'string' ? raw.value : '0',
   });
+  assertEvmTransactionMatch(parsed.hash, input.reference.transactionId);
   return projectEvmBrowserTransaction(parsed, input.reference, explorerUrl, 'blockscout_browser');
 }
 
 async function loadScanPageTransaction(input: {
-  chromeExecutable: string;
   origin: string;
-  profileDirectory: string;
+  pageEvaluator: BrowserPageEvaluator;
   reference: Extract<ReturnType<typeof resolvePublicTransactionReference>, { family: 'evm' }>;
-  scanPageEvaluator: BrowserPageEvaluator;
   signal?: AbortSignal;
   timeoutMs: number;
 }): Promise<GetTransactionOutput> {
   const explorerUrl = `${input.origin}/tx/${input.reference.transactionId}`;
   const expression = createScanPageTransactionExpression();
-  const raw = await input.scanPageEvaluator({ ...input, expression, url: explorerUrl });
+  const raw = await input.pageEvaluator({ ...input, expression, url: explorerUrl });
   if (isRecord(raw) && raw.blocked === true) {
     throw new ExplorerBrowserVerificationError(new URL(explorerUrl).hostname);
   }
   const parsed = browserEvmTransactionSchema.parse(raw);
+  assertEvmTransactionMatch(parsed.hash, input.reference.transactionId);
   return projectEvmBrowserTransaction(parsed, input.reference, explorerUrl, 'scan_browser');
 }
 
@@ -651,88 +641,6 @@ function addressHash(value: unknown): string {
   return value.hash;
 }
 
-async function readJsonBrowserPage(input: {
-  chromeExecutable: string;
-  profileDirectory: string;
-  signal?: AbortSignal;
-  timeoutMs: number;
-  url: string;
-}): Promise<unknown> {
-  return await evaluateBrowserPage({
-    ...input,
-    expression: `(() => {
-      const pre = document.querySelector('pre');
-      if (!pre?.textContent) return null;
-      try { return JSON.parse(pre.textContent); } catch { return null; }
-    })()`,
-  });
-}
-
-async function evaluateBrowserPage(input: {
-  chromeExecutable: string;
-  expression: string;
-  profileDirectory: string;
-  signal?: AbortSignal;
-  timeoutMs: number;
-  url: string;
-}): Promise<unknown> {
-  let chrome: ChildProcess | undefined;
-  try {
-    await prepareBrowserProfile(input.profileDirectory);
-    chrome = await spawnExplorerChrome(input.chromeExecutable, [
-      '--disable-component-update',
-      '--disable-default-apps',
-      '--disable-extensions',
-      '--disable-gpu',
-      '--disable-sync',
-      '--no-default-browser-check',
-      '--no-first-run',
-      ...chromeRootSandboxFlags(),
-      '--remote-debugging-port=0',
-      `--user-data-dir=${input.profileDirectory}`,
-      'about:blank',
-    ]);
-    const debuggerUrl = await readDebuggerUrl(chrome, input.timeoutMs, input.signal);
-    const pageUrl = await findPageDebuggerUrl(debuggerUrl, input.timeoutMs, input.signal);
-    const cdp = await createCdpClient(pageUrl, input.timeoutMs, input.signal);
-    try {
-      await cdp.call('Page.enable');
-      await cdp.call('Runtime.enable');
-      await cdp.call('Page.navigate', { url: input.url });
-      const deadline = Date.now() + input.timeoutMs;
-      let verificationRequired = false;
-      while (Date.now() < deadline) {
-        input.signal?.throwIfAborted();
-        const result = await cdp.call('Runtime.evaluate', {
-          awaitPromise: true,
-          expression: input.expression,
-          returnByValue: true,
-        });
-        const remote = isRecord(result.result) ? result.result : undefined;
-        if (remote !== undefined && remote.value !== null && remote.value !== undefined) {
-          return remote.value;
-        }
-        const verification = await cdp.call('Runtime.evaluate', {
-          awaitPromise: true,
-          expression: EXPLORER_VERIFICATION_EXPRESSION,
-          returnByValue: true,
-        });
-        const verificationRemote = isRecord(verification.result) ? verification.result : undefined;
-        verificationRequired ||= verificationRemote?.value === true;
-        await delay(250, input.signal);
-      }
-      if (verificationRequired) {
-        throw new ExplorerBrowserVerificationError(new URL(input.url).hostname);
-      }
-      throw new Error(`Browser page evidence timed out for ${new URL(input.url).hostname}.`);
-    } finally {
-      cdp.close();
-    }
-  } finally {
-    await terminateChrome(chrome);
-  }
-}
-
 export function resolveSolanaBrowserTransactionId(reference: string, network?: string): string {
   const trimmed = reference.trim();
   if (
@@ -756,46 +664,25 @@ export function resolveSolanaBrowserTransactionId(reference: string, network?: s
   return solanaSignatureSchema.parse(candidate);
 }
 
-async function loadSolscanTransaction(
-  chromeExecutable: string,
-  profileDirectory: string,
-  transactionId: string,
-  timeoutMs: number,
-  signal?: AbortSignal,
-): Promise<GetTransactionOutput> {
-  const explorerUrl = `${SOLSCAN_ORIGIN}/tx/${transactionId}`;
-  let chrome: ChildProcess | undefined;
-  try {
-    await prepareBrowserProfile(profileDirectory);
-    chrome = await spawnExplorerChrome(chromeExecutable, [
-      '--disable-component-update',
-      '--disable-default-apps',
-      '--disable-extensions',
-      '--disable-gpu',
-      '--disable-sync',
-      '--no-default-browser-check',
-      '--no-first-run',
-      ...chromeRootSandboxFlags(),
-      '--remote-debugging-port=0',
-      `--user-data-dir=${profileDirectory}`,
-      'about:blank',
-    ]);
-    const debuggerUrl = await readDebuggerUrl(chrome, timeoutMs, signal);
-    const pageUrl = await findPageDebuggerUrl(debuggerUrl, timeoutMs, signal);
-    const cdp = await createCdpClient(pageUrl, timeoutMs, signal);
-    try {
-      await cdp.call('Page.enable');
-      await cdp.call('Runtime.enable');
-      await cdp.call('Network.enable');
-      const detail = waitForSolscanDetail(cdp, transactionId, timeoutMs, signal);
-      await cdp.call('Page.navigate', { url: explorerUrl });
-      const parsed = browserTransactionSchema.parse(await detail);
-      return projectTransaction(parsed, explorerUrl);
-    } finally {
-      cdp.close();
-    }
-  } finally {
-    await terminateChrome(chrome);
+async function loadSolscanTransaction(input: {
+  pageEvaluator: BrowserPageEvaluator;
+  reference: Extract<ReturnType<typeof resolvePublicTransactionReference>, { family: 'solana' }>;
+  signal?: AbortSignal;
+  timeoutMs: number;
+}): Promise<GetTransactionOutput> {
+  const explorerUrl = `${SOLSCAN_ORIGIN}/tx/${input.reference.transactionId}`;
+  const apiUrl = `${SOLSCAN_API_ORIGIN}/v2/transaction/detail?tx=${input.reference.transactionId}`;
+  const payload = await input.pageEvaluator({ ...input, fetchUrl: apiUrl, url: explorerUrl });
+  const parsed = browserTransactionSchema.parse(normalizeSolscanPayload(payload));
+  if (parsed.transactionId !== input.reference.transactionId) {
+    throw new Error('Solscan browser response transaction ID conflicted with the request.');
+  }
+  return projectTransaction(parsed, explorerUrl);
+}
+
+function assertEvmTransactionMatch(actual: string, expected: string): void {
+  if (actual.toLowerCase() !== expected.toLowerCase()) {
+    throw new Error('Explorer browser response transaction hash conflicted with the request.');
   }
 }
 
@@ -855,17 +742,6 @@ export async function resolveExplorerChromeLaunch(
   } catch {
     return { arguments: ['--headless=new', ...chromeArguments], command: chromeExecutable };
   }
-}
-
-async function spawnExplorerChrome(
-  chromeExecutable: string,
-  chromeArguments: string[],
-): Promise<ChildProcess> {
-  const launch = await resolveExplorerChromeLaunch(chromeExecutable, chromeArguments);
-  return spawn(launch.command, launch.arguments, {
-    detached: process.platform !== 'win32',
-    stdio: ['ignore', 'ignore', 'pipe'],
-  });
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
@@ -943,66 +819,6 @@ function projectTransaction(
     summary:
       'Transaction facts were read from the fixed Solscan page in a browser; evidence is partial and not an RPC consensus result.',
     transactionId: parsed.transactionId,
-  });
-}
-
-async function waitForSolscanDetail(
-  cdp: CdpClient,
-  transactionId: string,
-  timeoutMs: number,
-  signal?: AbortSignal,
-): Promise<unknown> {
-  return await new Promise<unknown>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      void cdp
-        .call('Runtime.evaluate', {
-          expression: `({url: location.href, text: (document.body?.innerText || '').slice(0, 240)})`,
-          returnByValue: true,
-        })
-        .then((result) => {
-          const remote = isRecord(result.result) ? result.result : undefined;
-          finish(
-            new Error(
-              `Solscan browser transaction evidence timed out: ${JSON.stringify(remote?.value)}`,
-            ),
-          );
-        })
-        .catch(() => finish(new Error('Solscan browser transaction evidence timed out.')));
-    }, timeoutMs);
-    const abort = () => finish(new Error('Solscan browser transaction evidence was aborted.'));
-    const unsubscribe = cdp.on('Network.responseReceived', (params) => {
-      const response = isRecord(params.response) ? params.response : undefined;
-      if (
-        typeof response?.url !== 'string' ||
-        !response.url.startsWith(`${SOLSCAN_API_ORIGIN}/v2/transaction/detail`) ||
-        !response.url.includes(transactionId) ||
-        typeof params.requestId !== 'string'
-      )
-        return;
-      unsubscribe();
-      void cdp
-        .call('Network.getResponseBody', { requestId: params.requestId })
-        .then((result) => {
-          if (typeof result.body !== 'string')
-            throw new Error('Solscan response body was missing.');
-          const body =
-            result.base64Encoded === true
-              ? Buffer.from(result.body, 'base64').toString('utf8')
-              : result.body;
-          finish(undefined, normalizeSolscanPayload(JSON.parse(body) as unknown));
-        })
-        .catch((error: unknown) =>
-          finish(error instanceof Error ? error : new Error('Solscan response read failed.')),
-        );
-    });
-    const finish = (error?: Error, value?: unknown) => {
-      clearTimeout(timeout);
-      unsubscribe();
-      signal?.removeEventListener('abort', abort);
-      error === undefined ? resolve(value) : reject(error);
-    };
-    signal?.addEventListener('abort', abort, { once: true });
-    if (signal?.aborted === true) abort();
   });
 }
 
@@ -1091,10 +907,6 @@ function unique(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
 
-function chromeRootSandboxFlags(): string[] {
-  return typeof process.getuid === 'function' && process.getuid() === 0 ? ['--no-sandbox'] : [];
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -1103,35 +915,4 @@ function positiveInteger(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value <= 0)
     throw new RangeError(`${label} must be positive.`);
   return value;
-}
-
-async function terminateChrome(chrome: ChildProcess | undefined): Promise<void> {
-  if (chrome === undefined || chrome.exitCode !== null) return;
-  await new Promise<void>((resolve) => {
-    const timeout = setTimeout(() => {
-      signalBrowserProcess(chrome, 'SIGKILL');
-      resolve();
-    }, 2_000);
-    chrome.once('exit', () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-    signalBrowserProcess(chrome, 'SIGTERM');
-  });
-}
-
-function signalBrowserProcess(chrome: ChildProcess, signal: NodeJS.Signals): void {
-  if (chrome.pid !== undefined && process.platform !== 'win32') {
-    try {
-      process.kill(-chrome.pid, signal);
-      return;
-    } catch {
-      // The process group may already be gone; fall back to the direct child handle.
-    }
-  }
-  try {
-    chrome.kill(signal);
-  } catch {
-    // Process already exited.
-  }
 }

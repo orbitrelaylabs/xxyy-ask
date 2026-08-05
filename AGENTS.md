@@ -41,7 +41,7 @@
 - `packages/product-support-runtime`：产品知识检索的直接 runtime 与输入输出契约。
 - `packages/xxyy-transaction-diagnosis-core`：无网络依赖的 XXYY 池子匹配/小池与 Sandwich 四态投影；canonical 与流动性判断严格分离。
 - `packages/xxyy-market-data-adapter`：固定访问 `https://www.xxyy.io` 的只读成交/多池适配器；保留受限时间窗内的周边成交，完整哈希和完整 maker 冲突时失败关闭，不接受调用方 endpoint。
-- `packages/xxyy-transaction-diagnosis-runtime`：固定 Explorer/XXYY 浏览器查询、公开交易解析和隔离 Chrome 截图提供器；Web/Telegram 直接调用，交易 Skill CLI 由它打包生成。
+- `packages/xxyy-transaction-diagnosis-runtime`：统一 ego-browser 固定 Explorer 查询、公开交易解析、XXYY 浏览器核对和隔离 Chrome 截图提供器；Web/Telegram 直接调用，交易 Skill CLI 由它打包生成。
 - `packages/transaction-analysis-core`：浏览器 EVM 交易快照使用的无网络领域分析。
 - `apps/cli`：`rag:ingest`、`rag:sync:x`、`rag:migrate`、`rag:stats`、`rag:evaluate`、`rag:ask`。
 - `apps/api`：HTTP API 和 Web UI 服务入口。

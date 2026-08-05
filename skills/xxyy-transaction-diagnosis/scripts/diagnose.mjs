@@ -15342,12 +15342,12 @@ function positiveInteger(value, label) {
 }
 
 // packages/xxyy-transaction-diagnosis-runtime/src/browser-chain-analysis-client.ts
-import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
-import { spawn as spawn2 } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
-import { access, mkdir as mkdir2, readlink, unlink } from "node:fs/promises";
+import { access, mkdir, readlink, unlink } from "node:fs/promises";
 import { hostname as hostname3 } from "node:os";
-import path2 from "node:path";
+import path from "node:path";
 
 // packages/shared/src/domain-contract.ts
 var evidenceKinds = [
@@ -15779,13 +15779,6 @@ function isUint256(value) {
   return canonicalUintPattern.test(value) && BigInt(value) <= EVM_UINT256_MAX;
 }
 
-// packages/xxyy-transaction-diagnosis-runtime/src/chrome-screenshot-provider.ts
-import { createHash, randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-
 // packages/xxyy-transaction-diagnosis-runtime/src/network-profiles.ts
 var BUILT_IN_EVM_NETWORKS = [
   {
@@ -15851,7 +15844,6 @@ function normalizePublicNetworkIdentifier(value) {
   const normalized = value.toLowerCase();
   const builtIn = findBuiltInEvmNetworkByAlias(normalized);
   if (builtIn !== void 0) return builtIn.canonicalNetwork;
-  if (/^eip155:[1-9]\d*$/u.test(normalized)) return normalized;
   if (SOLANA_MAINNET_ALIASES.has(normalized)) return SOLANA_MAINNET_NETWORK;
   return void 0;
 }
@@ -15933,6 +15925,865 @@ var getTransactionOutputSchema = external_exports.discriminatedUnion("family", [
   }).strict()
 ]);
 
+// packages/xxyy-transaction-diagnosis-runtime/src/transaction-reference.ts
+var PublicTransactionReferenceError = class extends Error {
+  code = "invalid_reference";
+  constructor() {
+    super("The transaction reference or network is invalid or ambiguous.");
+    this.name = "PublicTransactionReferenceError";
+  }
+};
+var SOLANA_EXPLORER_HOSTS = /* @__PURE__ */ new Set(["explorer.solana.com", "solscan.io", "www.solscan.io"]);
+function resolvePublicTransactionReference(input) {
+  const explicitNetwork = input.network === void 0 ? void 0 : normalizeNetwork(input.network);
+  return looksLikeUrl(input.reference) ? resolveExplorerUrl(input.reference, explicitNetwork) : resolveRawTransactionId(input.reference, explicitNetwork);
+}
+function resolveExplorerUrl(reference, explicitNetwork) {
+  let url2;
+  try {
+    url2 = new URL(reference);
+  } catch {
+    throw invalidReference();
+  }
+  if (url2.protocol !== "https:" || url2.username.length > 0 || url2.password.length > 0 || url2.hash.length > 0) {
+    throw invalidReference();
+  }
+  const parts = url2.pathname.split("/").filter(Boolean);
+  if (parts.length !== 2 || parts[0]?.toLowerCase() !== "tx" || parts[1] === void 0) {
+    throw invalidReference();
+  }
+  const evm = findBuiltInEvmNetworkByExplorerHost(url2.hostname);
+  if (evm !== void 0) {
+    assertNetworkMatch(explicitNetwork, evm.canonicalNetwork);
+    const transactionId = parseEvmTransactionId(parts[1]);
+    return {
+      chainId: evm.chainId,
+      explorerUrl: `${evm.explorerBaseUrl}/tx/${transactionId}`,
+      family: "evm",
+      network: evm.canonicalNetwork,
+      transactionId
+    };
+  }
+  if (SOLANA_EXPLORER_HOSTS.has(url2.hostname.toLowerCase())) {
+    const cluster = url2.searchParams.get("cluster")?.toLowerCase();
+    if (cluster !== void 0 && cluster !== "mainnet" && cluster !== "mainnet-beta") {
+      throw invalidReference();
+    }
+    assertNetworkMatch(explicitNetwork, SOLANA_MAINNET_NETWORK);
+    const transactionId = parseSolanaTransactionId(parts[1]);
+    return {
+      explorerUrl: `https://solscan.io/tx/${transactionId}`,
+      family: "solana",
+      network: SOLANA_MAINNET_NETWORK,
+      transactionId
+    };
+  }
+  throw invalidReference();
+}
+function resolveRawTransactionId(reference, explicitNetwork) {
+  if (explicitNetwork?.startsWith("eip155:")) {
+    const transactionId = parseEvmTransactionId(reference);
+    const chainId = explicitNetwork.slice("eip155:".length);
+    const known = findBuiltInEvmNetworkByChainId(chainId);
+    return {
+      chainId,
+      ...known === void 0 ? {} : { explorerUrl: `${known.explorerBaseUrl}/tx/${transactionId}` },
+      family: "evm",
+      network: explicitNetwork,
+      transactionId
+    };
+  }
+  if (explicitNetwork === SOLANA_MAINNET_NETWORK) {
+    const transactionId = parseSolanaTransactionId(reference);
+    return {
+      explorerUrl: `https://solscan.io/tx/${transactionId}`,
+      family: "solana",
+      network: explicitNetwork,
+      transactionId
+    };
+  }
+  throw invalidReference();
+}
+function normalizeNetwork(network) {
+  const normalized = normalizePublicNetworkIdentifier(network);
+  if (normalized === void 0) throw invalidReference();
+  return normalized;
+}
+function assertNetworkMatch(explicit, resolved) {
+  if (explicit !== void 0 && explicit !== resolved) throw invalidReference();
+}
+function looksLikeUrl(value) {
+  return /^https?:\/\//iu.test(value);
+}
+function parseEvmTransactionId(value) {
+  const result2 = evmHashSchema.safeParse(value);
+  if (!result2.success) throw invalidReference();
+  return result2.data;
+}
+function parseSolanaTransactionId(value) {
+  const result2 = solanaSignatureSchema.safeParse(value);
+  if (!result2.success) throw invalidReference();
+  return result2.data;
+}
+function invalidReference() {
+  return new PublicTransactionReferenceError();
+}
+
+// packages/xxyy-transaction-diagnosis-runtime/src/browser-chain-analysis-client.ts
+var DEFAULT_TIMEOUT_MS = 45e3;
+var EXPLORER_VERIFICATION_EXPRESSION = `(() => {
+  const state = ((document.title || '') + '\\n' + (document.body?.innerText || '')).trim();
+  return /Just a moment|security verification|\u5B89\u5168\u9A8C\u8BC1|Checking your browser|Verify you are human|Attention Required|Sorry, you have been blocked/i.test(state);
+})()`;
+var SOLSCAN_ORIGIN = "https://solscan.io";
+var SOLSCAN_API_ORIGIN = "https://api-v2.solscan.io";
+var BLOCKSCOUT_ORIGINS = {
+  "eip155:1": "https://eth.blockscout.com",
+  "eip155:8453": "https://base.blockscout.com",
+  "eip155:4663": "https://robinhoodchain.blockscout.com"
+};
+var SCAN_ORIGINS = {
+  "eip155:56": "https://bscscan.com",
+  "eip155:988": "https://stablescan.xyz"
+};
+var ExplorerBrowserVerificationError = class extends Error {
+  code = "explorer_verification_required";
+  constructor(host, taskName) {
+    super(
+      host === void 0 ? "Explorer browser requires interactive verification." : `Explorer browser requires interactive verification for ${host}${taskName === void 0 ? "" : ` in ego-browser task ${taskName}`}.`
+    );
+    this.name = "ExplorerBrowserVerificationError";
+  }
+};
+var EgoBrowserUnavailableError = class extends Error {
+  code = "ego_browser_unavailable";
+  constructor() {
+    super(
+      "ego-browser is required for public Explorer queries. Install ego lite from https://lite.ego.app/ and complete onboarding."
+    );
+    this.name = "EgoBrowserUnavailableError";
+  }
+};
+var browserTransactionSchema = external_exports.object({
+  accountKeys: external_exports.array(external_exports.string()).max(512),
+  blockTime: external_exports.number().int().nonnegative().optional(),
+  computeUnitsConsumed: external_exports.union([external_exports.string(), external_exports.number()]).optional(),
+  executionStatus: external_exports.enum(["reverted", "success", "unknown"]),
+  feeLamports: external_exports.union([external_exports.string(), external_exports.number()]).optional(),
+  logCount: external_exports.number().int().nonnegative(),
+  nativeChanges: external_exports.array(external_exports.object({ account: external_exports.string(), delta: external_exports.union([external_exports.string(), external_exports.number()]) })).max(512),
+  programIds: external_exports.array(external_exports.string()).max(512),
+  slot: external_exports.union([external_exports.string(), external_exports.number()]),
+  tokenChanges: external_exports.array(
+    external_exports.object({
+      account: external_exports.string().optional(),
+      decimals: external_exports.number().int().nonnegative(),
+      delta: external_exports.union([external_exports.string(), external_exports.number()]),
+      mint: external_exports.string(),
+      owner: external_exports.string().optional(),
+      programId: external_exports.string().optional()
+    })
+  ).max(1024),
+  transactionId: external_exports.string()
+}).strict();
+var browserEvmTransactionSchema = external_exports.object({
+  accountAddresses: external_exports.array(external_exports.string()).max(1024),
+  blockNumber: external_exports.union([external_exports.string(), external_exports.number()]),
+  failureReason: external_exports.string().trim().min(1).max(1e3).optional(),
+  feeWei: external_exports.string(),
+  from: external_exports.string(),
+  hash: external_exports.string(),
+  rawInput: external_exports.string(),
+  status: external_exports.enum(["reverted", "success", "unknown"]),
+  timestamp: external_exports.string(),
+  to: external_exports.string().nullable(),
+  tokenAddresses: external_exports.array(external_exports.string()).max(512),
+  tokenTransfers: external_exports.array(
+    external_exports.object({
+      amountRaw: external_exports.string(),
+      from: external_exports.string(),
+      logIndex: external_exports.number().int().nonnegative(),
+      to: external_exports.string(),
+      tokenAddress: external_exports.string()
+    })
+  ).max(500),
+  valueWei: external_exports.string()
+}).strict();
+function createBrowserChainAnalysisClient(options) {
+  const timeoutMs = positiveInteger2(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, "timeoutMs");
+  const pageEvaluator = options.pageEvaluator ?? createEgoBrowserPageEvaluator();
+  let browserQueue = Promise.resolve();
+  return {
+    async close() {
+    },
+    async getTransaction(input, requestOptions = {}) {
+      const reference = resolvePublicTransactionReference(input);
+      const load = browserQueue.then(
+        () => loadBrowserTransaction({
+          reference,
+          pageEvaluator,
+          timeoutMs,
+          ...requestOptions.signal === void 0 ? {} : { signal: requestOptions.signal }
+        }),
+        () => loadBrowserTransaction({
+          reference,
+          pageEvaluator,
+          timeoutMs,
+          ...requestOptions.signal === void 0 ? {} : { signal: requestOptions.signal }
+        })
+      );
+      browserQueue = load.then(
+        () => void 0,
+        () => void 0
+      );
+      return await load;
+    }
+  };
+}
+async function loadBrowserTransaction(input) {
+  if (input.reference.family === "solana") {
+    return await loadSolscanTransaction({ ...input, reference: input.reference });
+  }
+  const blockscoutOrigin = BLOCKSCOUT_ORIGINS[input.reference.network];
+  if (blockscoutOrigin !== void 0) {
+    return await loadBlockscoutTransaction({
+      ...input,
+      origin: blockscoutOrigin,
+      reference: input.reference
+    });
+  }
+  const scanOrigin = SCAN_ORIGINS[input.reference.network];
+  if (scanOrigin !== void 0) {
+    return await loadScanPageTransaction({
+      ...input,
+      origin: scanOrigin,
+      reference: input.reference
+    });
+  }
+  throw new Error(`Browser evidence is unavailable for ${input.reference.network}.`);
+}
+async function resolveBrowserChromeExecutable(configured) {
+  const candidates = [
+    configured?.trim(),
+    process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : void 0,
+    process.platform === "darwin" ? "/Applications/Chromium.app/Contents/MacOS/Chromium" : void 0,
+    process.platform === "linux" ? "/usr/bin/google-chrome" : void 0,
+    process.platform === "linux" ? "/usr/bin/google-chrome-stable" : void 0,
+    process.platform === "linux" ? "/usr/bin/chromium" : void 0,
+    process.platform === "linux" ? "/usr/bin/chromium-browser" : void 0
+  ].filter((candidate) => candidate !== void 0 && candidate.length > 0);
+  for (const candidate of candidates) {
+    try {
+      await access(candidate, fsConstants.X_OK);
+      return path.resolve(candidate);
+    } catch {
+    }
+  }
+  return void 0;
+}
+async function resolveEgoBrowserExecutable(pathValue = process.env.PATH) {
+  if (pathValue === void 0 || pathValue.trim().length === 0) return void 0;
+  for (const directory of pathValue.split(path.delimiter)) {
+    if (directory.length === 0) continue;
+    const candidate = path.join(directory, "ego-browser");
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+    }
+  }
+  return void 0;
+}
+function createEgoBrowserPageEvaluator(options = {}) {
+  const command = options.command?.trim() || "ego-browser";
+  const taskName = options.taskName?.trim() || "xxyy-public-explorer";
+  return async (input) => {
+    try {
+      return await evaluateEgoBrowserPage(command, taskName, input);
+    } catch (error51) {
+      if (isRecord(error51) && error51.code === "ENOENT") {
+        throw new EgoBrowserUnavailableError();
+      }
+      throw error51;
+    }
+  };
+}
+async function evaluateEgoBrowserPage(command, taskName, input) {
+  if (input.expression === void 0 === (input.fetchUrl === void 0)) {
+    throw new TypeError("Browser page evaluation requires exactly one expression or fetchUrl.");
+  }
+  const nonce = randomUUID();
+  const marker = "__XXYY_EGO_RESULT_" + nonce + "__:";
+  const timeoutSeconds = Math.max(5, Math.ceil(input.timeoutMs / 1e3));
+  const script = [
+    "const task = await useOrCreateTaskSpace(" + JSON.stringify(taskName) + ")",
+    "let payload",
+    "try {",
+    "  await openOrReuseTab(" + JSON.stringify(input.url) + ", {wait:true, timeout:" + timeoutSeconds + "})",
+    "  const verificationRequiredBeforeRead = await js(" + JSON.stringify(EXPLORER_VERIFICATION_EXPRESSION) + ")",
+    "  if (verificationRequiredBeforeRead) throw new Error('verification_required')",
+    ...input.fetchUrl === void 0 ? [
+      "  const deadline = Date.now() + " + input.timeoutMs,
+      "  let value",
+      "  while (Date.now() < deadline) {",
+      "    value = await js(" + JSON.stringify(input.expression) + ")",
+      "    if (value !== null && value !== undefined) break",
+      "    await wait(0.25)",
+      "  }"
+    ] : [
+      "  const responseBody = await browserFetch(" + JSON.stringify(input.fetchUrl) + ")",
+      "  const value = typeof responseBody === 'string' ? JSON.parse(responseBody) : responseBody"
+    ],
+    "  const verificationRequired = value === null || value === undefined ? await js(" + JSON.stringify(EXPLORER_VERIFICATION_EXPRESSION) + ") : false",
+    "  payload = value === null || value === undefined ? {ok:false, error:verificationRequired ? 'verification_required' : 'page_evidence_timeout'} : {ok:true, value}",
+    "} catch (error) {",
+    "  payload = {ok:false, error:error?.message === 'verification_required' ? 'verification_required' : 'page_evaluation_failed'}",
+    "}",
+    "const serialized = JSON.stringify(payload)",
+    "const totalChunks = Math.max(1, Math.ceil(serialized.length / 400))",
+    "for (let index = 0; index < totalChunks; index += 1) {",
+    "  cliLog(" + JSON.stringify(marker) + " + index + ':' + totalChunks + ':' + serialized.slice(index * 400, (index + 1) * 400))",
+    "}"
+  ].join("\n");
+  const child = spawn(command, ["nodejs"], { stdio: ["pipe", "pipe", "pipe"] });
+  const stdout = [];
+  const stderr = [];
+  const maxOutputBytes = 4 * 1048576;
+  let outputBytes = 0;
+  const collect = (target) => (chunk) => {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    outputBytes += buffer.byteLength;
+    if (outputBytes > maxOutputBytes) {
+      child.kill("SIGTERM");
+      return;
+    }
+    target.push(buffer);
+  };
+  child.stdout?.on("data", collect(stdout));
+  child.stderr?.on("data", collect(stderr));
+  child.stdin?.end(script);
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error("ego-browser page evaluation timed out."));
+    }, input.timeoutMs + 1e4);
+    const abort = () => {
+      child.kill("SIGTERM");
+      reject(new Error("ego-browser page evaluation was aborted."));
+    };
+    child.once("error", (error51) => {
+      clearTimeout(timeout);
+      input.signal?.removeEventListener("abort", abort);
+      reject(error51);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      input.signal?.removeEventListener("abort", abort);
+      if (outputBytes > maxOutputBytes) {
+        reject(new Error("ego-browser page evaluation output was too large."));
+      } else if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error("ego-browser page evaluation failed."));
+      }
+    });
+    input.signal?.addEventListener("abort", abort, { once: true });
+    if (input.signal?.aborted === true) abort();
+  });
+  const text = Buffer.concat([...stdout, ...stderr]).toString("utf8");
+  const chunks = text.split(/\r?\n/u).flatMap((line) => {
+    const markerIndex = line.indexOf(marker);
+    if (markerIndex < 0) return [];
+    const value = line.slice(markerIndex + marker.length);
+    const match = value.match(/^(\d+):(\d+):(.*)$/u);
+    return match === null ? [] : [{ index: Number(match[1]), total: Number(match[2]), value: match[3] }];
+  }).sort((left, right) => left.index - right.index);
+  const expectedChunks = chunks[0]?.total;
+  if (expectedChunks === void 0 || chunks.length !== expectedChunks || chunks.some((chunk, index) => chunk.index !== index || chunk.total !== expectedChunks)) {
+    throw new Error("ego-browser page evaluation omitted its result.");
+  }
+  const payloadText = chunks.map((chunk) => chunk.value).join("");
+  const payload = JSON.parse(payloadText);
+  if (isRecord(payload) && payload.error === "verification_required") {
+    throw new ExplorerBrowserVerificationError(new URL(input.url).hostname, taskName);
+  }
+  if (!isRecord(payload) || payload.ok !== true || !("value" in payload)) {
+    throw new Error("ego-browser page evaluation returned no evidence.");
+  }
+  return payload.value;
+}
+async function loadBlockscoutTransaction(input) {
+  const apiUrl = `${input.origin}/api/v2/transactions/${input.reference.transactionId}`;
+  const explorerUrl = `${input.origin}/tx/${input.reference.transactionId}`;
+  const raw = await input.pageEvaluator({ ...input, fetchUrl: apiUrl, url: explorerUrl });
+  if (!isRecord(raw)) throw new Error("Blockscout browser page returned invalid JSON.");
+  const transfers = Array.isArray(raw.token_transfers) ? raw.token_transfers : [];
+  const tokenTransfers = transfers.flatMap((item) => {
+    if (!isRecord(item) || !isRecord(item.from) || !isRecord(item.to) || !isRecord(item.token)) {
+      return [];
+    }
+    const total = isRecord(item.total) ? item.total : void 0;
+    return typeof item.from.hash === "string" && typeof item.to.hash === "string" && typeof item.token.address_hash === "string" && typeof total?.value === "string" && typeof item.log_index === "number" ? [
+      {
+        amountRaw: total.value,
+        from: item.from.hash,
+        logIndex: item.log_index,
+        to: item.to.hash,
+        tokenAddress: item.token.address_hash
+      }
+    ] : [];
+  });
+  const from = addressHash(raw.from);
+  const to = raw.to === null ? null : addressHash(raw.to);
+  const fee = isRecord(raw.fee) && typeof raw.fee.value === "string" ? raw.fee.value : void 0;
+  const parsed = browserEvmTransactionSchema.parse({
+    accountAddresses: unique([
+      from,
+      ...to === null ? [] : [to],
+      ...tokenTransfers.flatMap((transfer) => [transfer.from, transfer.to, transfer.tokenAddress])
+    ]),
+    blockNumber: raw.block_number,
+    ...typeof raw.revert_reason === "string" && raw.revert_reason.trim().length > 0 ? { failureReason: raw.revert_reason.trim() } : {},
+    feeWei: fee ?? "0",
+    from,
+    hash: raw.hash,
+    rawInput: typeof raw.raw_input === "string" ? raw.raw_input : "0x",
+    status: raw.status === "ok" || raw.result === "success" ? "success" : raw.status === "error" || raw.result === "error" ? "reverted" : "unknown",
+    timestamp: raw.timestamp,
+    to,
+    tokenAddresses: unique(tokenTransfers.map((transfer) => transfer.tokenAddress)),
+    tokenTransfers,
+    valueWei: typeof raw.value === "string" ? raw.value : "0"
+  });
+  assertEvmTransactionMatch(parsed.hash, input.reference.transactionId);
+  return projectEvmBrowserTransaction(parsed, input.reference, explorerUrl, "blockscout_browser");
+}
+async function loadScanPageTransaction(input) {
+  const explorerUrl = `${input.origin}/tx/${input.reference.transactionId}`;
+  const expression = createScanPageTransactionExpression();
+  const raw = await input.pageEvaluator({ ...input, expression, url: explorerUrl });
+  if (isRecord(raw) && raw.blocked === true) {
+    throw new ExplorerBrowserVerificationError(new URL(explorerUrl).hostname);
+  }
+  const parsed = browserEvmTransactionSchema.parse(raw);
+  assertEvmTransactionMatch(parsed.hash, input.reference.transactionId);
+  return projectEvmBrowserTransaction(parsed, input.reference, explorerUrl, "scan_browser");
+}
+function createScanPageTransactionExpression() {
+  return `(() => {
+    const text = (document.body?.innerText || '').replace(/\\r/g, '');
+    const pageState = ((document.title || '') + '\\n' + text).trim();
+    if (/Attention Required|Sorry, you have been blocked/i.test(pageState)) return {blocked:true};
+    if (/Just a moment|security verification|\u5B89\u5168\u9A8C\u8BC1|Checking your browser|Verify you are human/i.test(pageState)) return null;
+    const addressLinks = [...document.querySelectorAll('a[href*="/address/0x"]')].map((a) => (a.getAttribute('href') || '').match(/\\/address\\/(0x[0-9a-f]{40})/i)?.[1]).filter(Boolean);
+    const tokenLinks = [...document.querySelectorAll('a[href*="/token/0x"]')].map((a) => (a.getAttribute('href') || '').match(/\\/token\\/(0x[0-9a-f]{40})/i)?.[1]).filter(Boolean);
+    const hash = location.pathname.match(/\\/tx\\/(0x[0-9a-f]{64})/i)?.[1];
+    const block = text.match(/(?:Block|\u533A\u5757)\\s*(?:Height)?\\s*[:#]?\\s*([0-9,]+)/i)?.[1]?.replace(/,/g, '');
+    const timestampText = text.match(/[A-Z][a-z]{2}-\\d{2}-\\d{4}\\s+\\d{1,2}:\\d{2}:\\d{2}\\s+[AP]M\\s+\\+UTC/)?.[0] || '';
+    const unix = text.match(/\\((\\d{10})\\)/)?.[1];
+    const feeEth = text.match(/(?:Transaction Fee|Txn Fee|\u4EA4\u6613\u8D39\u7528)[^0-9]*([0-9]+(?:\\.[0-9]+)?)/i)?.[1];
+    const valueEth = text.match(/(?:Value|\u4EF7\u503C)[^0-9]*([0-9]+(?:\\.[0-9]+)?)/i)?.[1];
+    const statusText = text.match(/(?:Status|\u72B6\u6001)\\s*[:]?\\s*([^\\n]+)/i)?.[1] || '';
+    const executionErrorText = text.match(/(?:Warning!\\s*)?Error encountered during contract execution\\s*\\[([^\\]]+)\\]/i)?.[1] || '';
+    const reverted = /fail|error|revert|\u5931\u8D25/i.test(statusText) || executionErrorText.length > 0;
+    const failureReason = reverted
+      ? (/fail|error|revert|\u5931\u8D25/i.test(statusText) ? statusText.trim() : executionErrorText.trim())
+      : '';
+    const toWei = (value) => {
+      if (!value) return '0';
+      const [whole, fraction=''] = value.split('.');
+      return (BigInt(whole || '0') * 1000000000000000000n + BigInt((fraction + '000000000000000000').slice(0,18))).toString();
+    };
+    const fromMatch = text.match(/(?:^|\\n)From:\\s*\\n(0x[0-9a-f]{40})/i)?.[1];
+    const toMatch = text.match(/(?:^|\\n)To:\\s*\\n(0x[0-9a-f]{40})/i)?.[1];
+    const actionTokenLinks = [...document.querySelectorAll('a[href^="/token/"]')].flatMap((anchor) => {
+      const href = anchor.getAttribute('href') || '';
+      const token = href.match(/^\\/token\\/(0x[0-9a-f]{40})$/i)?.[1];
+      if (!token) return [];
+      let node = anchor;
+      for (let index = 0; index < 3 && node.parentElement; index += 1) {
+        const actionText = (node.textContent || '').replace(/\\s+/g, ' ').trim();
+        const looksLikeTransferRow = /(?:^|\\s)(?:From|To|received|sent)(?:\\s|$)/i.test(actionText);
+        if (/(?:^|\\s)Swap(?:\\s|$)/i.test(actionText) && !looksLikeTransferRow && actionText.length < 800) return [token];
+        node = node.parentElement;
+      }
+      return [];
+    });
+    const actorReceivedTokens = fromMatch ? [...document.querySelectorAll('a[href^="/token/"]')].flatMap((anchor) => {
+      const href = anchor.getAttribute('href') || '';
+      const token = href.match(/^\\/token\\/(0x[0-9a-f]{40})/i)?.[1];
+      let owner;
+      try { owner = new URL(href, location.origin).searchParams.get('a'); } catch {}
+      if (!token || owner?.toLowerCase() !== fromMatch.toLowerCase()) return [];
+      let row = anchor;
+      for (let index = 0; index < 4 && row.parentElement; index += 1) {
+        const rowText = (row.textContent || '').replace(/\\s+/g, ' ').trim();
+        if (/received|\u63A5\u6536|\u6536\u5230/i.test(rowText) && rowText.length < 600) return [token];
+        row = row.parentElement;
+      }
+      return [];
+    }) : [];
+    const excludedAddresses = new Set([fromMatch, toMatch].filter(Boolean).map((value) => value.toLowerCase()));
+    const textAddresses = [...text.matchAll(/\\b0x[0-9a-f]{40}\\b/gi)]
+      .map((match) => match[0])
+      .filter((address) => !excludedAddresses.has(address.toLowerCase()));
+    const targetTokenLinks = actionTokenLinks.length > 0
+      ? [...new Set(actionTokenLinks)].slice(0, 1)
+      : [...new Set([...actorReceivedTokens, ...tokenLinks, ...textAddresses])];
+    if (!hash || !block || (!fromMatch && addressLinks.length === 0)) return null;
+    return {
+      accountAddresses:[...new Set([fromMatch || addressLinks[0], toMatch || addressLinks[1]].filter(Boolean))], blockNumber:block, feeWei:toWei(feeEth),
+      ...(failureReason ? {failureReason} : {}), from:fromMatch || addressLinks[0], hash, rawInput:'0x',
+      status:/success|\u6210\u529F/i.test(statusText)?'success':reverted?'reverted':'unknown',
+      timestamp:unix ? new Date(Number(unix)*1000).toISOString() : timestampText ? new Date(timestampText.replace('+UTC','UTC')).toISOString() : new Date().toISOString(),
+      to:toMatch || addressLinks[1] || null, tokenAddresses:targetTokenLinks, tokenTransfers:[], valueWei:toWei(valueEth)
+    };
+  })()`;
+}
+function projectEvmBrowserTransaction(parsed, reference, explorerUrl, source) {
+  const evidenceId = "browser.transaction";
+  const findingId = "browser_transaction_facts";
+  const observedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const blockTimestamp = Math.floor(Date.parse(parsed.timestamp) / 1e3).toString();
+  const analysis = transactionAnalysisResultSchema.parse({
+    assetChanges: [],
+    conflicts: [],
+    diagnostics: [],
+    evidence: [
+      {
+        blockNumber: integerString(parsed.blockNumber),
+        chainId: reference.chainId,
+        confidence: 0.75,
+        effectiveAt: parsed.timestamp,
+        id: evidenceId,
+        kind: "transaction",
+        observedAt,
+        payloadHash: `sha256:${createHash("sha256").update(JSON.stringify(parsed)).digest("hex")}`,
+        source,
+        sourceUrl: explorerUrl,
+        structuredData: {
+          accountAddresses: parsed.accountAddresses,
+          ...parsed.failureReason === void 0 ? {} : { failureReason: parsed.failureReason },
+          tokenAddresses: parsed.tokenAddresses
+        },
+        supports: [findingId],
+        transactionHash: reference.transactionId
+      }
+    ],
+    findings: [
+      {
+        confidence: 0.75,
+        evidenceIds: [evidenceId],
+        id: findingId,
+        inference: false,
+        statement: "Transaction facts were read from a fixed public Explorer in a browser."
+      }
+    ],
+    skill: "transaction_analysis",
+    status: "partial",
+    summary: "Browser Explorer returned partial single-source transaction facts.",
+    timeline: [],
+    tokenTransfers: parsed.tokenTransfers.map((transfer) => ({
+      ...transfer,
+      evidenceId,
+      transferType: "transfer"
+    })),
+    transaction: {
+      blockNumber: integerString(parsed.blockNumber),
+      blockTimestamp,
+      chainId: reference.chainId,
+      executionStatus: parsed.status,
+      ...parsed.failureReason === void 0 ? {} : { failureReason: parsed.failureReason },
+      feeWei: parsed.feeWei,
+      from: parsed.from,
+      hash: reference.transactionId,
+      inputKind: parsed.rawInput === "0x" ? parsed.to === null ? "unknown" : "native_transfer" : parsed.to === null ? "contract_creation" : "contract_call",
+      to: parsed.to,
+      valueWei: parsed.valueWei
+    },
+    version: "1.0.0",
+    warnings: ["Explorer browser evidence is single-source and partial."]
+  });
+  return getTransactionOutputSchema.parse({
+    analysis,
+    chainId: reference.chainId,
+    diagnostics: [],
+    explorerUrl,
+    family: "evm",
+    network: reference.network,
+    status: "partial",
+    summary: "Transaction facts were read from a fixed Explorer browser page.",
+    transactionId: reference.transactionId
+  });
+}
+function addressHash(value) {
+  if (!isRecord(value) || typeof value.hash !== "string") {
+    throw new Error("Explorer browser response omitted an address.");
+  }
+  return value.hash;
+}
+async function loadSolscanTransaction(input) {
+  const explorerUrl = `${SOLSCAN_ORIGIN}/tx/${input.reference.transactionId}`;
+  const apiUrl = `${SOLSCAN_API_ORIGIN}/v2/transaction/detail?tx=${input.reference.transactionId}`;
+  const payload = await input.pageEvaluator({ ...input, fetchUrl: apiUrl, url: explorerUrl });
+  const parsed = browserTransactionSchema.parse(normalizeSolscanPayload(payload));
+  if (parsed.transactionId !== input.reference.transactionId) {
+    throw new Error("Solscan browser response transaction ID conflicted with the request.");
+  }
+  return projectTransaction(parsed, explorerUrl);
+}
+function assertEvmTransactionMatch(actual, expected) {
+  if (actual.toLowerCase() !== expected.toLowerCase()) {
+    throw new Error("Explorer browser response transaction hash conflicted with the request.");
+  }
+}
+async function prepareBrowserProfile(profileDirectory) {
+  await mkdir(profileDirectory, { recursive: true, mode: 448 });
+  const lockPath = path.join(profileDirectory, "SingletonLock");
+  let owner;
+  try {
+    owner = await readlink(lockPath);
+  } catch (error51) {
+    if (isNodeError(error51) && error51.code === "ENOENT") return;
+    throw error51;
+  }
+  const separator = owner.lastIndexOf("-");
+  const ownerHost = separator < 0 ? owner : owner.slice(0, separator);
+  const ownerPid = separator < 0 ? Number.NaN : Number(owner.slice(separator + 1));
+  if (ownerHost === hostname3() && Number.isSafeInteger(ownerPid) && ownerPid > 0) {
+    try {
+      process.kill(ownerPid, 0);
+      return;
+    } catch (error51) {
+      if (!isNodeError(error51) || error51.code !== "ESRCH") return;
+    }
+  }
+  await Promise.all(
+    ["SingletonLock", "SingletonCookie", "SingletonSocket", "DevToolsActivePort"].map(
+      async (name) => {
+        try {
+          await unlink(path.join(profileDirectory, name));
+        } catch (error51) {
+          if (!isNodeError(error51) || error51.code !== "ENOENT") throw error51;
+        }
+      }
+    )
+  );
+}
+async function resolveExplorerChromeLaunch(chromeExecutable, chromeArguments, options = {}) {
+  const xvfbRunExecutable = options.xvfbRunExecutable ?? "/usr/bin/xvfb-run";
+  try {
+    await access(xvfbRunExecutable);
+    return {
+      arguments: [
+        "-a",
+        "--server-args=-screen 0 1600x1000x24 -nolisten tcp",
+        chromeExecutable,
+        ...chromeArguments
+      ],
+      command: xvfbRunExecutable
+    };
+  } catch {
+    return { arguments: ["--headless=new", ...chromeArguments], command: chromeExecutable };
+  }
+}
+function isNodeError(error51) {
+  return error51 instanceof Error && "code" in error51;
+}
+function projectTransaction(parsed, explorerUrl) {
+  const accountKeys = unique([
+    ...parsed.accountKeys,
+    ...parsed.tokenChanges.flatMap((change) => [
+      ...change.account === void 0 ? [] : [change.account],
+      ...change.owner === void 0 ? [] : [change.owner]
+    ])
+  ]);
+  const accountIndexes = new Map(accountKeys.map((address, index) => [address, index]));
+  const payloadHash = `sha256:${createHash("sha256").update(JSON.stringify(parsed)).digest("hex")}`;
+  return getTransactionOutputSchema.parse({
+    analysis: {
+      accountKeys,
+      ...parsed.blockTime === void 0 ? {} : { blockTime: new Date(parsed.blockTime * 1e3).toISOString() },
+      ...parsed.computeUnitsConsumed === void 0 ? {} : { computeUnitsConsumed: integerString(parsed.computeUnitsConsumed) },
+      executionStatus: parsed.executionStatus,
+      ...parsed.feeLamports === void 0 ? {} : { feeLamports: integerString(parsed.feeLamports) },
+      logCount: parsed.logCount,
+      nativeBalanceChanges: parsed.nativeChanges.flatMap((change) => {
+        const accountIndex = accountIndexes.get(change.account);
+        return accountIndex === void 0 ? [] : [{ account: change.account, accountIndex, deltaLamports: integerString(change.delta) }];
+      }),
+      network: "solana:mainnet",
+      programIds: unique(parsed.programIds),
+      slot: integerString(parsed.slot),
+      sources: [
+        {
+          id: "solscan_browser",
+          kind: "explorer_browser",
+          observedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          payloadHash,
+          provenanceUrl: explorerUrl
+        }
+      ],
+      tokenBalanceChanges: parsed.tokenChanges.flatMap((change) => {
+        const account = change.account ?? change.owner;
+        const accountIndex = account === void 0 ? void 0 : accountIndexes.get(account);
+        if (accountIndex === void 0) return [];
+        return [
+          {
+            ...change.account === void 0 ? {} : { account: change.account },
+            accountIndex,
+            decimals: change.decimals,
+            deltaRaw: integerString(change.delta),
+            mint: change.mint,
+            ...change.owner === void 0 ? {} : { owner: change.owner },
+            ...change.programId === void 0 ? {} : { programId: change.programId }
+          }
+        ];
+      }),
+      transactionId: parsed.transactionId
+    },
+    diagnostics: [],
+    explorerUrl,
+    family: "solana",
+    network: "solana:mainnet",
+    status: "partial",
+    summary: "Transaction facts were read from the fixed Solscan page in a browser; evidence is partial and not an RPC consensus result.",
+    transactionId: parsed.transactionId
+  });
+}
+function normalizeSolscanPayload(payload) {
+  if (!isRecord(payload) || payload.success !== true || !isRecord(payload.data)) {
+    throw new Error("Solscan browser response did not contain transaction data.");
+  }
+  const data = payload.data;
+  const native = Array.isArray(data.sol_bal_change) ? data.sol_bal_change : [];
+  const tokens = Array.isArray(data.token_bal_change) ? data.token_bal_change : [];
+  const programs = [];
+  collectProgramIds(data.parsed_instructions, programs);
+  return {
+    accountKeys: native.flatMap(
+      (item) => isRecord(item) && typeof item.address === "string" ? [item.address] : []
+    ),
+    ...typeof data.trans_time === "number" && Number.isInteger(data.trans_time) ? { blockTime: data.trans_time } : {},
+    ...integerValue(data.compute_units_consumed) === void 0 ? {} : { computeUnitsConsumed: integerValue(data.compute_units_consumed) },
+    executionStatus: data.status === "Fail" || data.status === "failed" ? "reverted" : data.status === "Success" || data.status === "success" || data.status === 1 ? "success" : "unknown",
+    ...integerValue(data.fee) === void 0 ? {} : { feeLamports: integerValue(data.fee) },
+    logCount: Array.isArray(data.log_message) ? data.log_message.length : 0,
+    nativeChanges: native.flatMap(
+      (item) => isRecord(item) && typeof item.address === "string" && integerValue(item.change_amount) !== void 0 ? [{ account: item.address, delta: integerValue(item.change_amount) }] : []
+    ),
+    programIds: unique(programs),
+    slot: data.block_id,
+    tokenChanges: tokens.flatMap((item) => {
+      if (!isRecord(item) || typeof item.token_address !== "string" || typeof item.decimals !== "number" || integerValue(item.change_amount) === void 0)
+        return [];
+      return [
+        {
+          ...typeof item.address === "string" ? { account: item.address } : {},
+          decimals: item.decimals,
+          delta: integerValue(item.change_amount),
+          mint: item.token_address,
+          ...typeof item.owner === "string" ? { owner: item.owner } : {},
+          ...typeof item.program_id === "string" ? { programId: item.program_id } : {}
+        }
+      ];
+    }),
+    transactionId: data.trans_id
+  };
+}
+function collectProgramIds(value, output) {
+  if (!Array.isArray(value)) return;
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    if (typeof item.program_id === "string") output.push(item.program_id);
+    collectProgramIds(item.inner_instructions, output);
+  }
+}
+function integerValue(value) {
+  return typeof value === "string" || typeof value === "number" && Number.isInteger(value) ? value : void 0;
+}
+function integerString(value) {
+  const string4 = String(value);
+  if (!/^-?(?:0|[1-9]\d*)$/u.test(string4))
+    throw new Error("Explorer returned a non-integer value.");
+  return string4;
+}
+function unique(values) {
+  return [...new Set(values)];
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function positiveInteger2(value, label) {
+  if (!Number.isSafeInteger(value) || value <= 0)
+    throw new RangeError(`${label} must be positive.`);
+  return value;
+}
+
+// packages/xxyy-transaction-diagnosis-runtime/src/canonical-pool-config.ts
+var identifierSchema3 = external_exports.string().trim().min(1).max(256);
+var xxyyCanonicalPoolConfigSchema = external_exports.object({
+  entries: external_exports.array(
+    external_exports.object({
+      chain: external_exports.string().trim().min(2).max(96),
+      pairAddress: identifierSchema3,
+      tokenAddress: identifierSchema3
+    }).strict()
+  ).max(1024)
+}).strict().superRefine((value, context) => {
+  const keys = /* @__PURE__ */ new Set();
+  for (const [index, entry] of value.entries.entries()) {
+    const key = `${entry.chain.toLowerCase()}:${normalizeIdentifier2(entry.chain, entry.tokenAddress)}`;
+    if (keys.has(key)) {
+      context.addIssue({
+        code: "custom",
+        message: "Canonical pool entries must be unique by chain and token.",
+        path: ["entries", index]
+      });
+    }
+    keys.add(key);
+  }
+});
+function createConfiguredCanonicalPoolResolver(rawConfig) {
+  const config2 = xxyyCanonicalPoolConfigSchema.parse(
+    typeof rawConfig === "string" ? parseJson(rawConfig) : rawConfig
+  );
+  const byToken = new Map(
+    config2.entries.map((entry) => [
+      `${entry.chain.toLowerCase()}:${normalizeIdentifier2(entry.chain, entry.tokenAddress)}`,
+      entry.pairAddress
+    ])
+  );
+  return (input) => {
+    const matches = new Set(
+      input.targetTokenAddresses.flatMap((token) => {
+        const pair = byToken.get(
+          `${input.chain.toLowerCase()}:${normalizeIdentifier2(input.chain, token)}`
+        );
+        return pair === void 0 ? [] : [pair];
+      })
+    );
+    return matches.size === 1 ? [...matches][0] : void 0;
+  };
+}
+function parseJson(value) {
+  try {
+    return JSON.parse(value);
+  } catch (cause) {
+    throw new TypeError("XXYY_CANONICAL_POOL_CONFIG_JSON must be valid JSON.", { cause });
+  }
+}
+function normalizeIdentifier2(chain, value) {
+  return chain.toLowerCase().startsWith("eip155:") ? value.toLowerCase() : value;
+}
+
+// packages/xxyy-transaction-diagnosis-runtime/src/chrome-screenshot-provider.ts
+import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
+import { spawn as spawn2 } from "node:child_process";
+import { mkdir as mkdir2, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path2 from "node:path";
+
 // packages/xxyy-transaction-diagnosis-runtime/src/contracts.ts
 var XXYY_TRANSACTION_DIAGNOSIS_RUNTIME_VERSION = "0.1.0";
 var xxyyDiagnosisCheckSchema = external_exports.enum(["pool", "sandwich"]);
@@ -15990,20 +16841,20 @@ var diagnoseXxyyTransactionOutputSchema = external_exports.object({
 var DEFAULT_CAPTURE_TIMEOUT_MS = 6e4;
 var MAX_SCREENSHOT_BYTES = 10 * 1048576;
 function createChromeXxyyScreenshotProvider(options) {
-  const artifactDirectory = path.resolve(nonEmpty(options.artifactDirectory, "artifactDirectory"));
-  const chromeExecutable = path.resolve(nonEmpty(options.chromeExecutable, "chromeExecutable"));
-  const persistentProfileDirectory = options.profileDirectory === void 0 ? void 0 : path.resolve(nonEmpty(options.profileDirectory, "profileDirectory"));
-  const timeoutMs = positiveInteger2(options.timeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS, "timeoutMs");
+  const artifactDirectory = path2.resolve(nonEmpty(options.artifactDirectory, "artifactDirectory"));
+  const chromeExecutable = path2.resolve(nonEmpty(options.chromeExecutable, "chromeExecutable"));
+  const persistentProfileDirectory = options.profileDirectory === void 0 ? void 0 : path2.resolve(nonEmpty(options.profileDirectory, "profileDirectory"));
+  const timeoutMs = positiveInteger3(options.timeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS, "timeoutMs");
   let captureQueue = Promise.resolve();
   const capture = async (input, requestOptions = {}) => {
     const sourceUrl = xxyyPairUrl(input.chain, input.pairAddress);
-    const profileDirectory = persistentProfileDirectory ?? await mkdtemp(path.join(tmpdir(), "xxyy-screenshot-"));
-    const cacheDirectory = path.join(artifactDirectory, ".browser-cache");
+    const profileDirectory = persistentProfileDirectory ?? await mkdtemp(path2.join(tmpdir(), "xxyy-screenshot-"));
+    const cacheDirectory = path2.join(artifactDirectory, ".browser-cache");
     let chrome;
     try {
       await Promise.all([
-        mkdir(artifactDirectory, { recursive: true, mode: 488 }),
-        mkdir(cacheDirectory, { recursive: true, mode: 488 })
+        mkdir2(artifactDirectory, { recursive: true, mode: 488 }),
+        mkdir2(cacheDirectory, { recursive: true, mode: 488 })
       ]);
       await prepareBrowserProfile(profileDirectory);
       const chromeArguments = [
@@ -16025,7 +16876,7 @@ function createChromeXxyyScreenshotProvider(options) {
         sourceUrl
       ];
       const launch = await resolveExplorerChromeLaunch(chromeExecutable, chromeArguments);
-      chrome = spawn(launch.command, launch.arguments, {
+      chrome = spawn2(launch.command, launch.arguments, {
         detached: process.platform !== "win32",
         stdio: ["ignore", "ignore", "pipe"]
       });
@@ -16052,9 +16903,9 @@ function createChromeXxyyScreenshotProvider(options) {
         if (png.byteLength === 0 || png.byteLength > MAX_SCREENSHOT_BYTES) {
           throw new Error("XXYY screenshot size was invalid.");
         }
-        const filename = `${createHash("sha256").update(input.transactionId).digest("hex")}.png`;
-        const temporaryFile = path.join(artifactDirectory, `.${filename}.${randomUUID()}.tmp`);
-        const finalFile = path.join(artifactDirectory, filename);
+        const filename = `${createHash2("sha256").update(input.transactionId).digest("hex")}.png`;
+        const temporaryFile = path2.join(artifactDirectory, `.${filename}.${randomUUID2()}.tmp`);
+        const finalFile = path2.join(artifactDirectory, filename);
         await writeFile(temporaryFile, png, { flag: "wx", mode: 416 });
         await rename(temporaryFile, finalFile);
         return xxyyScreenshotArtifactSchema.parse({
@@ -16179,6 +17030,8 @@ function xxyyPairUrl(chain, pairAddress) {
   const slug = {
     "eip155:1": "eth",
     "eip155:56": "bsc",
+    "eip155:988": "stable",
+    "eip155:4663": "robin",
     "eip155:8453": "base",
     "solana:mainnet": "sol"
   };
@@ -16229,7 +17082,7 @@ async function findPageDebuggerUrl(debuggerUrl, timeoutMs, signal) {
       const targets = await response.json();
       if (Array.isArray(targets)) {
         for (const target of targets) {
-          if (isRecord(target) && target.type === "page" && typeof target.webSocketDebuggerUrl === "string") {
+          if (isRecord2(target) && target.type === "page" && typeof target.webSocketDebuggerUrl === "string") {
             return target.webSocketDebuggerUrl;
           }
         }
@@ -16263,9 +17116,9 @@ async function createCdpClient(url2, timeoutMs, signal) {
   const listeners = /* @__PURE__ */ new Map();
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(String(event.data));
-    if (!isRecord(message)) return;
+    if (!isRecord2(message)) return;
     if (typeof message.method === "string") {
-      const params = isRecord(message.params) ? message.params : {};
+      const params = isRecord2(message.params) ? message.params : {};
       for (const listener of listeners.get(message.method) ?? []) listener(params);
       return;
     }
@@ -16273,8 +17126,8 @@ async function createCdpClient(url2, timeoutMs, signal) {
     const request = pending.get(message.id);
     if (request === void 0) return;
     pending.delete(message.id);
-    if (isRecord(message.error)) request.reject(new Error("CDP command failed."));
-    else request.resolve(isRecord(message.result) ? message.result : {});
+    if (isRecord2(message.error)) request.reject(new Error("CDP command failed."));
+    else request.resolve(isRecord2(message.result) ? message.result : {});
   });
   return {
     call(method, params = {}) {
@@ -16333,7 +17186,7 @@ async function pollForVerifiedRow(input) {
       returnByValue: true
     });
     const remote = result2.result;
-    if (isRecord(remote) && remote.value === true) return true;
+    if (isRecord2(remote) && remote.value === true) return true;
     await delay(250);
   }
   return false;
@@ -16453,7 +17306,7 @@ async function waitForKlineReady(input) {
       returnByValue: true
     });
     const remote = result2.result;
-    if (isRecord(remote) && remote.value === true) {
+    if (isRecord2(remote) && remote.value === true) {
       stableSamples += 1;
       if (stableSamples >= 3) {
         await delay(500);
@@ -16491,7 +17344,7 @@ async function applyNativeHistoricalFilter(input) {
       returnByValue: true
     });
     const remote = result2.result;
-    if (isRecord(remote) && remote.value === true) return;
+    if (isRecord2(remote) && remote.value === true) return;
     await delay(250);
   }
   throw new Error("XXYY native historical trade filter was unavailable.");
@@ -16592,1020 +17445,13 @@ function nonEmpty(value, label) {
   if (value.trim().length === 0) throw new TypeError(`${label} is required.`);
   return value;
 }
-function positiveInteger2(value, label) {
-  if (!Number.isSafeInteger(value) || value <= 0)
-    throw new RangeError(`${label} must be positive.`);
-  return value;
-}
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// packages/xxyy-transaction-diagnosis-runtime/src/transaction-reference.ts
-var PublicTransactionReferenceError = class extends Error {
-  code = "invalid_reference";
-  constructor() {
-    super("The transaction reference or network is invalid or ambiguous.");
-    this.name = "PublicTransactionReferenceError";
-  }
-};
-var SOLANA_EXPLORER_HOSTS = /* @__PURE__ */ new Set(["explorer.solana.com", "solscan.io", "www.solscan.io"]);
-function resolvePublicTransactionReference(input) {
-  const explicitNetwork = input.network === void 0 ? void 0 : normalizeNetwork(input.network);
-  return looksLikeUrl(input.reference) ? resolveExplorerUrl(input.reference, explicitNetwork) : resolveRawTransactionId(input.reference, explicitNetwork);
-}
-function resolveExplorerUrl(reference, explicitNetwork) {
-  let url2;
-  try {
-    url2 = new URL(reference);
-  } catch {
-    throw invalidReference();
-  }
-  if (url2.protocol !== "https:" || url2.username.length > 0 || url2.password.length > 0 || url2.hash.length > 0) {
-    throw invalidReference();
-  }
-  const parts = url2.pathname.split("/").filter(Boolean);
-  if (parts.length !== 2 || parts[0]?.toLowerCase() !== "tx" || parts[1] === void 0) {
-    throw invalidReference();
-  }
-  const evm = findBuiltInEvmNetworkByExplorerHost(url2.hostname);
-  if (evm !== void 0) {
-    assertNetworkMatch(explicitNetwork, evm.canonicalNetwork);
-    const transactionId = parseEvmTransactionId(parts[1]);
-    return {
-      chainId: evm.chainId,
-      explorerUrl: `${evm.explorerBaseUrl}/tx/${transactionId}`,
-      family: "evm",
-      network: evm.canonicalNetwork,
-      transactionId
-    };
-  }
-  if (SOLANA_EXPLORER_HOSTS.has(url2.hostname.toLowerCase())) {
-    const cluster = url2.searchParams.get("cluster")?.toLowerCase();
-    if (cluster !== void 0 && cluster !== "mainnet" && cluster !== "mainnet-beta") {
-      throw invalidReference();
-    }
-    assertNetworkMatch(explicitNetwork, SOLANA_MAINNET_NETWORK);
-    const transactionId = parseSolanaTransactionId(parts[1]);
-    return {
-      explorerUrl: `https://solscan.io/tx/${transactionId}`,
-      family: "solana",
-      network: SOLANA_MAINNET_NETWORK,
-      transactionId
-    };
-  }
-  throw invalidReference();
-}
-function resolveRawTransactionId(reference, explicitNetwork) {
-  if (explicitNetwork?.startsWith("eip155:")) {
-    const transactionId = parseEvmTransactionId(reference);
-    const chainId = explicitNetwork.slice("eip155:".length);
-    const known = findBuiltInEvmNetworkByChainId(chainId);
-    return {
-      chainId,
-      ...known === void 0 ? {} : { explorerUrl: `${known.explorerBaseUrl}/tx/${transactionId}` },
-      family: "evm",
-      network: explicitNetwork,
-      transactionId
-    };
-  }
-  if (explicitNetwork === SOLANA_MAINNET_NETWORK) {
-    const transactionId = parseSolanaTransactionId(reference);
-    return {
-      explorerUrl: `https://solscan.io/tx/${transactionId}`,
-      family: "solana",
-      network: explicitNetwork,
-      transactionId
-    };
-  }
-  throw invalidReference();
-}
-function normalizeNetwork(network) {
-  const normalized = normalizePublicNetworkIdentifier(network);
-  if (normalized === void 0) throw invalidReference();
-  return normalized;
-}
-function assertNetworkMatch(explicit, resolved) {
-  if (explicit !== void 0 && explicit !== resolved) throw invalidReference();
-}
-function looksLikeUrl(value) {
-  return /^https?:\/\//iu.test(value);
-}
-function parseEvmTransactionId(value) {
-  const result2 = evmHashSchema.safeParse(value);
-  if (!result2.success) throw invalidReference();
-  return result2.data;
-}
-function parseSolanaTransactionId(value) {
-  const result2 = solanaSignatureSchema.safeParse(value);
-  if (!result2.success) throw invalidReference();
-  return result2.data;
-}
-function invalidReference() {
-  return new PublicTransactionReferenceError();
-}
-
-// packages/xxyy-transaction-diagnosis-runtime/src/browser-chain-analysis-client.ts
-var DEFAULT_TIMEOUT_MS = 45e3;
-var EXPLORER_VERIFICATION_EXPRESSION = `(() => {
-  const state = ((document.title || '') + '
-' + (document.body?.innerText || '')).trim();
-  return /Just a moment|security verification|\u5B89\u5168\u9A8C\u8BC1|Checking your browser|Verify you are human|Attention Required|Sorry, you have been blocked/i.test(state);
-})()`;
-var SOLSCAN_ORIGIN = "https://solscan.io";
-var SOLSCAN_API_ORIGIN = "https://api-v2.solscan.io";
-var BLOCKSCOUT_ORIGINS = {
-  "eip155:1": "https://eth.blockscout.com",
-  "eip155:8453": "https://base.blockscout.com",
-  "eip155:4663": "https://robinhoodchain.blockscout.com"
-};
-var SCAN_ORIGINS = {
-  "eip155:56": "https://bscscan.com",
-  "eip155:988": "https://stablescan.xyz"
-};
-var ExplorerBrowserVerificationError = class extends Error {
-  code = "explorer_verification_required";
-  constructor(host) {
-    super(
-      host === void 0 ? "Explorer browser requires interactive verification." : `Explorer browser requires interactive verification for ${host}.`
-    );
-    this.name = "ExplorerBrowserVerificationError";
-  }
-};
-var EgoBrowserUnavailableError = class extends Error {
-  code = "ego_browser_unavailable";
-  constructor() {
-    super(
-      "ego-browser is required for protected Explorer pages. Install ego lite from https://lite.ego.app/ and complete onboarding."
-    );
-    this.name = "EgoBrowserUnavailableError";
-  }
-};
-var browserTransactionSchema = external_exports.object({
-  accountKeys: external_exports.array(external_exports.string()).max(512),
-  blockTime: external_exports.number().int().nonnegative().optional(),
-  computeUnitsConsumed: external_exports.union([external_exports.string(), external_exports.number()]).optional(),
-  executionStatus: external_exports.enum(["reverted", "success", "unknown"]),
-  feeLamports: external_exports.union([external_exports.string(), external_exports.number()]).optional(),
-  logCount: external_exports.number().int().nonnegative(),
-  nativeChanges: external_exports.array(external_exports.object({ account: external_exports.string(), delta: external_exports.union([external_exports.string(), external_exports.number()]) })).max(512),
-  programIds: external_exports.array(external_exports.string()).max(512),
-  slot: external_exports.union([external_exports.string(), external_exports.number()]),
-  tokenChanges: external_exports.array(
-    external_exports.object({
-      account: external_exports.string().optional(),
-      decimals: external_exports.number().int().nonnegative(),
-      delta: external_exports.union([external_exports.string(), external_exports.number()]),
-      mint: external_exports.string(),
-      owner: external_exports.string().optional(),
-      programId: external_exports.string().optional()
-    })
-  ).max(1024),
-  transactionId: external_exports.string()
-}).strict();
-var browserEvmTransactionSchema = external_exports.object({
-  accountAddresses: external_exports.array(external_exports.string()).max(1024),
-  blockNumber: external_exports.union([external_exports.string(), external_exports.number()]),
-  failureReason: external_exports.string().trim().min(1).max(1e3).optional(),
-  feeWei: external_exports.string(),
-  from: external_exports.string(),
-  hash: external_exports.string(),
-  rawInput: external_exports.string(),
-  status: external_exports.enum(["reverted", "success", "unknown"]),
-  timestamp: external_exports.string(),
-  to: external_exports.string().nullable(),
-  tokenAddresses: external_exports.array(external_exports.string()).max(512),
-  tokenTransfers: external_exports.array(
-    external_exports.object({
-      amountRaw: external_exports.string(),
-      from: external_exports.string(),
-      logIndex: external_exports.number().int().nonnegative(),
-      to: external_exports.string(),
-      tokenAddress: external_exports.string()
-    })
-  ).max(500),
-  valueWei: external_exports.string()
-}).strict();
-function createBrowserChainAnalysisClient(options) {
-  const chromeExecutable = path2.resolve(options.chromeExecutable);
-  const profileDirectory = path2.resolve(options.profileDirectory);
-  const timeoutMs = positiveInteger3(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, "timeoutMs");
-  const scanPageEvaluator = options.scanPageEvaluator ?? createEgoBrowserPageEvaluator();
-  let browserQueue = Promise.resolve();
-  return {
-    async close() {
-    },
-    async getTransaction(input, requestOptions = {}) {
-      const reference = resolvePublicTransactionReference(input);
-      const load = browserQueue.then(
-        () => loadBrowserTransaction({
-          chromeExecutable,
-          profileDirectory,
-          reference,
-          scanPageEvaluator,
-          timeoutMs,
-          ...requestOptions.signal === void 0 ? {} : { signal: requestOptions.signal }
-        }),
-        () => loadBrowserTransaction({
-          chromeExecutable,
-          profileDirectory,
-          reference,
-          scanPageEvaluator,
-          timeoutMs,
-          ...requestOptions.signal === void 0 ? {} : { signal: requestOptions.signal }
-        })
-      );
-      browserQueue = load.then(
-        () => void 0,
-        () => void 0
-      );
-      return await load;
-    }
-  };
-}
-async function loadBrowserTransaction(input) {
-  if (input.reference.family === "solana") {
-    return await loadSolscanTransaction(
-      input.chromeExecutable,
-      input.profileDirectory,
-      input.reference.transactionId,
-      input.timeoutMs,
-      input.signal
-    );
-  }
-  const blockscoutOrigin = BLOCKSCOUT_ORIGINS[input.reference.network];
-  if (blockscoutOrigin !== void 0) {
-    return await loadBlockscoutTransaction({
-      ...input,
-      origin: blockscoutOrigin,
-      reference: input.reference
-    });
-  }
-  const scanOrigin = SCAN_ORIGINS[input.reference.network];
-  if (scanOrigin !== void 0) {
-    return await loadScanPageTransaction({
-      ...input,
-      origin: scanOrigin,
-      reference: input.reference
-    });
-  }
-  throw new Error(`Browser evidence is unavailable for ${input.reference.network}.`);
-}
-async function resolveBrowserChromeExecutable(configured) {
-  const candidates = [
-    configured?.trim(),
-    process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : void 0,
-    process.platform === "darwin" ? "/Applications/Chromium.app/Contents/MacOS/Chromium" : void 0,
-    process.platform === "linux" ? "/usr/bin/google-chrome" : void 0,
-    process.platform === "linux" ? "/usr/bin/google-chrome-stable" : void 0,
-    process.platform === "linux" ? "/usr/bin/chromium" : void 0,
-    process.platform === "linux" ? "/usr/bin/chromium-browser" : void 0
-  ].filter((candidate) => candidate !== void 0 && candidate.length > 0);
-  for (const candidate of candidates) {
-    try {
-      await access(candidate, fsConstants.X_OK);
-      return path2.resolve(candidate);
-    } catch {
-    }
-  }
-  return void 0;
-}
-function createEgoBrowserPageEvaluator(options = {}) {
-  const command = options.command?.trim() || "ego-browser";
-  return async (input) => {
-    try {
-      return await evaluateEgoBrowserPage(command, input);
-    } catch (error51) {
-      if (isRecord2(error51) && error51.code === "ENOENT") {
-        throw new EgoBrowserUnavailableError();
-      }
-      throw error51;
-    }
-  };
-}
-async function evaluateEgoBrowserPage(command, input) {
-  const nonce = randomUUID2();
-  const marker = "__XXYY_EGO_RESULT_" + nonce + "__:";
-  const taskName = "xxyy-diagnosis-" + nonce;
-  const timeoutSeconds = Math.max(5, Math.ceil(input.timeoutMs / 1e3));
-  const script = [
-    "const task = await useOrCreateTaskSpace(" + JSON.stringify(taskName) + ")",
-    "let payload",
-    "try {",
-    "  await openOrReuseTab(" + JSON.stringify(input.url) + ", {wait:true, timeout:" + timeoutSeconds + "})",
-    "  const deadline = Date.now() + " + input.timeoutMs,
-    "  let value",
-    "  while (Date.now() < deadline) {",
-    "    value = await js(" + JSON.stringify(input.expression) + ")",
-    "    if (value !== null && value !== undefined) break",
-    "    await wait(0.25)",
-    "  }",
-    "  const verificationRequired = value === null || value === undefined ? await js(" + JSON.stringify(EXPLORER_VERIFICATION_EXPRESSION) + ") : false",
-    "  payload = value === null || value === undefined ? {ok:false, error:verificationRequired ? 'verification_required' : 'page_evidence_timeout'} : {ok:true, value}",
-    "} catch {",
-    "  payload = {ok:false, error:'page_evaluation_failed'}",
-    "} finally {",
-    "  await completeTaskSpace(task.id, {keep:false})",
-    "}",
-    "const serialized = JSON.stringify(payload)",
-    "const totalChunks = Math.max(1, Math.ceil(serialized.length / 400))",
-    "for (let index = 0; index < totalChunks; index += 1) {",
-    "  cliLog(" + JSON.stringify(marker) + " + index + ':' + totalChunks + ':' + serialized.slice(index * 400, (index + 1) * 400))",
-    "}"
-  ].join("\n");
-  const child = spawn2(command, ["nodejs"], { stdio: ["pipe", "pipe", "pipe"] });
-  const stdout = [];
-  const stderr = [];
-  const maxOutputBytes = 4 * 1048576;
-  let outputBytes = 0;
-  const collect = (target) => (chunk) => {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    outputBytes += buffer.byteLength;
-    if (outputBytes > maxOutputBytes) {
-      child.kill("SIGTERM");
-      return;
-    }
-    target.push(buffer);
-  };
-  child.stdout?.on("data", collect(stdout));
-  child.stderr?.on("data", collect(stderr));
-  child.stdin?.end(script);
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error("ego-browser page evaluation timed out."));
-    }, input.timeoutMs + 1e4);
-    const abort = () => {
-      child.kill("SIGTERM");
-      reject(new Error("ego-browser page evaluation was aborted."));
-    };
-    child.once("error", (error51) => {
-      clearTimeout(timeout);
-      input.signal?.removeEventListener("abort", abort);
-      reject(error51);
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timeout);
-      input.signal?.removeEventListener("abort", abort);
-      if (outputBytes > maxOutputBytes) {
-        reject(new Error("ego-browser page evaluation output was too large."));
-      } else if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error("ego-browser page evaluation failed."));
-      }
-    });
-    input.signal?.addEventListener("abort", abort, { once: true });
-    if (input.signal?.aborted === true) abort();
-  });
-  const text = Buffer.concat([...stdout, ...stderr]).toString("utf8");
-  const chunks = text.split(/\r?\n/u).flatMap((line) => {
-    const markerIndex = line.indexOf(marker);
-    if (markerIndex < 0) return [];
-    const value = line.slice(markerIndex + marker.length);
-    const match = value.match(/^(\d+):(\d+):(.*)$/u);
-    return match === null ? [] : [{ index: Number(match[1]), total: Number(match[2]), value: match[3] }];
-  }).sort((left, right) => left.index - right.index);
-  const expectedChunks = chunks[0]?.total;
-  if (expectedChunks === void 0 || chunks.length !== expectedChunks || chunks.some((chunk, index) => chunk.index !== index || chunk.total !== expectedChunks)) {
-    throw new Error("ego-browser page evaluation omitted its result.");
-  }
-  const payloadText = chunks.map((chunk) => chunk.value).join("");
-  const payload = JSON.parse(payloadText);
-  if (isRecord2(payload) && payload.error === "verification_required") {
-    throw new ExplorerBrowserVerificationError(new URL(input.url).hostname);
-  }
-  if (!isRecord2(payload) || payload.ok !== true || !("value" in payload)) {
-    throw new Error("ego-browser page evaluation returned no evidence.");
-  }
-  return payload.value;
-}
-async function loadBlockscoutTransaction(input) {
-  const apiUrl = `${input.origin}/api/v2/transactions/${input.reference.transactionId}`;
-  const explorerUrl = `${input.origin}/tx/${input.reference.transactionId}`;
-  const raw = await readJsonBrowserPage({ ...input, url: apiUrl });
-  if (!isRecord2(raw)) throw new Error("Blockscout browser page returned invalid JSON.");
-  const transfers = Array.isArray(raw.token_transfers) ? raw.token_transfers : [];
-  const tokenTransfers = transfers.flatMap((item) => {
-    if (!isRecord2(item) || !isRecord2(item.from) || !isRecord2(item.to) || !isRecord2(item.token)) {
-      return [];
-    }
-    const total = isRecord2(item.total) ? item.total : void 0;
-    return typeof item.from.hash === "string" && typeof item.to.hash === "string" && typeof item.token.address_hash === "string" && typeof total?.value === "string" && typeof item.log_index === "number" ? [
-      {
-        amountRaw: total.value,
-        from: item.from.hash,
-        logIndex: item.log_index,
-        to: item.to.hash,
-        tokenAddress: item.token.address_hash
-      }
-    ] : [];
-  });
-  const from = addressHash(raw.from);
-  const to = raw.to === null ? null : addressHash(raw.to);
-  const fee = isRecord2(raw.fee) && typeof raw.fee.value === "string" ? raw.fee.value : void 0;
-  const parsed = browserEvmTransactionSchema.parse({
-    accountAddresses: unique([
-      from,
-      ...to === null ? [] : [to],
-      ...tokenTransfers.flatMap((transfer) => [transfer.from, transfer.to, transfer.tokenAddress])
-    ]),
-    blockNumber: raw.block_number,
-    ...typeof raw.revert_reason === "string" && raw.revert_reason.trim().length > 0 ? { failureReason: raw.revert_reason.trim() } : {},
-    feeWei: fee ?? "0",
-    from,
-    hash: raw.hash,
-    rawInput: typeof raw.raw_input === "string" ? raw.raw_input : "0x",
-    status: raw.status === "ok" || raw.result === "success" ? "success" : raw.status === "error" || raw.result === "error" ? "reverted" : "unknown",
-    timestamp: raw.timestamp,
-    to,
-    tokenAddresses: unique(tokenTransfers.map((transfer) => transfer.tokenAddress)),
-    tokenTransfers,
-    valueWei: typeof raw.value === "string" ? raw.value : "0"
-  });
-  return projectEvmBrowserTransaction(parsed, input.reference, explorerUrl, "blockscout_browser");
-}
-async function loadScanPageTransaction(input) {
-  const explorerUrl = `${input.origin}/tx/${input.reference.transactionId}`;
-  const expression = createScanPageTransactionExpression();
-  const raw = await input.scanPageEvaluator({ ...input, expression, url: explorerUrl });
-  if (isRecord2(raw) && raw.blocked === true) {
-    throw new ExplorerBrowserVerificationError(new URL(explorerUrl).hostname);
-  }
-  const parsed = browserEvmTransactionSchema.parse(raw);
-  return projectEvmBrowserTransaction(parsed, input.reference, explorerUrl, "scan_browser");
-}
-function createScanPageTransactionExpression() {
-  return `(() => {
-    const text = (document.body?.innerText || '').replace(/\\r/g, '');
-    const pageState = ((document.title || '') + '\\n' + text).trim();
-    if (/Attention Required|Sorry, you have been blocked/i.test(pageState)) return {blocked:true};
-    if (/Just a moment|security verification|\u5B89\u5168\u9A8C\u8BC1|Checking your browser|Verify you are human/i.test(pageState)) return null;
-    const addressLinks = [...document.querySelectorAll('a[href*="/address/0x"]')].map((a) => (a.getAttribute('href') || '').match(/\\/address\\/(0x[0-9a-f]{40})/i)?.[1]).filter(Boolean);
-    const tokenLinks = [...document.querySelectorAll('a[href*="/token/0x"]')].map((a) => (a.getAttribute('href') || '').match(/\\/token\\/(0x[0-9a-f]{40})/i)?.[1]).filter(Boolean);
-    const hash = location.pathname.match(/\\/tx\\/(0x[0-9a-f]{64})/i)?.[1];
-    const block = text.match(/(?:Block|\u533A\u5757)\\s*(?:Height)?\\s*[:#]?\\s*([0-9,]+)/i)?.[1]?.replace(/,/g, '');
-    const timestampText = text.match(/[A-Z][a-z]{2}-\\d{2}-\\d{4}\\s+\\d{1,2}:\\d{2}:\\d{2}\\s+[AP]M\\s+\\+UTC/)?.[0] || '';
-    const unix = text.match(/\\((\\d{10})\\)/)?.[1];
-    const feeEth = text.match(/(?:Transaction Fee|Txn Fee|\u4EA4\u6613\u8D39\u7528)[^0-9]*([0-9]+(?:\\.[0-9]+)?)/i)?.[1];
-    const valueEth = text.match(/(?:Value|\u4EF7\u503C)[^0-9]*([0-9]+(?:\\.[0-9]+)?)/i)?.[1];
-    const statusText = text.match(/(?:Status|\u72B6\u6001)\\s*[:]?\\s*([^\\n]+)/i)?.[1] || '';
-    const executionErrorText = text.match(/(?:Warning!\\s*)?Error encountered during contract execution\\s*\\[([^\\]]+)\\]/i)?.[1] || '';
-    const reverted = /fail|error|revert|\u5931\u8D25/i.test(statusText) || executionErrorText.length > 0;
-    const failureReason = reverted
-      ? (/fail|error|revert|\u5931\u8D25/i.test(statusText) ? statusText.trim() : executionErrorText.trim())
-      : '';
-    const toWei = (value) => {
-      if (!value) return '0';
-      const [whole, fraction=''] = value.split('.');
-      return (BigInt(whole || '0') * 1000000000000000000n + BigInt((fraction + '000000000000000000').slice(0,18))).toString();
-    };
-    const fromMatch = text.match(/(?:^|\\n)From:\\s*\\n(0x[0-9a-f]{40})/i)?.[1];
-    const toMatch = text.match(/(?:^|\\n)To:\\s*\\n(0x[0-9a-f]{40})/i)?.[1];
-    const actionTokenLinks = [...document.querySelectorAll('a[href^="/token/"]')].flatMap((anchor) => {
-      const href = anchor.getAttribute('href') || '';
-      const token = href.match(/^\\/token\\/(0x[0-9a-f]{40})$/i)?.[1];
-      if (!token) return [];
-      let node = anchor;
-      for (let index = 0; index < 3 && node.parentElement; index += 1) {
-        const actionText = (node.textContent || '').replace(/\\s+/g, ' ').trim();
-        const looksLikeTransferRow = /(?:^|\\s)(?:From|To|received|sent)(?:\\s|$)/i.test(actionText);
-        if (/(?:^|\\s)Swap(?:\\s|$)/i.test(actionText) && !looksLikeTransferRow && actionText.length < 800) return [token];
-        node = node.parentElement;
-      }
-      return [];
-    });
-    const actorReceivedTokens = fromMatch ? [...document.querySelectorAll('a[href^="/token/"]')].flatMap((anchor) => {
-      const href = anchor.getAttribute('href') || '';
-      const token = href.match(/^\\/token\\/(0x[0-9a-f]{40})/i)?.[1];
-      let owner;
-      try { owner = new URL(href, location.origin).searchParams.get('a'); } catch {}
-      if (!token || owner?.toLowerCase() !== fromMatch.toLowerCase()) return [];
-      let row = anchor;
-      for (let index = 0; index < 4 && row.parentElement; index += 1) {
-        const rowText = (row.textContent || '').replace(/\\s+/g, ' ').trim();
-        if (/received|\u63A5\u6536|\u6536\u5230/i.test(rowText) && rowText.length < 600) return [token];
-        row = row.parentElement;
-      }
-      return [];
-    }) : [];
-    const excludedAddresses = new Set([fromMatch, toMatch].filter(Boolean).map((value) => value.toLowerCase()));
-    const textAddresses = [...text.matchAll(/\\b0x[0-9a-f]{40}\\b/gi)]
-      .map((match) => match[0])
-      .filter((address) => !excludedAddresses.has(address.toLowerCase()));
-    const targetTokenLinks = actionTokenLinks.length > 0
-      ? [...new Set(actionTokenLinks)].slice(0, 1)
-      : [...new Set([...actorReceivedTokens, ...tokenLinks, ...textAddresses])];
-    if (!hash || !block || (!fromMatch && addressLinks.length === 0)) return null;
-    return {
-      accountAddresses:[...new Set([fromMatch || addressLinks[0], toMatch || addressLinks[1]].filter(Boolean))], blockNumber:block, feeWei:toWei(feeEth),
-      ...(failureReason ? {failureReason} : {}), from:fromMatch || addressLinks[0], hash, rawInput:'0x',
-      status:/success|\u6210\u529F/i.test(statusText)?'success':reverted?'reverted':'unknown',
-      timestamp:unix ? new Date(Number(unix)*1000).toISOString() : timestampText ? new Date(timestampText.replace('+UTC','UTC')).toISOString() : new Date().toISOString(),
-      to:toMatch || addressLinks[1] || null, tokenAddresses:targetTokenLinks, tokenTransfers:[], valueWei:toWei(valueEth)
-    };
-  })()`;
-}
-function projectEvmBrowserTransaction(parsed, reference, explorerUrl, source) {
-  const evidenceId = "browser.transaction";
-  const findingId = "browser_transaction_facts";
-  const observedAt = (/* @__PURE__ */ new Date()).toISOString();
-  const blockTimestamp = Math.floor(Date.parse(parsed.timestamp) / 1e3).toString();
-  const analysis = transactionAnalysisResultSchema.parse({
-    assetChanges: [],
-    conflicts: [],
-    diagnostics: [],
-    evidence: [
-      {
-        blockNumber: integerString(parsed.blockNumber),
-        chainId: reference.chainId,
-        confidence: 0.75,
-        effectiveAt: parsed.timestamp,
-        id: evidenceId,
-        kind: "transaction",
-        observedAt,
-        payloadHash: `sha256:${createHash2("sha256").update(JSON.stringify(parsed)).digest("hex")}`,
-        source,
-        sourceUrl: explorerUrl,
-        structuredData: {
-          accountAddresses: parsed.accountAddresses,
-          ...parsed.failureReason === void 0 ? {} : { failureReason: parsed.failureReason },
-          tokenAddresses: parsed.tokenAddresses
-        },
-        supports: [findingId],
-        transactionHash: reference.transactionId
-      }
-    ],
-    findings: [
-      {
-        confidence: 0.75,
-        evidenceIds: [evidenceId],
-        id: findingId,
-        inference: false,
-        statement: "Transaction facts were read from a fixed public Explorer in a browser."
-      }
-    ],
-    skill: "transaction_analysis",
-    status: "partial",
-    summary: "Browser Explorer returned partial single-source transaction facts.",
-    timeline: [],
-    tokenTransfers: parsed.tokenTransfers.map((transfer) => ({
-      ...transfer,
-      evidenceId,
-      transferType: "transfer"
-    })),
-    transaction: {
-      blockNumber: integerString(parsed.blockNumber),
-      blockTimestamp,
-      chainId: reference.chainId,
-      executionStatus: parsed.status,
-      ...parsed.failureReason === void 0 ? {} : { failureReason: parsed.failureReason },
-      feeWei: parsed.feeWei,
-      from: parsed.from,
-      hash: reference.transactionId,
-      inputKind: parsed.rawInput === "0x" ? parsed.to === null ? "unknown" : "native_transfer" : parsed.to === null ? "contract_creation" : "contract_call",
-      to: parsed.to,
-      valueWei: parsed.valueWei
-    },
-    version: "1.0.0",
-    warnings: ["Explorer browser evidence is single-source and partial."]
-  });
-  return getTransactionOutputSchema.parse({
-    analysis,
-    chainId: reference.chainId,
-    diagnostics: [],
-    explorerUrl,
-    family: "evm",
-    network: reference.network,
-    status: "partial",
-    summary: "Transaction facts were read from a fixed Explorer browser page.",
-    transactionId: reference.transactionId
-  });
-}
-function addressHash(value) {
-  if (!isRecord2(value) || typeof value.hash !== "string") {
-    throw new Error("Explorer browser response omitted an address.");
-  }
-  return value.hash;
-}
-async function readJsonBrowserPage(input) {
-  return await evaluateBrowserPage({
-    ...input,
-    expression: `(() => {
-      const pre = document.querySelector('pre');
-      if (!pre?.textContent) return null;
-      try { return JSON.parse(pre.textContent); } catch { return null; }
-    })()`
-  });
-}
-async function evaluateBrowserPage(input) {
-  let chrome;
-  try {
-    await prepareBrowserProfile(input.profileDirectory);
-    chrome = await spawnExplorerChrome(input.chromeExecutable, [
-      "--disable-component-update",
-      "--disable-default-apps",
-      "--disable-extensions",
-      "--disable-gpu",
-      "--disable-sync",
-      "--no-default-browser-check",
-      "--no-first-run",
-      ...chromeRootSandboxFlags2(),
-      "--remote-debugging-port=0",
-      `--user-data-dir=${input.profileDirectory}`,
-      "about:blank"
-    ]);
-    const debuggerUrl = await readDebuggerUrl(chrome, input.timeoutMs, input.signal);
-    const pageUrl = await findPageDebuggerUrl(debuggerUrl, input.timeoutMs, input.signal);
-    const cdp = await createCdpClient(pageUrl, input.timeoutMs, input.signal);
-    try {
-      await cdp.call("Page.enable");
-      await cdp.call("Runtime.enable");
-      await cdp.call("Page.navigate", { url: input.url });
-      const deadline = Date.now() + input.timeoutMs;
-      let verificationRequired = false;
-      while (Date.now() < deadline) {
-        input.signal?.throwIfAborted();
-        const result2 = await cdp.call("Runtime.evaluate", {
-          awaitPromise: true,
-          expression: input.expression,
-          returnByValue: true
-        });
-        const remote = isRecord2(result2.result) ? result2.result : void 0;
-        if (remote !== void 0 && remote.value !== null && remote.value !== void 0) {
-          return remote.value;
-        }
-        const verification = await cdp.call("Runtime.evaluate", {
-          awaitPromise: true,
-          expression: EXPLORER_VERIFICATION_EXPRESSION,
-          returnByValue: true
-        });
-        const verificationRemote = isRecord2(verification.result) ? verification.result : void 0;
-        verificationRequired ||= verificationRemote?.value === true;
-        await delay(250, input.signal);
-      }
-      if (verificationRequired) {
-        throw new ExplorerBrowserVerificationError(new URL(input.url).hostname);
-      }
-      throw new Error(`Browser page evidence timed out for ${new URL(input.url).hostname}.`);
-    } finally {
-      cdp.close();
-    }
-  } finally {
-    await terminateChrome2(chrome);
-  }
-}
-async function loadSolscanTransaction(chromeExecutable, profileDirectory, transactionId, timeoutMs, signal) {
-  const explorerUrl = `${SOLSCAN_ORIGIN}/tx/${transactionId}`;
-  let chrome;
-  try {
-    await prepareBrowserProfile(profileDirectory);
-    chrome = await spawnExplorerChrome(chromeExecutable, [
-      "--disable-component-update",
-      "--disable-default-apps",
-      "--disable-extensions",
-      "--disable-gpu",
-      "--disable-sync",
-      "--no-default-browser-check",
-      "--no-first-run",
-      ...chromeRootSandboxFlags2(),
-      "--remote-debugging-port=0",
-      `--user-data-dir=${profileDirectory}`,
-      "about:blank"
-    ]);
-    const debuggerUrl = await readDebuggerUrl(chrome, timeoutMs, signal);
-    const pageUrl = await findPageDebuggerUrl(debuggerUrl, timeoutMs, signal);
-    const cdp = await createCdpClient(pageUrl, timeoutMs, signal);
-    try {
-      await cdp.call("Page.enable");
-      await cdp.call("Runtime.enable");
-      await cdp.call("Network.enable");
-      const detail = waitForSolscanDetail(cdp, transactionId, timeoutMs, signal);
-      await cdp.call("Page.navigate", { url: explorerUrl });
-      const parsed = browserTransactionSchema.parse(await detail);
-      return projectTransaction(parsed, explorerUrl);
-    } finally {
-      cdp.close();
-    }
-  } finally {
-    await terminateChrome2(chrome);
-  }
-}
-async function prepareBrowserProfile(profileDirectory) {
-  await mkdir2(profileDirectory, { recursive: true, mode: 448 });
-  const lockPath = path2.join(profileDirectory, "SingletonLock");
-  let owner;
-  try {
-    owner = await readlink(lockPath);
-  } catch (error51) {
-    if (isNodeError(error51) && error51.code === "ENOENT") return;
-    throw error51;
-  }
-  const separator = owner.lastIndexOf("-");
-  const ownerHost = separator < 0 ? owner : owner.slice(0, separator);
-  const ownerPid = separator < 0 ? Number.NaN : Number(owner.slice(separator + 1));
-  if (ownerHost === hostname3() && Number.isSafeInteger(ownerPid) && ownerPid > 0) {
-    try {
-      process.kill(ownerPid, 0);
-      return;
-    } catch (error51) {
-      if (!isNodeError(error51) || error51.code !== "ESRCH") return;
-    }
-  }
-  await Promise.all(
-    ["SingletonLock", "SingletonCookie", "SingletonSocket", "DevToolsActivePort"].map(
-      async (name) => {
-        try {
-          await unlink(path2.join(profileDirectory, name));
-        } catch (error51) {
-          if (!isNodeError(error51) || error51.code !== "ENOENT") throw error51;
-        }
-      }
-    )
-  );
-}
-async function resolveExplorerChromeLaunch(chromeExecutable, chromeArguments, options = {}) {
-  const xvfbRunExecutable = options.xvfbRunExecutable ?? "/usr/bin/xvfb-run";
-  try {
-    await access(xvfbRunExecutable);
-    return {
-      arguments: [
-        "-a",
-        "--server-args=-screen 0 1600x1000x24 -nolisten tcp",
-        chromeExecutable,
-        ...chromeArguments
-      ],
-      command: xvfbRunExecutable
-    };
-  } catch {
-    return { arguments: ["--headless=new", ...chromeArguments], command: chromeExecutable };
-  }
-}
-async function spawnExplorerChrome(chromeExecutable, chromeArguments) {
-  const launch = await resolveExplorerChromeLaunch(chromeExecutable, chromeArguments);
-  return spawn2(launch.command, launch.arguments, {
-    detached: process.platform !== "win32",
-    stdio: ["ignore", "ignore", "pipe"]
-  });
-}
-function isNodeError(error51) {
-  return error51 instanceof Error && "code" in error51;
-}
-function projectTransaction(parsed, explorerUrl) {
-  const accountKeys = unique([
-    ...parsed.accountKeys,
-    ...parsed.tokenChanges.flatMap((change) => [
-      ...change.account === void 0 ? [] : [change.account],
-      ...change.owner === void 0 ? [] : [change.owner]
-    ])
-  ]);
-  const accountIndexes = new Map(accountKeys.map((address, index) => [address, index]));
-  const payloadHash = `sha256:${createHash2("sha256").update(JSON.stringify(parsed)).digest("hex")}`;
-  return getTransactionOutputSchema.parse({
-    analysis: {
-      accountKeys,
-      ...parsed.blockTime === void 0 ? {} : { blockTime: new Date(parsed.blockTime * 1e3).toISOString() },
-      ...parsed.computeUnitsConsumed === void 0 ? {} : { computeUnitsConsumed: integerString(parsed.computeUnitsConsumed) },
-      executionStatus: parsed.executionStatus,
-      ...parsed.feeLamports === void 0 ? {} : { feeLamports: integerString(parsed.feeLamports) },
-      logCount: parsed.logCount,
-      nativeBalanceChanges: parsed.nativeChanges.flatMap((change) => {
-        const accountIndex = accountIndexes.get(change.account);
-        return accountIndex === void 0 ? [] : [{ account: change.account, accountIndex, deltaLamports: integerString(change.delta) }];
-      }),
-      network: "solana:mainnet",
-      programIds: unique(parsed.programIds),
-      slot: integerString(parsed.slot),
-      sources: [
-        {
-          id: "solscan_browser",
-          kind: "explorer_browser",
-          observedAt: (/* @__PURE__ */ new Date()).toISOString(),
-          payloadHash,
-          provenanceUrl: explorerUrl
-        }
-      ],
-      tokenBalanceChanges: parsed.tokenChanges.flatMap((change) => {
-        const account = change.account ?? change.owner;
-        const accountIndex = account === void 0 ? void 0 : accountIndexes.get(account);
-        if (accountIndex === void 0) return [];
-        return [
-          {
-            ...change.account === void 0 ? {} : { account: change.account },
-            accountIndex,
-            decimals: change.decimals,
-            deltaRaw: integerString(change.delta),
-            mint: change.mint,
-            ...change.owner === void 0 ? {} : { owner: change.owner },
-            ...change.programId === void 0 ? {} : { programId: change.programId }
-          }
-        ];
-      }),
-      transactionId: parsed.transactionId
-    },
-    diagnostics: [],
-    explorerUrl,
-    family: "solana",
-    network: "solana:mainnet",
-    status: "partial",
-    summary: "Transaction facts were read from the fixed Solscan page in a browser; evidence is partial and not an RPC consensus result.",
-    transactionId: parsed.transactionId
-  });
-}
-async function waitForSolscanDetail(cdp, transactionId, timeoutMs, signal) {
-  return await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      void cdp.call("Runtime.evaluate", {
-        expression: `({url: location.href, text: (document.body?.innerText || '').slice(0, 240)})`,
-        returnByValue: true
-      }).then((result2) => {
-        const remote = isRecord2(result2.result) ? result2.result : void 0;
-        finish(
-          new Error(
-            `Solscan browser transaction evidence timed out: ${JSON.stringify(remote?.value)}`
-          )
-        );
-      }).catch(() => finish(new Error("Solscan browser transaction evidence timed out.")));
-    }, timeoutMs);
-    const abort = () => finish(new Error("Solscan browser transaction evidence was aborted."));
-    const unsubscribe = cdp.on("Network.responseReceived", (params) => {
-      const response = isRecord2(params.response) ? params.response : void 0;
-      if (typeof response?.url !== "string" || !response.url.startsWith(`${SOLSCAN_API_ORIGIN}/v2/transaction/detail`) || !response.url.includes(transactionId) || typeof params.requestId !== "string")
-        return;
-      unsubscribe();
-      void cdp.call("Network.getResponseBody", { requestId: params.requestId }).then((result2) => {
-        if (typeof result2.body !== "string")
-          throw new Error("Solscan response body was missing.");
-        const body = result2.base64Encoded === true ? Buffer.from(result2.body, "base64").toString("utf8") : result2.body;
-        finish(void 0, normalizeSolscanPayload(JSON.parse(body)));
-      }).catch(
-        (error51) => finish(error51 instanceof Error ? error51 : new Error("Solscan response read failed."))
-      );
-    });
-    const finish = (error51, value) => {
-      clearTimeout(timeout);
-      unsubscribe();
-      signal?.removeEventListener("abort", abort);
-      error51 === void 0 ? resolve(value) : reject(error51);
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-    if (signal?.aborted === true) abort();
-  });
-}
-function normalizeSolscanPayload(payload) {
-  if (!isRecord2(payload) || payload.success !== true || !isRecord2(payload.data)) {
-    throw new Error("Solscan browser response did not contain transaction data.");
-  }
-  const data = payload.data;
-  const native = Array.isArray(data.sol_bal_change) ? data.sol_bal_change : [];
-  const tokens = Array.isArray(data.token_bal_change) ? data.token_bal_change : [];
-  const programs = [];
-  collectProgramIds(data.parsed_instructions, programs);
-  return {
-    accountKeys: native.flatMap(
-      (item) => isRecord2(item) && typeof item.address === "string" ? [item.address] : []
-    ),
-    ...typeof data.trans_time === "number" && Number.isInteger(data.trans_time) ? { blockTime: data.trans_time } : {},
-    ...integerValue(data.compute_units_consumed) === void 0 ? {} : { computeUnitsConsumed: integerValue(data.compute_units_consumed) },
-    executionStatus: data.status === "Fail" || data.status === "failed" ? "reverted" : data.status === "Success" || data.status === "success" || data.status === 1 ? "success" : "unknown",
-    ...integerValue(data.fee) === void 0 ? {} : { feeLamports: integerValue(data.fee) },
-    logCount: Array.isArray(data.log_message) ? data.log_message.length : 0,
-    nativeChanges: native.flatMap(
-      (item) => isRecord2(item) && typeof item.address === "string" && integerValue(item.change_amount) !== void 0 ? [{ account: item.address, delta: integerValue(item.change_amount) }] : []
-    ),
-    programIds: unique(programs),
-    slot: data.block_id,
-    tokenChanges: tokens.flatMap((item) => {
-      if (!isRecord2(item) || typeof item.token_address !== "string" || typeof item.decimals !== "number" || integerValue(item.change_amount) === void 0)
-        return [];
-      return [
-        {
-          ...typeof item.address === "string" ? { account: item.address } : {},
-          decimals: item.decimals,
-          delta: integerValue(item.change_amount),
-          mint: item.token_address,
-          ...typeof item.owner === "string" ? { owner: item.owner } : {},
-          ...typeof item.program_id === "string" ? { programId: item.program_id } : {}
-        }
-      ];
-    }),
-    transactionId: data.trans_id
-  };
-}
-function collectProgramIds(value, output) {
-  if (!Array.isArray(value)) return;
-  for (const item of value) {
-    if (!isRecord2(item)) continue;
-    if (typeof item.program_id === "string") output.push(item.program_id);
-    collectProgramIds(item.inner_instructions, output);
-  }
-}
-function integerValue(value) {
-  return typeof value === "string" || typeof value === "number" && Number.isInteger(value) ? value : void 0;
-}
-function integerString(value) {
-  const string4 = String(value);
-  if (!/^-?(?:0|[1-9]\d*)$/u.test(string4))
-    throw new Error("Explorer returned a non-integer value.");
-  return string4;
-}
-function unique(values) {
-  return [...new Set(values)];
-}
-function chromeRootSandboxFlags2() {
-  return typeof process.getuid === "function" && process.getuid() === 0 ? ["--no-sandbox"] : [];
-}
-function isRecord2(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 function positiveInteger3(value, label) {
   if (!Number.isSafeInteger(value) || value <= 0)
     throw new RangeError(`${label} must be positive.`);
   return value;
 }
-async function terminateChrome2(chrome) {
-  if (chrome === void 0 || chrome.exitCode !== null) return;
-  await new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      signalBrowserProcess2(chrome, "SIGKILL");
-      resolve();
-    }, 2e3);
-    chrome.once("exit", () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-    signalBrowserProcess2(chrome, "SIGTERM");
-  });
-}
-function signalBrowserProcess2(chrome, signal) {
-  if (chrome.pid !== void 0 && process.platform !== "win32") {
-    try {
-      process.kill(-chrome.pid, signal);
-      return;
-    } catch {
-    }
-  }
-  try {
-    chrome.kill(signal);
-  } catch {
-  }
-}
-
-// packages/xxyy-transaction-diagnosis-runtime/src/canonical-pool-config.ts
-var identifierSchema3 = external_exports.string().trim().min(1).max(256);
-var xxyyCanonicalPoolConfigSchema = external_exports.object({
-  entries: external_exports.array(
-    external_exports.object({
-      chain: external_exports.string().trim().min(2).max(96),
-      pairAddress: identifierSchema3,
-      tokenAddress: identifierSchema3
-    }).strict()
-  ).max(1024)
-}).strict().superRefine((value, context) => {
-  const keys = /* @__PURE__ */ new Set();
-  for (const [index, entry] of value.entries.entries()) {
-    const key = `${entry.chain.toLowerCase()}:${normalizeIdentifier2(entry.chain, entry.tokenAddress)}`;
-    if (keys.has(key)) {
-      context.addIssue({
-        code: "custom",
-        message: "Canonical pool entries must be unique by chain and token.",
-        path: ["entries", index]
-      });
-    }
-    keys.add(key);
-  }
-});
-function createConfiguredCanonicalPoolResolver(rawConfig) {
-  const config2 = xxyyCanonicalPoolConfigSchema.parse(
-    typeof rawConfig === "string" ? parseJson(rawConfig) : rawConfig
-  );
-  const byToken = new Map(
-    config2.entries.map((entry) => [
-      `${entry.chain.toLowerCase()}:${normalizeIdentifier2(entry.chain, entry.tokenAddress)}`,
-      entry.pairAddress
-    ])
-  );
-  return (input) => {
-    const matches = new Set(
-      input.targetTokenAddresses.flatMap((token) => {
-        const pair = byToken.get(
-          `${input.chain.toLowerCase()}:${normalizeIdentifier2(input.chain, token)}`
-        );
-        return pair === void 0 ? [] : [pair];
-      })
-    );
-    return matches.size === 1 ? [...matches][0] : void 0;
-  };
-}
-function parseJson(value) {
-  try {
-    return JSON.parse(value);
-  } catch (cause) {
-    throw new TypeError("XXYY_CANONICAL_POOL_CONFIG_JSON must be valid JSON.", { cause });
-  }
-}
-function normalizeIdentifier2(chain, value) {
-  return chain.toLowerCase().startsWith("eip155:") ? value.toLowerCase() : value;
+function isRecord2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // packages/xxyy-transaction-diagnosis-runtime/src/service.ts
@@ -17905,6 +17751,8 @@ async function runXxyyTransactionDiagnosisCli(options = {}) {
   const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const parsed = parseCliArguments(argv);
+  const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH);
+  if (egoBrowserExecutable === void 0) throw new EgoBrowserUnavailableError();
   const chromeExecutable = await resolveBrowserChromeExecutable(
     env.XXYY_SCREENSHOT_CHROME_EXECUTABLE
   );
@@ -17923,8 +17771,10 @@ async function runXxyyTransactionDiagnosisCli(options = {}) {
     mkdir3(artifactDirectory, { mode: 488, recursive: true })
   ]);
   const chainAnalysis = createBrowserChainAnalysisClient({
-    chromeExecutable,
-    profileDirectory
+    pageEvaluator: createEgoBrowserPageEvaluator({
+      command: egoBrowserExecutable,
+      taskName: "xxyy-diagnosis-skill-explorer"
+    })
   });
   try {
     const canonicalPoolConfig = env.XXYY_CANONICAL_POOL_CONFIG_JSON?.trim();

@@ -251,6 +251,12 @@ export { feedbackFailureReasons } from './pgvector-store.js';
 export { createInMemoryQualityTracer, noopQualityTracer } from './quality-trace.js';
 export type { QualityTraceRecord, QualityTracer } from './quality-trace.js';
 export {
+  createPgDailyChatQuotaStore,
+  migrateDailyChatQuota,
+  quotaDateInTimeZone,
+} from './daily-chat-quota.js';
+export type { DailyChatQuotaResult, PgDailyChatQuotaStore } from './daily-chat-quota.js';
+export {
   createPgApiObservabilityStore,
   migrateApiObservability,
   renderPrometheusApiMetrics,

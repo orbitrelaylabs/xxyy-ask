@@ -237,6 +237,8 @@ export function xxyyPairUrl(chain: string, pairAddress: string): string {
   const slug: Record<string, string> = {
     'eip155:1': 'eth',
     'eip155:56': 'bsc',
+    'eip155:988': 'stable',
+    'eip155:4663': 'robin',
     'eip155:8453': 'base',
     'solana:mainnet': 'sol',
   };

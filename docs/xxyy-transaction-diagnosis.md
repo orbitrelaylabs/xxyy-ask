@@ -13,9 +13,9 @@
 - `@xxyy/xxyy-transaction-diagnosis-runtime`：组合固定 Explorer 浏览器证据、XXYY 市场适配器、判定 core 和截图提供器。
 - `skills/xxyy-transaction-diagnosis`：禁止隐式调用的自包含项目 Skill；`scripts/diagnose.mjs` 是已打包、无工作区依赖的 JSON CLI。
 
-Web 和 Telegram 只通过 `XXYY_BROWSER_PROFILE_DIRECTORY` 注册固定 Explorer 浏览器证据模式，不存在 RPC 回退。两者分别为固定 `web/anonymous`、`telegram/service` 创建 `xxyy.skill.diagnose_transaction` 精确授权，并直接调用同一 runtime。
+Web 和 Telegram 在本机发现 `ego-browser` 后注册固定 Explorer 浏览器证据模式，不存在 RPC 回退。两者分别为固定 `web/anonymous`、`telegram/service` 创建 `xxyy.skill.diagnose_transaction` 精确授权，并直接调用同一 runtime。
 
-浏览器模式只打开固定 Explorer 页面并读取页面自身的受限响应，整体交易状态固定为 `partial`。当前覆盖 Solana、Ethereum、BSC、Base、Robinhood Chain 和 Stable Chain；BscScan、Etherscan 等 Scan 页面优先通过本机 `ego-browser` 复用已有浏览器验证状态，命令不存在时才回退隔离 Chrome Profile。两条路径都只允许代码根据已校验交易哈希构造固定 allowlist URL，不接受用户 endpoint 或页面脚本。EVM 深度 trace、池状态、反事实损失与攻击者收益不在公开路径采集，因此不会给出 `confirmed`。
+浏览器模式只打开固定 Explorer 页面并读取页面自身的受限响应，整体交易状态固定为 `partial`。当前覆盖 Solana、Ethereum、BNB Smart Chain、Base、Robinhood Chain 和 Stable Chain；六条链全部通过本机 `ego-browser` 复用同一用户验证状态，不再按站点分流到隔离 Chrome。代码只根据已校验交易哈希构造固定 allowlist 页面/API URL，不接受任意 chain ID、用户 endpoint 或页面脚本。EVM 深度 trace、池状态、反事实损失与攻击者收益不在公开路径采集，因此不会给出 `confirmed`。
 
 ## 工具契约
 
@@ -82,12 +82,12 @@ API 只从该目录公开名称为 64 位小写 SHA-256 加 `.png` 的文件。C
 
 ## 零 RPC 浏览器模式
 
-公开诊断只需一个隔离、持久的浏览器 Profile：
+公开交易查询只要求已完成首次引导的 ego-browser：
 
 ```bash
-XXYY_BROWSER_PROFILE_DIRECTORY=/isolated/xxyy-browser-profile
+command -v ego-browser
 ```
 
-Chrome/Chromium 会从固定系统路径自动发现；非标准安装可复用 `XXYY_SCREENSHOT_CHROME_EXECUTABLE` 指定。Scan 系 Explorer 优先使用已安装的 `ego-browser` 及其用户验证状态，因此 BscScan 的 Cloudflare 验证不需要代码绕过；`ego-browser` 不可用时才使用该隔离 Profile。Solscan 和隔离 Chrome 回退可能阻止全新无状态 headless 会话，因此首次启用前需用同一 Profile 正常打开站点、完成人工验证并关闭该 Chrome，再启动 API/Telegram。不得指向个人日常 Chrome Profile；Profile 目录属于运行时状态，不得提交仓库。页面验证过期或 Cloudflare 再次拦截时返回浏览器证据不可用，不回退到未知 endpoint。
+Solscan、Blockscout 和 Scan 系 Explorer 都通过同一个受控页面读取器访问。API、Telegram 和两个 Skill CLI 分别复用固定命名的持久 Task Space，避免每笔交易创建新浏览器上下文而反复丢失验证状态；页面验证过期或 Cloudflare 再次拦截时返回包含 Task Space 名称的验证提示，不尝试绕过，也不回退到未知 endpoint 或无头 Chrome。`XXYY_SCREENSHOT_CHROME_EXECUTABLE`、`XXYY_BROWSER_PROFILE_DIRECTORY` 和 `XXYY_SCREENSHOT_DIRECTORY` 仅配置 XXYY 原生截图提供器；其隔离 Profile 不得指向个人日常 Chrome Profile，也不得提交仓库。
 
 Web 通过同源 `/xxyy-evidence/<hash>.png` 渲染图片；Telegram 从截图目录读取 PNG 并直接上传，不要求截图公网 URL。canonical pool 声明和小池阈值均为可选策略配置，不是浏览器访问的前提。

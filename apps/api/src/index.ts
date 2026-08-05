@@ -17,14 +17,15 @@ import {
   createChromeXxyyScreenshotProvider,
   createBrowserChainAnalysisClient,
   createConfiguredCanonicalPoolResolver,
+  createEgoBrowserPageEvaluator,
   createXxyyTransactionDiagnosisService,
-  resolveBrowserChromeExecutable,
   resolveEgoBrowserExecutable,
 } from '@xxyy/xxyy-transaction-diagnosis-runtime';
 import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxyy/knowledge';
 import {
   createOpenAiAnswerProvider,
   createPgApiObservabilityStore,
+  createPgDailyChatQuotaStore,
   feedbackFailureReasons,
   createPgFeedbackStore,
   createPgSupportOperationsStore,
@@ -35,6 +36,7 @@ import {
   loadRagConfig,
   loadWorkspaceEnv,
   noopQualityTracer,
+  quotaDateInTimeZone,
   readKnowledgeRefreshStatus,
   resolveWorkspaceCwd,
   VectorStoreConfigurationError,
@@ -56,6 +58,7 @@ import type {
   ChatService,
   QualityTracer,
   ApiCallObservation,
+  DailyChatQuotaResult,
   PgSupportOperationsStore,
   RagEnv,
   RecordFeedbackInput,
@@ -90,6 +93,9 @@ type ApiEnv = RagEnv &
       | 'OBSERVABILITY_ALERT_RATE_LIMITED_RATIO'
       | 'OBSERVABILITY_ALERT_SERVER_ERROR_RATIO'
       | 'OBSERVABILITY_CLIENT_HASH_SALT'
+      | 'DAILY_CHAT_LIMIT'
+      | 'DAILY_CHAT_LIMIT_TIME_ZONE'
+      | 'DAILY_CHAT_LIMIT_HASH_SALT'
       | 'ANSWER_QUALITY_CLI_MODE'
       | 'ANSWER_QUALITY_CLI_OPTIMIZED_PERCENTAGE'
       | 'ANSWER_QUALITY_TELEGRAM_MODE'
@@ -157,6 +163,7 @@ export interface CreateRequestHandlerOptions {
   getKnowledgeAdminServices?: () => Promise<KnowledgeAdminServices>;
   getSupportOperationsStore?: () => Promise<PgSupportOperationsStore>;
   recordApiCall?: (input: ApiCallObservation) => Promise<void>;
+  consumeDailyChatQuota?: (identity: string) => Promise<DailyChatQuotaResult>;
   agentApiAuthenticator?: AgentApiAuthenticator;
   logger?: ApiLogger;
   now?: () => number;
@@ -184,6 +191,8 @@ interface ApiRuntimeConfig {
   maxBodyBytes: number;
   promptCostPerMillionTokens: number;
   completionCostPerMillionTokens: number;
+  dailyChatLimit: number;
+  dailyChatLimitTimeZone: string;
   rateLimitMax: number;
   rateLimitWindowMs: number;
   trustProxy: boolean;
@@ -284,6 +293,11 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
   const recordApiCall =
     options.recordApiCall ??
     (isTestRuntime(env) ? noopApiCallRecorder : createCachedApiCallRecorder(config, env));
+  const consumeDailyChatQuota =
+    options.consumeDailyChatQuota ??
+    (isTestRuntime(env)
+      ? createUnlimitedDailyChatQuota(apiConfig.dailyChatLimit, apiConfig.dailyChatLimitTimeZone)
+      : createCachedDailyChatQuotaConsumer(config, env, apiConfig));
   const logger = options.logger ?? noopLogger;
   const now = options.now ?? Date.now;
   const getKnowledgeRefreshStatus =
@@ -497,6 +511,8 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
           observation,
           promptCostPerMillionTokens: apiConfig.promptCostPerMillionTokens,
           completionCostPerMillionTokens: apiConfig.completionCostPerMillionTokens,
+          consumeDailyChatQuota,
+          clientAddress: clientIp,
           createRequestId,
           maxBodyBytes: apiConfig.maxBodyBytes,
           now,
@@ -520,6 +536,8 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
           observation,
           promptCostPerMillionTokens: apiConfig.promptCostPerMillionTokens,
           completionCostPerMillionTokens: apiConfig.completionCostPerMillionTokens,
+          consumeDailyChatQuota,
+          clientAddress: clientIp,
           createRequestId,
           maxBodyBytes: apiConfig.maxBodyBytes,
           now,
@@ -612,6 +630,7 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
 }
 
 interface HandleChatRequestOptions {
+  clientAddress: string;
   createRequestId: () => string;
   getChatService: () => Promise<ChatService>;
   getSupportOperationsStore?: () => Promise<PgSupportOperationsStore>;
@@ -619,6 +638,7 @@ interface HandleChatRequestOptions {
   observation: ApiObservationDraft;
   promptCostPerMillionTokens: number;
   completionCostPerMillionTokens: number;
+  consumeDailyChatQuota: (identity: string) => Promise<DailyChatQuotaResult>;
   maxBodyBytes: number;
   now: () => number;
   recordFeedback: FeedbackRecorder;
@@ -636,6 +656,19 @@ async function handleChatRequest(options: HandleChatRequestOptions): Promise<voi
   options.observation.channel = requestPayload.channel ?? 'web';
   options.observation.requestId = requestPayload.requestId;
   options.response.setHeader('X-Request-Id', requestPayload.requestId);
+  const quota = await options.consumeDailyChatQuota(
+    dailyChatQuotaIdentity(requestPayload, options.observation.apiKeyId, options.clientAddress),
+  );
+  if (!quota.allowed) {
+    options.observation.errorCode = 'daily_chat_limit_exceeded';
+    sendJson(options.response, 429, {
+      error: 'daily_chat_limit_exceeded',
+      limit: quota.limit,
+      message: `Daily chat limit reached. Each user can start at most ${quota.limit} conversations per day.`,
+      quotaDate: quota.quotaDate,
+    });
+    return;
+  }
   const startedAt = options.now();
   let chatRequest = toChatRequest(requestPayload);
   let supportConversationId: string | undefined;
@@ -907,6 +940,8 @@ function loadApiRuntimeConfig(env: ApiEnv): ApiRuntimeConfig {
       env.OBSERVABILITY_COMPLETION_COST_PER_1M_TOKENS,
       0,
     ),
+    dailyChatLimit: parsePositiveInteger(env.DAILY_CHAT_LIMIT, 10),
+    dailyChatLimitTimeZone: parseTimeZone(env.DAILY_CHAT_LIMIT_TIME_ZONE, 'Asia/Shanghai'),
     rateLimitMax: parsePositiveInteger(env.API_RATE_LIMIT_MAX, 60),
     rateLimitWindowMs: parsePositiveInteger(env.API_RATE_LIMIT_WINDOW_MS, 60_000),
     trustProxy: parseBoolean(env.TRUST_PROXY, false),
@@ -937,6 +972,16 @@ function parseNonNegativeNumber(value: string | undefined, fallback: number): nu
   if (value === undefined) return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function parseTimeZone(value: string | undefined, fallback: string): string {
+  const timeZone = value?.trim() || fallback;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date(0));
+    return timeZone;
+  } catch {
+    return fallback;
+  }
 }
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -1273,9 +1318,8 @@ async function checkBrowserRuntime(env: ApiEnv): Promise<HealthCheck> {
     if (egoBrowserExecutable === undefined) {
       return {
         configured: true,
-        driver: 'chromium-fallback',
-        message:
-          'ego-browser is unavailable; Explorer queries may require interactive verification.',
+        driver: 'ego-browser-unavailable',
+        message: 'ego-browser is unavailable; public Explorer queries are disabled.',
         status: 'error',
       };
     }
@@ -1523,13 +1567,11 @@ export function startServer(options: StartServerOptions = {}): ReturnType<typeof
 }
 
 async function logExplorerBrowserStartup(env: ApiEnv): Promise<void> {
-  const profileDirectory = env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim();
-  if (profileDirectory === undefined || profileDirectory.length === 0) return;
   const executable = await resolveEgoBrowserExecutable(env.PATH ?? process.env.PATH);
   process.stdout.write(
     executable === undefined
-      ? 'Explorer browser: ego-browser not found. Install ego lite from https://lite.ego.app/ for protected Explorer queries; product Q&A remains available.\n'
-      : `Explorer browser: ego-browser ready (${executable}).\n`,
+      ? 'Explorer browser: ego-browser not found. Install ego lite from https://lite.ego.app/ for public transaction queries; product Q&A remains available.\n'
+      : `Explorer browser: ego-browser ready for all supported chains (${executable}).\n`,
   );
 }
 
@@ -1724,14 +1766,15 @@ function parseBoundedInteger(
 }
 
 async function createOptionalBrowserChainAnalysisClient(env: ApiEnv) {
-  const profileDirectory = env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim();
-  if (profileDirectory === undefined || profileDirectory.length === 0) return undefined;
-  const chromeExecutable = await resolveBrowserChromeExecutable(
-    env.XXYY_SCREENSHOT_CHROME_EXECUTABLE,
-  );
-  return chromeExecutable === undefined
+  const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH ?? process.env.PATH);
+  return egoBrowserExecutable === undefined
     ? undefined
-    : createBrowserChainAnalysisClient({ chromeExecutable, profileDirectory });
+    : createBrowserChainAnalysisClient({
+        pageEvaluator: createEgoBrowserPageEvaluator({
+          command: egoBrowserExecutable,
+          taskName: 'xxyy-api-explorer',
+        }),
+      });
 }
 
 function createCachedFeedbackRecorder(config: ReturnType<typeof loadRagConfig>): FeedbackRecorder {
@@ -1765,6 +1808,57 @@ function createCachedApiCallRecorder(
     }
     await recorder(input);
   };
+}
+
+function createCachedDailyChatQuotaConsumer(
+  config: ReturnType<typeof loadRagConfig>,
+  env: ApiEnv,
+  apiConfig: Pick<ApiRuntimeConfig, 'dailyChatLimit' | 'dailyChatLimitTimeZone'>,
+): (identity: string) => Promise<DailyChatQuotaResult> {
+  let consume: ((identity: string) => Promise<DailyChatQuotaResult>) | undefined;
+  return async (identity) => {
+    if (consume === undefined) {
+      const pool = createPgPool(config.databaseUrl);
+      const hashSalt = env.DAILY_CHAT_LIMIT_HASH_SALT ?? env.OBSERVABILITY_CLIENT_HASH_SALT;
+      const store = createPgDailyChatQuotaStore({
+        client: pool,
+        ...(hashSalt === undefined ? {} : { hashSalt }),
+      });
+      consume = (nextIdentity) =>
+        store.consume({
+          identity: nextIdentity,
+          limit: apiConfig.dailyChatLimit,
+          timeZone: apiConfig.dailyChatLimitTimeZone,
+        });
+    }
+    return consume(identity);
+  };
+}
+
+function createUnlimitedDailyChatQuota(
+  limit: number,
+  timeZone: string,
+): (identity: string) => Promise<DailyChatQuotaResult> {
+  return () =>
+    Promise.resolve({
+      allowed: true,
+      limit,
+      quotaDate: quotaDateInTimeZone(new Date(), timeZone),
+      remaining: limit,
+      used: 0,
+    });
+}
+
+function dailyChatQuotaIdentity(
+  payload: ChatPayload,
+  apiKeyId: string | undefined,
+  clientAddressValue: string,
+): string {
+  if (payload.userId !== undefined) return `user:${payload.channel ?? 'web'}:${payload.userId}`;
+  if (apiKeyId !== undefined) return `api-key:${apiKeyId}`;
+  if (payload.sessionId !== undefined)
+    return `session:${payload.channel ?? 'web'}:${payload.sessionId}`;
+  return `client:${clientAddressValue}`;
 }
 
 function createCachedSupportOperationsStoreLoader(

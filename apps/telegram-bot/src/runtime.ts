@@ -19,6 +19,7 @@ import {
   createLazyRetriever,
   createOpenAiAnswerProvider,
   createPgFeedbackStore,
+  createPgDailyChatQuotaStore,
   createPgPool,
   createPgSupportOperationsStore,
   createPgVectorStore,
@@ -27,6 +28,7 @@ import {
   type AnswerProvider,
   type ChatService,
   type PgSupportOperationsStore,
+  type PgDailyChatQuotaStore,
   type RagConfig,
   type QualityTracer,
   type RecordFeedbackInput,
@@ -46,6 +48,9 @@ export function createTelegramChatRuntime(
   options: {
     answerQualityRollout?: AnswerQualityRolloutConfig;
     answerQualityRolloutObserver?: AnswerQualityRolloutObserver;
+    dailyChatLimit?: number;
+    dailyChatLimitHashSalt?: string;
+    dailyChatLimitTimeZone?: string;
     publicTransactionClient?: PublicTransactionClient;
     supportOperationsStore?: PgSupportOperationsStore;
     xxyyTransactionDiagnosis?: XxyyTransactionDiagnosisHandler;
@@ -55,6 +60,7 @@ export function createTelegramChatRuntime(
   let feedbackPool: ReturnType<typeof createPgPool> | undefined;
   let supportPool: ReturnType<typeof createPgPool> | undefined;
   let supportStore = options.supportOperationsStore;
+  let dailyQuotaStore: PgDailyChatQuotaStore | undefined;
 
   const retriever = createLazyRetriever(async () => {
     const nextPool = createPgPool(config.databaseUrl);
@@ -126,6 +132,22 @@ export function createTelegramChatRuntime(
     supportStore = createPgSupportOperationsStore({ client: supportPool });
     return supportStore;
   };
+  const getDailyQuotaStore = async (): Promise<PgDailyChatQuotaStore> => {
+    if (dailyQuotaStore !== undefined) return dailyQuotaStore;
+    supportPool ??= createPgPool(config.databaseUrl);
+    dailyQuotaStore = createPgDailyChatQuotaStore({
+      client: supportPool,
+      ...(options.dailyChatLimitHashSalt === undefined
+        ? {}
+        : { hashSalt: options.dailyChatLimitHashSalt }),
+    });
+    return dailyQuotaStore;
+  };
+
+  const persistedService = withLowEvidenceFeedback(
+    withPersistentTelegramHistory(service, getSupportOperationsStore, tracer),
+    recordFeedback,
+  );
 
   return {
     async close() {
@@ -136,6 +158,7 @@ export function createTelegramChatRuntime(
       const currentSupportPool = supportPool;
       supportPool = undefined;
       supportStore = options.supportOperationsStore;
+      dailyQuotaStore = undefined;
       await Promise.all([
         pool?.end(),
         currentFeedbackPool?.end(),
@@ -143,10 +166,63 @@ export function createTelegramChatRuntime(
         options.publicTransactionClient?.close(),
       ]);
     },
-    service: withLowEvidenceFeedback(
-      withPersistentTelegramHistory(service, getSupportOperationsStore, tracer),
-      recordFeedback,
-    ),
+    service:
+      options.dailyChatLimit === undefined
+        ? persistedService
+        : withDailyTelegramChatQuota(persistedService, getDailyQuotaStore, {
+            limit: options.dailyChatLimit,
+            timeZone: options.dailyChatLimitTimeZone ?? 'Asia/Shanghai',
+          }),
+  };
+}
+
+export function withDailyTelegramChatQuota(
+  service: ChatService,
+  getStore: () => Promise<PgDailyChatQuotaStore>,
+  config: { limit: number; timeZone: string },
+): ChatService {
+  return {
+    async ask(request) {
+      const quota = await consumeTelegramQuota(request, getStore, config);
+      return quota.allowed ? service.ask(request) : dailyTelegramLimitResponse(quota.limit);
+    },
+    async *stream(request) {
+      const quota = await consumeTelegramQuota(request, getStore, config);
+      if (quota.allowed) {
+        yield* service.stream(request);
+        return;
+      }
+      const response = dailyTelegramLimitResponse(quota.limit);
+      yield { delta: response.answer, type: 'answer_delta' };
+      yield {
+        citations: response.citations,
+        confidence: response.confidence,
+        intent: response.intent,
+        type: 'metadata',
+      };
+    },
+  };
+}
+
+async function consumeTelegramQuota(
+  request: ChatRequest,
+  getStore: () => Promise<PgDailyChatQuotaStore>,
+  config: { limit: number; timeZone: string },
+) {
+  const identity = request.userId ?? request.sessionId ?? `${request.channel}:anonymous`;
+  return (await getStore()).consume({
+    identity: `telegram:${identity}`,
+    limit: config.limit,
+    timeZone: config.timeZone,
+  });
+}
+
+function dailyTelegramLimitResponse(limit: number): ChatResponse {
+  return {
+    answer: `今天的对话次数已用完（每天最多 ${limit} 次），请明天再试。`,
+    citations: [],
+    confidence: 1,
+    intent: 'unknown',
   };
 }
 

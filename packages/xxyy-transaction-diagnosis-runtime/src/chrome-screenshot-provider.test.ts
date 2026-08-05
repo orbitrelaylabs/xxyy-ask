@@ -12,6 +12,11 @@ describe('xxyyPairUrl', () => {
     expect(xxyyPairUrl('solana:mainnet', '4EBLSHwS9fCmvEva1ZXFoczrkNUtcXiz3RQtCizPP1mP')).toBe(
       'https://www.xxyy.io/sol/4EBLSHwS9fCmvEva1ZXFoczrkNUtcXiz3RQtCizPP1mP',
     );
+    expect(xxyyPairUrl('eip155:1', '0xabc')).toBe('https://www.xxyy.io/eth/0xabc');
+    expect(xxyyPairUrl('eip155:56', '0xabc')).toBe('https://www.xxyy.io/bsc/0xabc');
+    expect(xxyyPairUrl('eip155:8453', '0xabc')).toBe('https://www.xxyy.io/base/0xabc');
+    expect(xxyyPairUrl('eip155:4663', '0xabc')).toBe('https://www.xxyy.io/robin/0xabc');
+    expect(xxyyPairUrl('eip155:988', '0xabc')).toBe('https://www.xxyy.io/stable/0xabc');
     expect(() => xxyyPairUrl('unknown', 'abc')).toThrow(TypeError);
     expect(() => xxyyPairUrl('solana:mainnet', '../admin')).toThrow(TypeError);
   });

@@ -10,12 +10,14 @@ import {
   loadRagConfig,
   type ChatService,
   type PgSupportOperationsStore,
+  type PgDailyChatQuotaStore,
   type SupportConversationMessage,
 } from '@xxyy/rag-core';
 
 import {
   createTelegramChatRuntime,
   withLowEvidenceFeedback,
+  withDailyTelegramChatQuota,
   withPersistentTelegramHistory,
 } from './runtime.js';
 
@@ -318,6 +320,44 @@ describe('withLowEvidenceFeedback', () => {
         rating: 'negative',
       }),
     );
+  });
+});
+
+describe('withDailyTelegramChatQuota', () => {
+  it('returns a user-visible limit response without invoking the underlying service', async () => {
+    const ask = vi.fn();
+    const service: ChatService = {
+      ask,
+      async *stream() {
+        throw new Error('not used');
+      },
+    };
+    const consume = vi.fn(() =>
+      Promise.resolve({
+        allowed: false,
+        limit: 10,
+        quotaDate: '2026-08-04',
+        remaining: 0,
+        used: 10,
+      }),
+    );
+    const store = { consume } as unknown as PgDailyChatQuotaStore;
+    const response = await withDailyTelegramChatQuota(service, async () => store, {
+      limit: 10,
+      timeZone: 'Asia/Shanghai',
+    }).ask({
+      channel: 'telegram',
+      message: '第十一次提问',
+      sessionId: 'telegram:123',
+      userId: 'telegram:456',
+    });
+    expect(response.answer).toContain('每天最多 10 次');
+    expect(consume).toHaveBeenCalledWith({
+      identity: 'telegram:telegram:456',
+      limit: 10,
+      timeZone: 'Asia/Shanghai',
+    });
+    expect(ask).not.toHaveBeenCalled();
   });
 });
 

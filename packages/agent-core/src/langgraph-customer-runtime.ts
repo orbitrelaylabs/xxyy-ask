@@ -1792,7 +1792,7 @@ function sortJsonValue(value: unknown): unknown {
 function toolFailureResponse(toolName: string): ChatResponse {
   if (toolName === PUBLIC_TRANSACTION_TOOL_NAME) {
     return createClarificationResponse(
-      '公开交易浏览器查证暂时失败。请确认 Explorer 链接可公开访问，并联系管理员检查隔离浏览器 Profile 是否需要重新完成站点验证。',
+      '公开交易浏览器查证暂时失败。请确认 Explorer 链接可公开访问，并联系管理员检查 ego-browser 是否已安装、完成首次引导或需要重新完成站点验证。',
     );
   }
   if (toolName === PUBLIC_XXYY_TRANSACTION_DIAGNOSIS_TOOL_NAME) {

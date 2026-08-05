@@ -39,6 +39,7 @@ import { migrateKnowledgePublicationJobs } from './knowledge-publication-jobs.js
 import { reciprocalRankFusionScore } from './hybrid-rank.js';
 import { migrateSupportOperations } from './support-operations.js';
 import { migrateApiObservability } from './api-observability.js';
+import { migrateDailyChatQuota } from './daily-chat-quota.js';
 import { createKnowledgeAliasQueryTokens, matchKnowledgeAliases } from './knowledge-aliases.js';
 import { migrateKnowledgeGraph, replaceChunkKnowledgeGraph } from './knowledge-graph.js';
 import { migrateQualityEvaluationJobs } from './quality-evaluation-jobs.js';
@@ -698,6 +699,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
       await migrateKnowledgePublicationJobs(options.client);
       await migrateSupportOperations(options.client);
       await migrateApiObservability(options.client);
+      await migrateDailyChatQuota(options.client);
       await migrateKnowledgeGraph(options.client);
       await migrateQualityEvaluationJobs(options.client);
       await migrateTelegramCurationJobs(options.client);

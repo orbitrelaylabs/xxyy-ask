@@ -7,7 +7,10 @@ import { createXxyyMarketDataClient } from '@xxyy/xxyy-market-data-adapter';
 
 import {
   createBrowserChainAnalysisClient,
+  createEgoBrowserPageEvaluator,
+  EgoBrowserUnavailableError,
   resolveBrowserChromeExecutable,
+  resolveEgoBrowserExecutable,
 } from './browser-chain-analysis-client.js';
 import { createConfiguredCanonicalPoolResolver } from './canonical-pool-config.js';
 import { createChromeXxyyScreenshotProvider } from './chrome-screenshot-provider.js';
@@ -28,6 +31,8 @@ export async function runXxyyTransactionDiagnosisCli(
   const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const parsed = parseCliArguments(argv);
+  const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH);
+  if (egoBrowserExecutable === undefined) throw new EgoBrowserUnavailableError();
   const chromeExecutable = await resolveBrowserChromeExecutable(
     env.XXYY_SCREENSHOT_CHROME_EXECUTABLE,
   );
@@ -48,8 +53,10 @@ export async function runXxyyTransactionDiagnosisCli(
     mkdir(artifactDirectory, { mode: 0o750, recursive: true }),
   ]);
   const chainAnalysis = createBrowserChainAnalysisClient({
-    chromeExecutable,
-    profileDirectory,
+    pageEvaluator: createEgoBrowserPageEvaluator({
+      command: egoBrowserExecutable,
+      taskName: 'xxyy-diagnosis-skill-explorer',
+    }),
   });
   try {
     const canonicalPoolConfig = env.XXYY_CANONICAL_POOL_CONFIG_JSON?.trim();

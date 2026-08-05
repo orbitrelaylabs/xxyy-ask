@@ -78,9 +78,7 @@ describe('browser chain analysis client', () => {
 
   it('classifies a hard scan block as interactive verification', async () => {
     const client = createBrowserChainAnalysisClient({
-      chromeExecutable: process.execPath,
-      profileDirectory: '/tmp/xxyy-browser-profile-test',
-      scanPageEvaluator: async () => ({ blocked: true }),
+      pageEvaluator: async () => ({ blocked: true }),
     });
 
     await expect(
@@ -90,6 +88,115 @@ describe('browser chain analysis client', () => {
     ).rejects.toBeInstanceOf(ExplorerBrowserVerificationError);
   });
 
+  it('fails closed when an Explorer page returns a different transaction hash', async () => {
+    const requestedHash = `0x${'1'.repeat(64)}`;
+    const address = `0x${'a'.repeat(40)}`;
+    const client = createBrowserChainAnalysisClient({
+      pageEvaluator: async () => ({
+        accountAddresses: [address],
+        blockNumber: '1',
+        feeWei: '1',
+        from: address,
+        hash: `0x${'2'.repeat(64)}`,
+        rawInput: '0x',
+        status: 'success',
+        timestamp: '2026-08-05T00:00:00.000Z',
+        to: address,
+        tokenAddresses: [],
+        tokenTransfers: [],
+        valueWei: '0',
+      }),
+    });
+
+    await expect(
+      client.getTransaction({ reference: `https://bscscan.com/tx/${requestedHash}` }),
+    ).rejects.toThrow('transaction hash conflicted');
+  });
+
+  it('routes every XXYY-supported chain through one page evaluator', async () => {
+    const evmHash = `0x${'1'.repeat(64)}`;
+    const evmAddress = `0x${'a'.repeat(40)}`;
+    const solanaAddress = '9eHe3W17meRrZhMSYQiLsUvo13a5xUYGABxnwErfHN3S';
+    const calls: Array<{ expression?: string; fetchUrl?: string; url: string }> = [];
+    const client = createBrowserChainAnalysisClient({
+      pageEvaluator: async (input) => {
+        calls.push({
+          ...(input.expression === undefined ? {} : { expression: input.expression }),
+          ...(input.fetchUrl === undefined ? {} : { fetchUrl: input.fetchUrl }),
+          url: input.url,
+        });
+        if (input.url.includes('solscan.io')) {
+          return {
+            data: {
+              block_id: 1,
+              fee: 5_000,
+              log_message: [],
+              parsed_instructions: [],
+              sol_bal_change: [{ address: solanaAddress, change_amount: 0 }],
+              status: 1,
+              token_bal_change: [],
+              trans_id: signature,
+              trans_time: 1_700_000_000,
+            },
+            success: true,
+          };
+        }
+        if (input.fetchUrl !== undefined) {
+          return {
+            block_number: 1,
+            fee: { value: '1' },
+            from: { hash: evmAddress },
+            hash: evmHash,
+            raw_input: '0x',
+            status: 'ok',
+            timestamp: '2026-08-05T00:00:00.000Z',
+            to: { hash: evmAddress },
+            token_transfers: [],
+            value: '0',
+          };
+        }
+        return {
+          accountAddresses: [evmAddress],
+          blockNumber: '1',
+          feeWei: '1',
+          from: evmAddress,
+          hash: evmHash,
+          rawInput: '0x',
+          status: 'success',
+          timestamp: '2026-08-05T00:00:00.000Z',
+          to: evmAddress,
+          tokenAddresses: [],
+          tokenTransfers: [],
+          valueWei: '0',
+        };
+      },
+    });
+
+    const references = [
+      `https://solscan.io/tx/${signature}`,
+      `https://etherscan.io/tx/${evmHash}`,
+      `https://bscscan.com/tx/${evmHash}`,
+      `https://basescan.org/tx/${evmHash}`,
+      `https://robinhoodchain.blockscout.com/tx/${evmHash}`,
+      `https://stablescan.xyz/tx/${evmHash}`,
+    ];
+    const outputs = await Promise.all(
+      references.map((reference) => client.getTransaction({ reference })),
+    );
+
+    expect(outputs.map((output) => output.network)).toEqual([
+      'solana:mainnet',
+      'eip155:1',
+      'eip155:56',
+      'eip155:8453',
+      'eip155:4663',
+      'eip155:988',
+    ]);
+    expect(calls).toHaveLength(6);
+    expect(calls.filter((call) => call.fetchUrl !== undefined)).toHaveLength(4);
+    expect(calls.filter((call) => call.expression !== undefined)).toHaveLength(2);
+  });
+
   it('does not silently fall back when ego-browser is unavailable', async () => {
     const evaluator = createEgoBrowserPageEvaluator({
       command: '/missing/ego-browser',
@@ -97,9 +204,7 @@ describe('browser chain analysis client', () => {
 
     await expect(
       evaluator({
-        chromeExecutable: process.execPath,
         expression: 'null',
-        profileDirectory: '/tmp/xxyy-browser-profile-test',
         timeoutMs: 1_000,
         url: `https://bscscan.com/tx/0x${'1'.repeat(64)}`,
       }),

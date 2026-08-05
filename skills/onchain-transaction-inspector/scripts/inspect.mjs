@@ -6,17 +6,13 @@ var __export = (target, all) => {
 };
 
 // packages/xxyy-transaction-diagnosis-runtime/src/transaction-cli.ts
-import { mkdir as mkdir2 } from "node:fs/promises";
-import { homedir } from "node:os";
 import path2 from "node:path";
 import { pathToFileURL } from "node:url";
 
 // packages/xxyy-transaction-diagnosis-runtime/src/browser-chain-analysis-client.ts
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { constants as fsConstants } from "node:fs";
 import { access, mkdir, readlink, unlink } from "node:fs/promises";
-import { hostname as hostname3 } from "node:os";
 import path from "node:path";
 
 // node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
@@ -14963,238 +14959,6 @@ function isUint256(value) {
   return canonicalUintPattern.test(value) && BigInt(value) <= EVM_UINT256_MAX;
 }
 
-// packages/xxyy-transaction-diagnosis-core/src/contracts.ts
-var identifierSchema = external_exports.string().trim().min(1).max(256);
-var unsignedDecimalSchema = external_exports.string().regex(/^(?:0|[1-9]\d*)$/u);
-var decimalAmountSchema = external_exports.string().regex(/^(?:0|[1-9]\d*)(?:\.\d+)?$/u);
-var xxyyTradeSideSchema = external_exports.enum(["buy", "sell", "swap", "unknown"]);
-var xxyyTradeObservationSchema = external_exports.object({
-  actor: identifierSchema.optional(),
-  blockNumber: unsignedDecimalSchema.optional(),
-  inputAmountRaw: unsignedDecimalSchema.optional(),
-  inputAsset: identifierSchema.optional(),
-  outputAmountRaw: unsignedDecimalSchema.optional(),
-  outputAsset: identifierSchema.optional(),
-  poolAddress: identifierSchema,
-  side: xxyyTradeSideSchema,
-  slot: unsignedDecimalSchema.optional(),
-  transactionId: identifierSchema,
-  transactionIndex: external_exports.number().int().nonnegative().max(1e6).optional()
-}).strict().superRefine((value, context) => {
-  if (value.blockNumber !== void 0 && value.slot !== void 0) {
-    context.addIssue({
-      code: "custom",
-      message: "A trade observation cannot contain both an EVM block number and a Solana slot.",
-      path: ["slot"]
-    });
-  }
-});
-var xxyyPairCandidateSchema = external_exports.object({
-  baseToken: identifierSchema,
-  chain: external_exports.string().trim().min(2).max(96),
-  dexId: external_exports.string().trim().min(1).max(64).optional(),
-  liquidityUsd: decimalAmountSchema.optional(),
-  pairAddress: identifierSchema,
-  quoteToken: identifierSchema
-}).strict();
-var xxyyPoolPolicySchema = external_exports.object({
-  maxSmallPoolLiquidityUsd: decimalAmountSchema,
-  maxSmallPoolRelativeLiquidityPpm: external_exports.number().int().min(0).max(1e6),
-  version: external_exports.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u)
-}).strict();
-var xxyyPoolAssessmentInputSchema = external_exports.object({
-  actualPoolAddress: identifierSchema,
-  candidatePools: external_exports.array(xxyyPairCandidateSchema).min(1).max(64),
-  canonicalPoolAddress: identifierSchema.optional(),
-  policy: xxyyPoolPolicySchema
-}).strict();
-var xxyyPoolAssessmentSchema = external_exports.object({
-  actualLiquidityUsd: decimalAmountSchema.optional(),
-  canonicalMatch: external_exports.enum(["matches", "does_not_match", "unknown"]),
-  dominantLiquidityUsd: decimalAmountSchema.optional(),
-  dominantPoolAddress: identifierSchema.optional(),
-  liquidityClass: external_exports.enum(["normal", "small", "unknown"]),
-  policyVersion: external_exports.string(),
-  reasonCodes: external_exports.array(
-    external_exports.enum([
-      "actual_pool_not_in_candidates",
-      "canonical_pool_not_declared",
-      "liquidity_missing",
-      "matches_canonical_pool",
-      "non_canonical_pool",
-      "relative_and_absolute_liquidity_small",
-      "sufficient_liquidity"
-    ])
-  ),
-  relativeLiquidityPpm: external_exports.number().int().min(0).max(1e6).optional()
-}).strict();
-var xxyySandwichCoverageSchema = external_exports.object({
-  actorAssetDeltas: external_exports.enum(["complete", "partial", "missing"]),
-  neighborhood: external_exports.enum(["complete", "partial"]),
-  poolState: external_exports.enum(["complete", "partial", "missing"]),
-  sourceConflicts: external_exports.number().int().nonnegative().max(100)
-}).strict();
-var xxyySandwichCalculationSchema = external_exports.object({
-  actorAssetLoopVerified: external_exports.boolean().optional(),
-  attackerProfitRaw: unsignedDecimalSchema.optional(),
-  victimLossRaw: unsignedDecimalSchema.optional()
-}).strict();
-var xxyySandwichAssessmentInputSchema = external_exports.object({
-  calculation: xxyySandwichCalculationSchema.optional(),
-  coverage: xxyySandwichCoverageSchema,
-  observations: external_exports.array(xxyyTradeObservationSchema).min(1).max(1e3),
-  targetTransactionId: identifierSchema
-}).strict();
-var criterionSchema = external_exports.enum(["yes", "no", "unknown"]);
-var xxyySandwichAssessmentSchema = external_exports.object({
-  attackerProfitRaw: unsignedDecimalSchema.optional(),
-  backTransactionId: identifierSchema.optional(),
-  candidateActor: identifierSchema.optional(),
-  counterfactualAmountOutRaw: unsignedDecimalSchema.optional(),
-  criteria: external_exports.object({
-    actorLoop: criterionSchema,
-    adverseVictimImpact: criterionSchema,
-    profitableActor: criterionSchema,
-    sameBlockOrSlot: criterionSchema,
-    samePool: criterionSchema,
-    transactionOrder: criterionSchema,
-    twoSidedDirection: criterionSchema
-  }).strict(),
-  frontTransactionId: identifierSchema.optional(),
-  profitToken: identifierSchema.optional(),
-  reasonCodes: external_exports.array(
-    external_exports.enum([
-      "actor_mismatch",
-      "actor_loop_contradicted",
-      "actor_same_as_target",
-      "candidate_pattern_complete",
-      "direction_mismatch",
-      "loss_or_profit_missing",
-      "neighborhood_incomplete",
-      "no_bracketing_transactions",
-      "not_profitable",
-      "ordering_missing",
-      "pool_mismatch",
-      "pool_state_discontinuity",
-      "quote_mismatch",
-      "same_block_or_slot_missing",
-      "source_conflict",
-      "target_not_adversely_affected",
-      "unsupported_observation"
-    ])
-  ),
-  verdict: external_exports.enum(["confirmed", "likely", "unlikely", "insufficient_data"]),
-  victimLossPpm: unsignedDecimalSchema.optional(),
-  victimLossRaw: unsignedDecimalSchema.optional()
-}).strict();
-
-// packages/xxyy-market-data-adapter/src/contracts.ts
-var identifierSchema2 = external_exports.string().trim().min(1).max(256);
-var decimalAmountSchema2 = external_exports.string().regex(/^(?:0|[1-9]\d*)(?:\.\d+)?$/u);
-var xxyyMarketTradeSchema = external_exports.object({
-  blockNumber: external_exports.string().regex(/^(?:0|[1-9]\d*)$/u).optional(),
-  logIndex: external_exports.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
-  maker: identifierSchema2,
-  marketCapUsd: decimalAmountSchema2.optional(),
-  nativeAmount: decimalAmountSchema2,
-  timestamp: external_exports.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  tokenAmount: decimalAmountSchema2,
-  transactionId: identifierSchema2,
-  type: external_exports.enum(["buy", "sell"]),
-  usdAmount: decimalAmountSchema2.optional()
-}).strict();
-var xxyyContextTradeSchema = xxyyMarketTradeSchema.extend({
-  displayIndex: external_exports.number().int().nonnegative().max(499),
-  relation: external_exports.enum(["earlier", "same_time", "later"])
-}).strict();
-var xxyyTradeLookupInputSchema = external_exports.object({
-  actor: identifierSchema2.optional(),
-  chain: external_exports.string().trim().min(2).max(96),
-  targetTokenAddresses: external_exports.array(identifierSchema2).min(1).max(8),
-  timestampMs: external_exports.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
-  transactionAccountAddresses: external_exports.array(identifierSchema2).max(512).optional(),
-  transactionId: identifierSchema2
-}).strict();
-var xxyyMarketDiagnosticCodes = [
-  "http_error",
-  "invalid_response",
-  "multiple_transaction_matches",
-  "request_aborted",
-  "request_timeout",
-  "response_too_large",
-  "source_actor_conflict",
-  "transport_error"
-];
-var xxyyMarketDiagnosticSchema = external_exports.object({
-  code: external_exports.enum(xxyyMarketDiagnosticCodes),
-  retryable: external_exports.boolean(),
-  stage: external_exports.enum(["pair_search", "trade_search", "validate_match"])
-}).strict();
-var xxyyTradeLookupResultSchema = external_exports.object({
-  candidatePairs: external_exports.array(xxyyPairCandidateSchema).max(64),
-  contextTrades: external_exports.array(xxyyContextTradeSchema).max(12).optional(),
-  diagnostics: external_exports.array(xxyyMarketDiagnosticSchema).max(100),
-  matchedPair: xxyyPairCandidateSchema.optional(),
-  status: external_exports.enum(["exact", "conflict", "not_found"]),
-  trade: xxyyMarketTradeSchema.optional()
-}).strict().superRefine((value, context) => {
-  if (value.status === "exact" && (value.trade === void 0 || value.matchedPair === void 0)) {
-    context.addIssue({
-      code: "custom",
-      message: "An exact XXYY trade match requires the trade and matched pair.",
-      path: ["status"]
-    });
-  }
-  if (value.status !== "exact" && (value.trade !== void 0 || value.matchedPair !== void 0 || (value.contextTrades?.length ?? 0) > 0)) {
-    context.addIssue({
-      code: "custom",
-      message: "Only an exact XXYY trade match may expose one selected trade and pair.",
-      path: ["status"]
-    });
-  }
-  if (value.trade !== void 0 && value.contextTrades?.some((trade) => trade.transactionId === value.trade?.transactionId)) {
-    context.addIssue({
-      code: "custom",
-      message: "Context trades must exclude the exact target transaction.",
-      path: ["contextTrades"]
-    });
-  }
-});
-
-// packages/xxyy-market-data-adapter/src/client.ts
-var pairApiSchema = external_exports.object({
-  pairInfo: external_exports.object({
-    address: external_exports.string(),
-    baseToken: external_exports.string(),
-    chain: external_exports.string(),
-    dexId: external_exports.string().nullable().optional(),
-    liquidityUSD: external_exports.string().nullable().optional(),
-    quoteToken: external_exports.string()
-  }).passthrough()
-}).passthrough();
-var pairSearchResponseSchema = external_exports.object({
-  code: external_exports.literal(0),
-  data: external_exports.object({
-    results: external_exports.array(pairApiSchema).max(256)
-  }).passthrough()
-}).passthrough();
-var tradeApiSchema = external_exports.object({
-  blockNumber: external_exports.union([external_exports.number().int().nonnegative(), external_exports.string().regex(/^\d+$/u)]).optional(),
-  logIndex: external_exports.number().int().nonnegative().optional(),
-  maker: external_exports.string(),
-  marketCapUSD: external_exports.string().optional(),
-  nativeAmount: external_exports.string(),
-  timestamp: external_exports.number(),
-  tokenAmount: external_exports.string(),
-  txHash: external_exports.string(),
-  type: external_exports.enum(["buy", "sell"]),
-  usdAmount: external_exports.string().optional()
-}).passthrough();
-var tradeSearchResponseSchema = external_exports.object({
-  code: external_exports.literal(0),
-  data: external_exports.array(tradeApiSchema).max(500)
-}).passthrough();
-
 // packages/xxyy-transaction-diagnosis-runtime/src/network-profiles.ts
 var BUILT_IN_EVM_NETWORKS = [
   {
@@ -15260,7 +15024,6 @@ function normalizePublicNetworkIdentifier(value) {
   const normalized = value.toLowerCase();
   const builtIn = findBuiltInEvmNetworkByAlias(normalized);
   if (builtIn !== void 0) return builtIn.canonicalNetwork;
-  if (/^eip155:[1-9]\d*$/u.test(normalized)) return normalized;
   if (SOLANA_MAINNET_ALIASES.has(normalized)) return SOLANA_MAINNET_NETWORK;
   return void 0;
 }
@@ -15269,14 +15032,14 @@ function normalizePublicNetworkIdentifier(value) {
 var solanaAddressSchema = external_exports.string().trim().min(32).max(64).regex(/^[1-9A-HJ-NP-Za-km-z]+$/u, "Expected a base58 Solana address.");
 var solanaSignatureSchema = external_exports.string().trim().min(64).max(128).regex(/^[1-9A-HJ-NP-Za-km-z]+$/u, "Expected a base58 Solana transaction signature.");
 var decimalIntegerSchema = external_exports.string().regex(/^-?(?:0|[1-9]\d*)$/u);
-var unsignedDecimalSchema2 = external_exports.string().regex(/^(?:0|[1-9]\d*)$/u);
+var unsignedDecimalSchema = external_exports.string().regex(/^(?:0|[1-9]\d*)$/u);
 var fingerprintSchema = external_exports.string().regex(/^sha256:[0-9a-f]{64}$/u);
 var solanaTransactionSnapshotSchema = external_exports.object({
   accountKeys: external_exports.array(solanaAddressSchema).max(512),
   blockTime: external_exports.string().datetime({ offset: true }).optional(),
-  computeUnitsConsumed: unsignedDecimalSchema2.optional(),
+  computeUnitsConsumed: unsignedDecimalSchema.optional(),
   executionStatus: external_exports.enum(["reverted", "success", "unknown"]),
-  feeLamports: unsignedDecimalSchema2.optional(),
+  feeLamports: unsignedDecimalSchema.optional(),
   logCount: external_exports.number().int().nonnegative().max(2048),
   nativeBalanceChanges: external_exports.array(
     external_exports.object({
@@ -15287,7 +15050,7 @@ var solanaTransactionSnapshotSchema = external_exports.object({
   ).max(512),
   network: external_exports.literal("solana:mainnet"),
   programIds: external_exports.array(solanaAddressSchema).max(512),
-  slot: unsignedDecimalSchema2,
+  slot: unsignedDecimalSchema,
   sources: external_exports.array(
     external_exports.object({
       id: external_exports.string().trim().min(1).max(64),
@@ -15341,206 +15104,6 @@ var getTransactionOutputSchema = external_exports.discriminatedUnion("family", [
     family: external_exports.literal("solana")
   }).strict()
 ]);
-
-// packages/xxyy-transaction-diagnosis-runtime/src/contracts.ts
-var xxyyDiagnosisCheckSchema = external_exports.enum(["pool", "sandwich"]);
-var diagnoseXxyyTransactionInputSchema = external_exports.object({
-  checks: external_exports.array(xxyyDiagnosisCheckSchema).min(1).max(2).refine((checks) => new Set(checks).size === checks.length, {
-    message: "Diagnosis checks must be unique."
-  }),
-  network: external_exports.string().trim().min(2).max(96).optional(),
-  reference: external_exports.string().trim().min(1).max(2048),
-  swapIndex: external_exports.number().int().nonnegative().max(1e3).optional()
-}).strict();
-var xxyyScreenshotArtifactSchema = external_exports.object({
-  capturedAt: external_exports.string().datetime({ offset: true }),
-  maker: external_exports.string().trim().min(1).max(256),
-  mediaType: external_exports.enum(["image/png", "image/jpeg", "image/webp"]),
-  pairAddress: external_exports.string().trim().min(1).max(256),
-  sourceUrl: external_exports.string().url(),
-  title: external_exports.string().trim().min(1).max(256),
-  transactionId: external_exports.string().trim().min(1).max(256),
-  url: external_exports.string().regex(/^\/xxyy-evidence\/[0-9a-f]{64}\.png$/u)
-}).strict();
-var xxyyScreenshotEvidenceSchema = external_exports.object({
-  artifact: xxyyScreenshotArtifactSchema.optional(),
-  reason: external_exports.enum(["capture_failed", "not_configured", "trade_not_exactly_matched"]).optional(),
-  status: external_exports.enum(["ready", "unavailable"])
-}).strict().superRefine((value, context) => {
-  if (value.status === "ready" && value.artifact === void 0) {
-    context.addIssue({ code: "custom", message: "Ready screenshot evidence needs an artifact." });
-  }
-  if (value.status === "unavailable" && value.reason === void 0) {
-    context.addIssue({
-      code: "custom",
-      message: "Unavailable screenshot evidence needs a reason."
-    });
-  }
-});
-var xxyySurroundingTradeSchema = xxyyContextTradeSchema.extend({
-  chainStatus: external_exports.enum(["resolved", "unavailable"]),
-  slot: external_exports.string().regex(/^(?:0|[1-9]\d*)$/u).optional()
-}).strict();
-var diagnoseXxyyTransactionOutputSchema = external_exports.object({
-  checks: external_exports.array(xxyyDiagnosisCheckSchema).min(1).max(2),
-  market: xxyyTradeLookupResultSchema.optional(),
-  poolAssessment: xxyyPoolAssessmentSchema.optional(),
-  sandwichAssessment: xxyySandwichAssessmentSchema.optional(),
-  screenshotEvidence: xxyyScreenshotEvidenceSchema,
-  status: external_exports.enum(["insufficient_data", "partial", "success"]),
-  summary: external_exports.string().trim().min(1).max(4096),
-  surroundingTrades: external_exports.array(xxyySurroundingTradeSchema).max(12).optional(),
-  transaction: getTransactionOutputSchema,
-  warnings: external_exports.array(external_exports.string().trim().min(1).max(512)).max(32)
-}).strict();
-
-// packages/xxyy-transaction-diagnosis-runtime/src/chrome-screenshot-provider.ts
-var MAX_SCREENSHOT_BYTES = 10 * 1048576;
-async function readDebuggerUrl(process3, timeoutMs, signal) {
-  const stderr = process3.stderr;
-  if (stderr === null) throw new Error("Chrome stderr was unavailable.");
-  return await new Promise((resolve, reject) => {
-    let buffer = "";
-    const timeout = setTimeout(
-      () => finish(new Error("Chrome debugger startup timed out.")),
-      timeoutMs
-    );
-    const abort = () => finish(new Error("XXYY screenshot capture was aborted."));
-    const exit = () => finish(new Error("Chrome exited before exposing its debugger."));
-    const data = (chunk) => {
-      buffer += chunk.toString();
-      if (buffer.length > 64e3) buffer = buffer.slice(-64e3);
-      const match = buffer.match(/DevTools listening on (ws:\/\/[^\s]+)/u);
-      if (match?.[1] !== void 0) finish(void 0, new URL(match[1]));
-    };
-    const finish = (error51, value) => {
-      clearTimeout(timeout);
-      stderr.off("data", data);
-      process3.off("exit", exit);
-      signal?.removeEventListener("abort", abort);
-      if (error51 === void 0 && value !== void 0) resolve(value);
-      else reject(error51 ?? new Error("Chrome debugger URL was missing."));
-    };
-    stderr.on("data", data);
-    process3.once("exit", exit);
-    signal?.addEventListener("abort", abort, { once: true });
-    if (signal?.aborted === true) abort();
-  });
-}
-async function findPageDebuggerUrl(debuggerUrl, timeoutMs, signal) {
-  const endpoint = new URL("/json/list", `http://${debuggerUrl.host}`);
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (signal?.aborted === true) throw new Error("XXYY screenshot capture was aborted.");
-    try {
-      const response = await fetch(endpoint, signal === void 0 ? {} : { signal });
-      const targets = await response.json();
-      if (Array.isArray(targets)) {
-        for (const target of targets) {
-          if (isRecord(target) && target.type === "page" && typeof target.webSocketDebuggerUrl === "string") {
-            return target.webSocketDebuggerUrl;
-          }
-        }
-      }
-    } catch {
-    }
-    await delay(100, signal);
-  }
-  throw new Error("Chrome page debugger target was unavailable.");
-}
-async function createCdpClient(url2, timeoutMs, signal) {
-  const socket = new WebSocket(url2);
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => finish(new Error("CDP connection timed out.")), timeoutMs);
-    const abort = () => finish(new Error("XXYY screenshot capture was aborted."));
-    const open = () => finish();
-    const error51 = () => finish(new Error("CDP connection failed."));
-    const finish = (failure) => {
-      clearTimeout(timeout);
-      socket.removeEventListener("open", open);
-      socket.removeEventListener("error", error51);
-      signal?.removeEventListener("abort", abort);
-      failure === void 0 ? resolve() : reject(failure);
-    };
-    socket.addEventListener("open", open, { once: true });
-    socket.addEventListener("error", error51, { once: true });
-    signal?.addEventListener("abort", abort, { once: true });
-  });
-  let nextId = 0;
-  const pending = /* @__PURE__ */ new Map();
-  const listeners = /* @__PURE__ */ new Map();
-  socket.addEventListener("message", (event) => {
-    const message = JSON.parse(String(event.data));
-    if (!isRecord(message)) return;
-    if (typeof message.method === "string") {
-      const params = isRecord(message.params) ? message.params : {};
-      for (const listener of listeners.get(message.method) ?? []) listener(params);
-      return;
-    }
-    if (typeof message.id !== "number") return;
-    const request = pending.get(message.id);
-    if (request === void 0) return;
-    pending.delete(message.id);
-    if (isRecord(message.error)) request.reject(new Error("CDP command failed."));
-    else request.resolve(isRecord(message.result) ? message.result : {});
-  });
-  return {
-    call(method, params = {}) {
-      const id = ++nextId;
-      return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          pending.delete(id);
-          reject(new Error(`CDP command timed out: ${method}`));
-        }, timeoutMs);
-        pending.set(id, {
-          reject: (error51) => {
-            clearTimeout(timeout);
-            reject(error51);
-          },
-          resolve: (value) => {
-            clearTimeout(timeout);
-            resolve(value);
-          }
-        });
-        socket.send(JSON.stringify({ id, method, params }));
-      });
-    },
-    close() {
-      socket.close();
-      for (const request of pending.values()) request.reject(new Error("CDP connection closed."));
-      pending.clear();
-      listeners.clear();
-    },
-    on(method, listener) {
-      const set2 = listeners.get(method) ?? /* @__PURE__ */ new Set();
-      set2.add(listener);
-      listeners.set(method, set2);
-      return () => {
-        set2.delete(listener);
-        if (set2.size === 0) listeners.delete(method);
-      };
-    }
-  };
-}
-function delay(ms, signal) {
-  return new Promise((resolve, reject) => {
-    const finish = () => {
-      signal?.removeEventListener("abort", abort);
-      resolve();
-    };
-    const timeout = setTimeout(finish, ms);
-    const abort = () => {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", abort);
-      reject(new Error("XXYY screenshot capture was aborted."));
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-    if (signal?.aborted === true) abort();
-  });
-}
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 // packages/xxyy-transaction-diagnosis-runtime/src/transaction-reference.ts
 var PublicTransactionReferenceError = class extends Error {
@@ -15649,8 +15212,7 @@ function invalidReference() {
 // packages/xxyy-transaction-diagnosis-runtime/src/browser-chain-analysis-client.ts
 var DEFAULT_TIMEOUT_MS = 45e3;
 var EXPLORER_VERIFICATION_EXPRESSION = `(() => {
-  const state = ((document.title || '') + '
-' + (document.body?.innerText || '')).trim();
+  const state = ((document.title || '') + '\\n' + (document.body?.innerText || '')).trim();
   return /Just a moment|security verification|\u5B89\u5168\u9A8C\u8BC1|Checking your browser|Verify you are human|Attention Required|Sorry, you have been blocked/i.test(state);
 })()`;
 var SOLSCAN_ORIGIN = "https://solscan.io";
@@ -15666,9 +15228,9 @@ var SCAN_ORIGINS = {
 };
 var ExplorerBrowserVerificationError = class extends Error {
   code = "explorer_verification_required";
-  constructor(host) {
+  constructor(host, taskName) {
     super(
-      host === void 0 ? "Explorer browser requires interactive verification." : `Explorer browser requires interactive verification for ${host}.`
+      host === void 0 ? "Explorer browser requires interactive verification." : `Explorer browser requires interactive verification for ${host}${taskName === void 0 ? "" : ` in ego-browser task ${taskName}`}.`
     );
     this.name = "ExplorerBrowserVerificationError";
   }
@@ -15677,7 +15239,7 @@ var EgoBrowserUnavailableError = class extends Error {
   code = "ego_browser_unavailable";
   constructor() {
     super(
-      "ego-browser is required for protected Explorer pages. Install ego lite from https://lite.ego.app/ and complete onboarding."
+      "ego-browser is required for public Explorer queries. Install ego lite from https://lite.ego.app/ and complete onboarding."
     );
     this.name = "EgoBrowserUnavailableError";
   }
@@ -15728,10 +15290,8 @@ var browserEvmTransactionSchema = external_exports.object({
   valueWei: external_exports.string()
 }).strict();
 function createBrowserChainAnalysisClient(options) {
-  const chromeExecutable = path.resolve(options.chromeExecutable);
-  const profileDirectory = path.resolve(options.profileDirectory);
   const timeoutMs = positiveInteger(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, "timeoutMs");
-  const scanPageEvaluator = options.scanPageEvaluator ?? createEgoBrowserPageEvaluator();
+  const pageEvaluator = options.pageEvaluator ?? createEgoBrowserPageEvaluator();
   let browserQueue = Promise.resolve();
   return {
     async close() {
@@ -15740,18 +15300,14 @@ function createBrowserChainAnalysisClient(options) {
       const reference = resolvePublicTransactionReference(input);
       const load = browserQueue.then(
         () => loadBrowserTransaction({
-          chromeExecutable,
-          profileDirectory,
           reference,
-          scanPageEvaluator,
+          pageEvaluator,
           timeoutMs,
           ...requestOptions.signal === void 0 ? {} : { signal: requestOptions.signal }
         }),
         () => loadBrowserTransaction({
-          chromeExecutable,
-          profileDirectory,
           reference,
-          scanPageEvaluator,
+          pageEvaluator,
           timeoutMs,
           ...requestOptions.signal === void 0 ? {} : { signal: requestOptions.signal }
         })
@@ -15766,13 +15322,7 @@ function createBrowserChainAnalysisClient(options) {
 }
 async function loadBrowserTransaction(input) {
   if (input.reference.family === "solana") {
-    return await loadSolscanTransaction(
-      input.chromeExecutable,
-      input.profileDirectory,
-      input.reference.transactionId,
-      input.timeoutMs,
-      input.signal
-    );
+    return await loadSolscanTransaction({ ...input, reference: input.reference });
   }
   const blockscoutOrigin = BLOCKSCOUT_ORIGINS[input.reference.network];
   if (blockscoutOrigin !== void 0) {
@@ -15792,20 +15342,14 @@ async function loadBrowserTransaction(input) {
   }
   throw new Error(`Browser evidence is unavailable for ${input.reference.network}.`);
 }
-async function resolveBrowserChromeExecutable(configured) {
-  const candidates = [
-    configured?.trim(),
-    process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : void 0,
-    process.platform === "darwin" ? "/Applications/Chromium.app/Contents/MacOS/Chromium" : void 0,
-    process.platform === "linux" ? "/usr/bin/google-chrome" : void 0,
-    process.platform === "linux" ? "/usr/bin/google-chrome-stable" : void 0,
-    process.platform === "linux" ? "/usr/bin/chromium" : void 0,
-    process.platform === "linux" ? "/usr/bin/chromium-browser" : void 0
-  ].filter((candidate) => candidate !== void 0 && candidate.length > 0);
-  for (const candidate of candidates) {
+async function resolveEgoBrowserExecutable(pathValue = process.env.PATH) {
+  if (pathValue === void 0 || pathValue.trim().length === 0) return void 0;
+  for (const directory of pathValue.split(path.delimiter)) {
+    if (directory.length === 0) continue;
+    const candidate = path.join(directory, "ego-browser");
     try {
-      await access(candidate, fsConstants.X_OK);
-      return path.resolve(candidate);
+      await access(candidate);
+      return candidate;
     } catch {
     }
   }
@@ -15813,40 +15357,48 @@ async function resolveBrowserChromeExecutable(configured) {
 }
 function createEgoBrowserPageEvaluator(options = {}) {
   const command = options.command?.trim() || "ego-browser";
+  const taskName = options.taskName?.trim() || "xxyy-public-explorer";
   return async (input) => {
     try {
-      return await evaluateEgoBrowserPage(command, input);
+      return await evaluateEgoBrowserPage(command, taskName, input);
     } catch (error51) {
-      if (isRecord2(error51) && error51.code === "ENOENT") {
+      if (isRecord(error51) && error51.code === "ENOENT") {
         throw new EgoBrowserUnavailableError();
       }
       throw error51;
     }
   };
 }
-async function evaluateEgoBrowserPage(command, input) {
+async function evaluateEgoBrowserPage(command, taskName, input) {
+  if (input.expression === void 0 === (input.fetchUrl === void 0)) {
+    throw new TypeError("Browser page evaluation requires exactly one expression or fetchUrl.");
+  }
   const nonce = randomUUID();
   const marker = "__XXYY_EGO_RESULT_" + nonce + "__:";
-  const taskName = "xxyy-diagnosis-" + nonce;
   const timeoutSeconds = Math.max(5, Math.ceil(input.timeoutMs / 1e3));
   const script = [
     "const task = await useOrCreateTaskSpace(" + JSON.stringify(taskName) + ")",
     "let payload",
     "try {",
     "  await openOrReuseTab(" + JSON.stringify(input.url) + ", {wait:true, timeout:" + timeoutSeconds + "})",
-    "  const deadline = Date.now() + " + input.timeoutMs,
-    "  let value",
-    "  while (Date.now() < deadline) {",
-    "    value = await js(" + JSON.stringify(input.expression) + ")",
-    "    if (value !== null && value !== undefined) break",
-    "    await wait(0.25)",
-    "  }",
+    "  const verificationRequiredBeforeRead = await js(" + JSON.stringify(EXPLORER_VERIFICATION_EXPRESSION) + ")",
+    "  if (verificationRequiredBeforeRead) throw new Error('verification_required')",
+    ...input.fetchUrl === void 0 ? [
+      "  const deadline = Date.now() + " + input.timeoutMs,
+      "  let value",
+      "  while (Date.now() < deadline) {",
+      "    value = await js(" + JSON.stringify(input.expression) + ")",
+      "    if (value !== null && value !== undefined) break",
+      "    await wait(0.25)",
+      "  }"
+    ] : [
+      "  const responseBody = await browserFetch(" + JSON.stringify(input.fetchUrl) + ")",
+      "  const value = typeof responseBody === 'string' ? JSON.parse(responseBody) : responseBody"
+    ],
     "  const verificationRequired = value === null || value === undefined ? await js(" + JSON.stringify(EXPLORER_VERIFICATION_EXPRESSION) + ") : false",
     "  payload = value === null || value === undefined ? {ok:false, error:verificationRequired ? 'verification_required' : 'page_evidence_timeout'} : {ok:true, value}",
-    "} catch {",
-    "  payload = {ok:false, error:'page_evaluation_failed'}",
-    "} finally {",
-    "  await completeTaskSpace(task.id, {keep:false})",
+    "} catch (error) {",
+    "  payload = {ok:false, error:error?.message === 'verification_required' ? 'verification_required' : 'page_evaluation_failed'}",
     "}",
     "const serialized = JSON.stringify(payload)",
     "const totalChunks = Math.max(1, Math.ceil(serialized.length / 400))",
@@ -15913,10 +15465,10 @@ async function evaluateEgoBrowserPage(command, input) {
   }
   const payloadText = chunks.map((chunk) => chunk.value).join("");
   const payload = JSON.parse(payloadText);
-  if (isRecord2(payload) && payload.error === "verification_required") {
-    throw new ExplorerBrowserVerificationError(new URL(input.url).hostname);
+  if (isRecord(payload) && payload.error === "verification_required") {
+    throw new ExplorerBrowserVerificationError(new URL(input.url).hostname, taskName);
   }
-  if (!isRecord2(payload) || payload.ok !== true || !("value" in payload)) {
+  if (!isRecord(payload) || payload.ok !== true || !("value" in payload)) {
     throw new Error("ego-browser page evaluation returned no evidence.");
   }
   return payload.value;
@@ -15924,14 +15476,14 @@ async function evaluateEgoBrowserPage(command, input) {
 async function loadBlockscoutTransaction(input) {
   const apiUrl = `${input.origin}/api/v2/transactions/${input.reference.transactionId}`;
   const explorerUrl = `${input.origin}/tx/${input.reference.transactionId}`;
-  const raw = await readJsonBrowserPage({ ...input, url: apiUrl });
-  if (!isRecord2(raw)) throw new Error("Blockscout browser page returned invalid JSON.");
+  const raw = await input.pageEvaluator({ ...input, fetchUrl: apiUrl, url: explorerUrl });
+  if (!isRecord(raw)) throw new Error("Blockscout browser page returned invalid JSON.");
   const transfers = Array.isArray(raw.token_transfers) ? raw.token_transfers : [];
   const tokenTransfers = transfers.flatMap((item) => {
-    if (!isRecord2(item) || !isRecord2(item.from) || !isRecord2(item.to) || !isRecord2(item.token)) {
+    if (!isRecord(item) || !isRecord(item.from) || !isRecord(item.to) || !isRecord(item.token)) {
       return [];
     }
-    const total = isRecord2(item.total) ? item.total : void 0;
+    const total = isRecord(item.total) ? item.total : void 0;
     return typeof item.from.hash === "string" && typeof item.to.hash === "string" && typeof item.token.address_hash === "string" && typeof total?.value === "string" && typeof item.log_index === "number" ? [
       {
         amountRaw: total.value,
@@ -15944,7 +15496,7 @@ async function loadBlockscoutTransaction(input) {
   });
   const from = addressHash(raw.from);
   const to = raw.to === null ? null : addressHash(raw.to);
-  const fee = isRecord2(raw.fee) && typeof raw.fee.value === "string" ? raw.fee.value : void 0;
+  const fee = isRecord(raw.fee) && typeof raw.fee.value === "string" ? raw.fee.value : void 0;
   const parsed = browserEvmTransactionSchema.parse({
     accountAddresses: unique([
       from,
@@ -15964,16 +15516,18 @@ async function loadBlockscoutTransaction(input) {
     tokenTransfers,
     valueWei: typeof raw.value === "string" ? raw.value : "0"
   });
+  assertEvmTransactionMatch(parsed.hash, input.reference.transactionId);
   return projectEvmBrowserTransaction(parsed, input.reference, explorerUrl, "blockscout_browser");
 }
 async function loadScanPageTransaction(input) {
   const explorerUrl = `${input.origin}/tx/${input.reference.transactionId}`;
   const expression = createScanPageTransactionExpression();
-  const raw = await input.scanPageEvaluator({ ...input, expression, url: explorerUrl });
-  if (isRecord2(raw) && raw.blocked === true) {
+  const raw = await input.pageEvaluator({ ...input, expression, url: explorerUrl });
+  if (isRecord(raw) && raw.blocked === true) {
     throw new ExplorerBrowserVerificationError(new URL(explorerUrl).hostname);
   }
   const parsed = browserEvmTransactionSchema.parse(raw);
+  assertEvmTransactionMatch(parsed.hash, input.reference.transactionId);
   return projectEvmBrowserTransaction(parsed, input.reference, explorerUrl, "scan_browser");
 }
 function createScanPageTransactionExpression() {
@@ -16124,173 +15678,25 @@ function projectEvmBrowserTransaction(parsed, reference, explorerUrl, source) {
   });
 }
 function addressHash(value) {
-  if (!isRecord2(value) || typeof value.hash !== "string") {
+  if (!isRecord(value) || typeof value.hash !== "string") {
     throw new Error("Explorer browser response omitted an address.");
   }
   return value.hash;
 }
-async function readJsonBrowserPage(input) {
-  return await evaluateBrowserPage({
-    ...input,
-    expression: `(() => {
-      const pre = document.querySelector('pre');
-      if (!pre?.textContent) return null;
-      try { return JSON.parse(pre.textContent); } catch { return null; }
-    })()`
-  });
-}
-async function evaluateBrowserPage(input) {
-  let chrome;
-  try {
-    await prepareBrowserProfile(input.profileDirectory);
-    chrome = await spawnExplorerChrome(input.chromeExecutable, [
-      "--disable-component-update",
-      "--disable-default-apps",
-      "--disable-extensions",
-      "--disable-gpu",
-      "--disable-sync",
-      "--no-default-browser-check",
-      "--no-first-run",
-      ...chromeRootSandboxFlags(),
-      "--remote-debugging-port=0",
-      `--user-data-dir=${input.profileDirectory}`,
-      "about:blank"
-    ]);
-    const debuggerUrl = await readDebuggerUrl(chrome, input.timeoutMs, input.signal);
-    const pageUrl = await findPageDebuggerUrl(debuggerUrl, input.timeoutMs, input.signal);
-    const cdp = await createCdpClient(pageUrl, input.timeoutMs, input.signal);
-    try {
-      await cdp.call("Page.enable");
-      await cdp.call("Runtime.enable");
-      await cdp.call("Page.navigate", { url: input.url });
-      const deadline = Date.now() + input.timeoutMs;
-      let verificationRequired = false;
-      while (Date.now() < deadline) {
-        input.signal?.throwIfAborted();
-        const result = await cdp.call("Runtime.evaluate", {
-          awaitPromise: true,
-          expression: input.expression,
-          returnByValue: true
-        });
-        const remote = isRecord2(result.result) ? result.result : void 0;
-        if (remote !== void 0 && remote.value !== null && remote.value !== void 0) {
-          return remote.value;
-        }
-        const verification = await cdp.call("Runtime.evaluate", {
-          awaitPromise: true,
-          expression: EXPLORER_VERIFICATION_EXPRESSION,
-          returnByValue: true
-        });
-        const verificationRemote = isRecord2(verification.result) ? verification.result : void 0;
-        verificationRequired ||= verificationRemote?.value === true;
-        await delay(250, input.signal);
-      }
-      if (verificationRequired) {
-        throw new ExplorerBrowserVerificationError(new URL(input.url).hostname);
-      }
-      throw new Error(`Browser page evidence timed out for ${new URL(input.url).hostname}.`);
-    } finally {
-      cdp.close();
-    }
-  } finally {
-    await terminateChrome(chrome);
+async function loadSolscanTransaction(input) {
+  const explorerUrl = `${SOLSCAN_ORIGIN}/tx/${input.reference.transactionId}`;
+  const apiUrl = `${SOLSCAN_API_ORIGIN}/v2/transaction/detail?tx=${input.reference.transactionId}`;
+  const payload = await input.pageEvaluator({ ...input, fetchUrl: apiUrl, url: explorerUrl });
+  const parsed = browserTransactionSchema.parse(normalizeSolscanPayload(payload));
+  if (parsed.transactionId !== input.reference.transactionId) {
+    throw new Error("Solscan browser response transaction ID conflicted with the request.");
   }
+  return projectTransaction(parsed, explorerUrl);
 }
-async function loadSolscanTransaction(chromeExecutable, profileDirectory, transactionId, timeoutMs, signal) {
-  const explorerUrl = `${SOLSCAN_ORIGIN}/tx/${transactionId}`;
-  let chrome;
-  try {
-    await prepareBrowserProfile(profileDirectory);
-    chrome = await spawnExplorerChrome(chromeExecutable, [
-      "--disable-component-update",
-      "--disable-default-apps",
-      "--disable-extensions",
-      "--disable-gpu",
-      "--disable-sync",
-      "--no-default-browser-check",
-      "--no-first-run",
-      ...chromeRootSandboxFlags(),
-      "--remote-debugging-port=0",
-      `--user-data-dir=${profileDirectory}`,
-      "about:blank"
-    ]);
-    const debuggerUrl = await readDebuggerUrl(chrome, timeoutMs, signal);
-    const pageUrl = await findPageDebuggerUrl(debuggerUrl, timeoutMs, signal);
-    const cdp = await createCdpClient(pageUrl, timeoutMs, signal);
-    try {
-      await cdp.call("Page.enable");
-      await cdp.call("Runtime.enable");
-      await cdp.call("Network.enable");
-      const detail = waitForSolscanDetail(cdp, transactionId, timeoutMs, signal);
-      await cdp.call("Page.navigate", { url: explorerUrl });
-      const parsed = browserTransactionSchema.parse(await detail);
-      return projectTransaction(parsed, explorerUrl);
-    } finally {
-      cdp.close();
-    }
-  } finally {
-    await terminateChrome(chrome);
+function assertEvmTransactionMatch(actual, expected) {
+  if (actual.toLowerCase() !== expected.toLowerCase()) {
+    throw new Error("Explorer browser response transaction hash conflicted with the request.");
   }
-}
-async function prepareBrowserProfile(profileDirectory) {
-  await mkdir(profileDirectory, { recursive: true, mode: 448 });
-  const lockPath = path.join(profileDirectory, "SingletonLock");
-  let owner;
-  try {
-    owner = await readlink(lockPath);
-  } catch (error51) {
-    if (isNodeError(error51) && error51.code === "ENOENT") return;
-    throw error51;
-  }
-  const separator = owner.lastIndexOf("-");
-  const ownerHost = separator < 0 ? owner : owner.slice(0, separator);
-  const ownerPid = separator < 0 ? Number.NaN : Number(owner.slice(separator + 1));
-  if (ownerHost === hostname3() && Number.isSafeInteger(ownerPid) && ownerPid > 0) {
-    try {
-      process.kill(ownerPid, 0);
-      return;
-    } catch (error51) {
-      if (!isNodeError(error51) || error51.code !== "ESRCH") return;
-    }
-  }
-  await Promise.all(
-    ["SingletonLock", "SingletonCookie", "SingletonSocket", "DevToolsActivePort"].map(
-      async (name) => {
-        try {
-          await unlink(path.join(profileDirectory, name));
-        } catch (error51) {
-          if (!isNodeError(error51) || error51.code !== "ENOENT") throw error51;
-        }
-      }
-    )
-  );
-}
-async function resolveExplorerChromeLaunch(chromeExecutable, chromeArguments, options = {}) {
-  const xvfbRunExecutable = options.xvfbRunExecutable ?? "/usr/bin/xvfb-run";
-  try {
-    await access(xvfbRunExecutable);
-    return {
-      arguments: [
-        "-a",
-        "--server-args=-screen 0 1600x1000x24 -nolisten tcp",
-        chromeExecutable,
-        ...chromeArguments
-      ],
-      command: xvfbRunExecutable
-    };
-  } catch {
-    return { arguments: ["--headless=new", ...chromeArguments], command: chromeExecutable };
-  }
-}
-async function spawnExplorerChrome(chromeExecutable, chromeArguments) {
-  const launch = await resolveExplorerChromeLaunch(chromeExecutable, chromeArguments);
-  return spawn(launch.command, launch.arguments, {
-    detached: process.platform !== "win32",
-    stdio: ["ignore", "ignore", "pipe"]
-  });
-}
-function isNodeError(error51) {
-  return error51 instanceof Error && "code" in error51;
 }
 function projectTransaction(parsed, explorerUrl) {
   const accountKeys = unique([
@@ -16353,48 +15759,8 @@ function projectTransaction(parsed, explorerUrl) {
     transactionId: parsed.transactionId
   });
 }
-async function waitForSolscanDetail(cdp, transactionId, timeoutMs, signal) {
-  return await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      void cdp.call("Runtime.evaluate", {
-        expression: `({url: location.href, text: (document.body?.innerText || '').slice(0, 240)})`,
-        returnByValue: true
-      }).then((result) => {
-        const remote = isRecord2(result.result) ? result.result : void 0;
-        finish(
-          new Error(
-            `Solscan browser transaction evidence timed out: ${JSON.stringify(remote?.value)}`
-          )
-        );
-      }).catch(() => finish(new Error("Solscan browser transaction evidence timed out.")));
-    }, timeoutMs);
-    const abort = () => finish(new Error("Solscan browser transaction evidence was aborted."));
-    const unsubscribe = cdp.on("Network.responseReceived", (params) => {
-      const response = isRecord2(params.response) ? params.response : void 0;
-      if (typeof response?.url !== "string" || !response.url.startsWith(`${SOLSCAN_API_ORIGIN}/v2/transaction/detail`) || !response.url.includes(transactionId) || typeof params.requestId !== "string")
-        return;
-      unsubscribe();
-      void cdp.call("Network.getResponseBody", { requestId: params.requestId }).then((result) => {
-        if (typeof result.body !== "string")
-          throw new Error("Solscan response body was missing.");
-        const body = result.base64Encoded === true ? Buffer.from(result.body, "base64").toString("utf8") : result.body;
-        finish(void 0, normalizeSolscanPayload(JSON.parse(body)));
-      }).catch(
-        (error51) => finish(error51 instanceof Error ? error51 : new Error("Solscan response read failed."))
-      );
-    });
-    const finish = (error51, value) => {
-      clearTimeout(timeout);
-      unsubscribe();
-      signal?.removeEventListener("abort", abort);
-      error51 === void 0 ? resolve(value) : reject(error51);
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-    if (signal?.aborted === true) abort();
-  });
-}
 function normalizeSolscanPayload(payload) {
-  if (!isRecord2(payload) || payload.success !== true || !isRecord2(payload.data)) {
+  if (!isRecord(payload) || payload.success !== true || !isRecord(payload.data)) {
     throw new Error("Solscan browser response did not contain transaction data.");
   }
   const data = payload.data;
@@ -16404,7 +15770,7 @@ function normalizeSolscanPayload(payload) {
   collectProgramIds(data.parsed_instructions, programs);
   return {
     accountKeys: native.flatMap(
-      (item) => isRecord2(item) && typeof item.address === "string" ? [item.address] : []
+      (item) => isRecord(item) && typeof item.address === "string" ? [item.address] : []
     ),
     ...typeof data.trans_time === "number" && Number.isInteger(data.trans_time) ? { blockTime: data.trans_time } : {},
     ...integerValue(data.compute_units_consumed) === void 0 ? {} : { computeUnitsConsumed: integerValue(data.compute_units_consumed) },
@@ -16412,12 +15778,12 @@ function normalizeSolscanPayload(payload) {
     ...integerValue(data.fee) === void 0 ? {} : { feeLamports: integerValue(data.fee) },
     logCount: Array.isArray(data.log_message) ? data.log_message.length : 0,
     nativeChanges: native.flatMap(
-      (item) => isRecord2(item) && typeof item.address === "string" && integerValue(item.change_amount) !== void 0 ? [{ account: item.address, delta: integerValue(item.change_amount) }] : []
+      (item) => isRecord(item) && typeof item.address === "string" && integerValue(item.change_amount) !== void 0 ? [{ account: item.address, delta: integerValue(item.change_amount) }] : []
     ),
     programIds: unique(programs),
     slot: data.block_id,
     tokenChanges: tokens.flatMap((item) => {
-      if (!isRecord2(item) || typeof item.token_address !== "string" || typeof item.decimals !== "number" || integerValue(item.change_amount) === void 0)
+      if (!isRecord(item) || typeof item.token_address !== "string" || typeof item.decimals !== "number" || integerValue(item.change_amount) === void 0)
         return [];
       return [
         {
@@ -16436,7 +15802,7 @@ function normalizeSolscanPayload(payload) {
 function collectProgramIds(value, output) {
   if (!Array.isArray(value)) return;
   for (const item of value) {
-    if (!isRecord2(item)) continue;
+    if (!isRecord(item)) continue;
     if (typeof item.program_id === "string") output.push(item.program_id);
     collectProgramIds(item.inner_instructions, output);
   }
@@ -16453,10 +15819,7 @@ function integerString(value) {
 function unique(values) {
   return [...new Set(values)];
 }
-function chromeRootSandboxFlags() {
-  return typeof process.getuid === "function" && process.getuid() === 0 ? ["--no-sandbox"] : [];
-}
-function isRecord2(value) {
+function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function positiveInteger(value, label) {
@@ -16464,48 +15827,20 @@ function positiveInteger(value, label) {
     throw new RangeError(`${label} must be positive.`);
   return value;
 }
-async function terminateChrome(chrome) {
-  if (chrome === void 0 || chrome.exitCode !== null) return;
-  await new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      signalBrowserProcess(chrome, "SIGKILL");
-      resolve();
-    }, 2e3);
-    chrome.once("exit", () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-    signalBrowserProcess(chrome, "SIGTERM");
-  });
-}
-function signalBrowserProcess(chrome, signal) {
-  if (chrome.pid !== void 0 && process.platform !== "win32") {
-    try {
-      process.kill(-chrome.pid, signal);
-      return;
-    } catch {
-    }
-  }
-  try {
-    chrome.kill(signal);
-  } catch {
-  }
-}
 
 // packages/xxyy-transaction-diagnosis-runtime/src/transaction-cli.ts
 async function runPublicTransactionCli(options = {}) {
   const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const parsed = parseArguments(argv);
-  const chromeExecutable = await resolveBrowserChromeExecutable(
-    env.XXYY_SCREENSHOT_CHROME_EXECUTABLE
-  );
-  if (chromeExecutable === void 0) throw new TypeError("Chrome or Chromium is required.");
-  const profileDirectory = path2.resolve(
-    env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim() || path2.join(homedir(), ".xxyy", "browser-profile")
-  );
-  await mkdir2(profileDirectory, { mode: 488, recursive: true });
-  const client = createBrowserChainAnalysisClient({ chromeExecutable, profileDirectory });
+  const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH);
+  if (egoBrowserExecutable === void 0) throw new EgoBrowserUnavailableError();
+  const client = createBrowserChainAnalysisClient({
+    pageEvaluator: createEgoBrowserPageEvaluator({
+      command: egoBrowserExecutable,
+      taskName: "xxyy-onchain-skill-explorer"
+    })
+  });
   try {
     const output = await client.getTransaction(
       getTransactionInputSchema.parse({

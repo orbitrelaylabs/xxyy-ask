@@ -81,7 +81,6 @@ export function normalizePublicNetworkIdentifier(value: string): string | undefi
   const normalized = value.toLowerCase();
   const builtIn = findBuiltInEvmNetworkByAlias(normalized);
   if (builtIn !== undefined) return builtIn.canonicalNetwork;
-  if (/^eip155:[1-9]\d*$/u.test(normalized)) return normalized;
   if (SOLANA_MAINNET_ALIASES.has(normalized)) return SOLANA_MAINNET_NETWORK;
   return undefined;
 }

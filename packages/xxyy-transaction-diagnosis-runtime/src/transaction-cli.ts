@@ -1,11 +1,11 @@
-import { mkdir } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
   createBrowserChainAnalysisClient,
-  resolveBrowserChromeExecutable,
+  createEgoBrowserPageEvaluator,
+  EgoBrowserUnavailableError,
+  resolveEgoBrowserExecutable,
 } from './browser-chain-analysis-client.js';
 import { getTransactionInputSchema } from './public-transaction-contracts.js';
 
@@ -18,15 +18,14 @@ export async function runPublicTransactionCli(
   const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const parsed = parseArguments(argv);
-  const chromeExecutable = await resolveBrowserChromeExecutable(
-    env.XXYY_SCREENSHOT_CHROME_EXECUTABLE,
-  );
-  if (chromeExecutable === undefined) throw new TypeError('Chrome or Chromium is required.');
-  const profileDirectory = path.resolve(
-    env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim() || path.join(homedir(), '.xxyy', 'browser-profile'),
-  );
-  await mkdir(profileDirectory, { mode: 0o750, recursive: true });
-  const client = createBrowserChainAnalysisClient({ chromeExecutable, profileDirectory });
+  const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH);
+  if (egoBrowserExecutable === undefined) throw new EgoBrowserUnavailableError();
+  const client = createBrowserChainAnalysisClient({
+    pageEvaluator: createEgoBrowserPageEvaluator({
+      command: egoBrowserExecutable,
+      taskName: 'xxyy-onchain-skill-explorer',
+    }),
+  });
   try {
     const output = await client.getTransaction(
       getTransactionInputSchema.parse({

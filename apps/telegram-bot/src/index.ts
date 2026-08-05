@@ -10,8 +10,8 @@ import {
   createChromeXxyyScreenshotProvider,
   createBrowserChainAnalysisClient,
   createConfiguredCanonicalPoolResolver,
+  createEgoBrowserPageEvaluator,
   createXxyyTransactionDiagnosisService,
-  resolveBrowserChromeExecutable,
   resolveEgoBrowserExecutable,
 } from '@xxyy/xxyy-transaction-diagnosis-runtime';
 import {
@@ -54,7 +54,11 @@ type TelegramEnv = RagEnv &
       | 'XXYY_SCREENSHOT_DIRECTORY'
       | 'XXYY_BROWSER_PROFILE_DIRECTORY'
       | 'TELEGRAM_API_BASE_URL'
-      | 'TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS',
+      | 'TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS'
+      | 'DAILY_CHAT_LIMIT'
+      | 'DAILY_CHAT_LIMIT_TIME_ZONE'
+      | 'DAILY_CHAT_LIMIT_HASH_SALT'
+      | 'OBSERVABILITY_CLIENT_HASH_SALT',
       string
     >
   >;
@@ -74,16 +78,18 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
   await logExplorerBrowserStartup(workspaceEnv);
   const config = loadRagConfig(workspaceEnv);
   const botConfig = loadTelegramBotConfig(workspaceEnv);
-  const publicTransactionClient = await resolveBrowserChromeExecutable(
-    workspaceEnv.XXYY_SCREENSHOT_CHROME_EXECUTABLE,
-  ).then((chromeExecutable) =>
-    chromeExecutable === undefined ||
-    workspaceEnv.XXYY_BROWSER_PROFILE_DIRECTORY?.trim().length === 0 ||
-    workspaceEnv.XXYY_BROWSER_PROFILE_DIRECTORY === undefined
+  const dailyChatLimitHashSalt =
+    workspaceEnv.DAILY_CHAT_LIMIT_HASH_SALT ?? workspaceEnv.OBSERVABILITY_CLIENT_HASH_SALT;
+  const publicTransactionClient = await resolveEgoBrowserExecutable(
+    workspaceEnv.PATH ?? process.env.PATH,
+  ).then((egoBrowserExecutable) =>
+    egoBrowserExecutable === undefined
       ? undefined
       : createBrowserChainAnalysisClient({
-          chromeExecutable,
-          profileDirectory: workspaceEnv.XXYY_BROWSER_PROFILE_DIRECTORY,
+          pageEvaluator: createEgoBrowserPageEvaluator({
+            command: egoBrowserExecutable,
+            taskName: 'xxyy-telegram-explorer',
+          }),
         }),
   );
   const screenshotProvider = createOptionalScreenshotProvider(workspaceEnv);
@@ -94,6 +100,9 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
       : createConfiguredCanonicalPoolResolver(workspaceEnv.XXYY_CANONICAL_POOL_CONFIG_JSON);
   const runtime = createTelegramChatRuntime(config, undefined, {
     answerQualityRollout: loadAnswerQualityRolloutConfig(workspaceEnv as AnswerQualityRolloutEnv),
+    dailyChatLimit: parsePositiveInteger(workspaceEnv.DAILY_CHAT_LIMIT, 10),
+    dailyChatLimitTimeZone: parseTimeZone(workspaceEnv.DAILY_CHAT_LIMIT_TIME_ZONE, 'Asia/Shanghai'),
+    ...(dailyChatLimitHashSalt === undefined ? {} : { dailyChatLimitHashSalt }),
     ...(parseBoolean(workspaceEnv.ANSWER_QUALITY_OBSERVABILITY_ENABLED, false)
       ? {
           answerQualityRolloutObserver: (observation: AnswerQualityRolloutObservation) => {
@@ -180,13 +189,11 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
 }
 
 async function logExplorerBrowserStartup(env: TelegramEnv): Promise<void> {
-  const profileDirectory = env.XXYY_BROWSER_PROFILE_DIRECTORY?.trim();
-  if (profileDirectory === undefined || profileDirectory.length === 0) return;
   const executable = await resolveEgoBrowserExecutable(env.PATH ?? process.env.PATH);
   logger.info(
     executable === undefined
-      ? 'Explorer browser: ego-browser not found. Install ego lite from https://lite.ego.app/ for protected Explorer queries; product Q&A remains available.'
-      : `Explorer browser: ego-browser ready (${executable}).`,
+      ? 'Explorer browser: ego-browser not found. Install ego lite from https://lite.ego.app/ for public transaction queries; product Q&A remains available.'
+      : `Explorer browser: ego-browser ready for all supported chains (${executable}).`,
   );
 }
 
@@ -225,6 +232,16 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
   if (value === undefined) return fallback;
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseTimeZone(value: string | undefined, fallback: string): string {
+  const timeZone = value?.trim() || fallback;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date(0));
+    return timeZone;
+  } catch {
+    return fallback;
+  }
 }
 
 try {

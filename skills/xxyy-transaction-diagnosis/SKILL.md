@@ -1,6 +1,6 @@
 ---
 name: xxyy-transaction-diagnosis
-description: Diagnose one user-supplied public EVM or Solana transaction with a bundled browser-only JSON CLI. Use when the user provides a transaction hash or Explorer link and asks whether the trade was sandwiched, front-run/back-run, executed in the wrong pool, or routed through a suspiciously small-liquidity pool. The Skill runs without RPC or a companion service and returns structured evidence plus a native XXYY screenshot. Do not use for wallet-wide searches, balances, private transactions, identity attribution, investment advice, signing, routing recommendations, or transaction execution.
+description: Diagnose one user-supplied public transaction on an XXYY-supported chain with a bundled ego-browser JSON CLI. Use when the user provides a transaction hash or Explorer link and asks whether the trade was sandwiched, front-run/back-run, executed in the wrong pool, or routed through a suspiciously small-liquidity pool. The Skill runs without RPC or a companion service and returns structured evidence plus a native XXYY screenshot. Do not use for wallet-wide searches, balances, private transactions, identity attribution, investment advice, signing, routing recommendations, or transaction execution.
 ---
 
 # XXYY Transaction Diagnosis
@@ -9,7 +9,11 @@ Run the bundled `scripts/diagnose.mjs` for one public transaction reference and 
 
 ## Browser prerequisite
 
-For BscScan and other protected Explorer pages, require the `ego-browser` command supplied by ego lite. If it is missing, tell the user to install ego lite from <https://lite.ego.app/>, finish first-run onboarding, and restart the calling Agent. Do not silently substitute headless Chromium or attempt to bypass human verification. Product-support capabilities remain usable without ego-browser.
+All Explorer queries use the `ego-browser` command supplied by ego lite. If it is missing, tell the user to install ego lite from <https://lite.ego.app/>, finish first-run onboarding, and restart the calling Agent. Do not substitute headless Chromium or attempt to bypass human verification. Product-support capabilities remain usable without ego-browser.
+
+The CLI reuses the persistent `xxyy-diagnosis-skill-explorer` task space. If an Explorer requests interactive verification, hand that exact task space to the user, wait for confirmation, and retry; do not create a fresh browser context.
+
+Supported mainnets are Solana, Ethereum, BNB Smart Chain, Base, Robinhood Chain, and Stable Chain. Accept only their built-in aliases or allowlisted Explorer transaction URLs; do not accept arbitrary chain IDs or endpoints.
 
 ## Workflow
 
@@ -25,7 +29,7 @@ For BscScan and other protected Explorer pages, require the `ego-browser` comman
      --checks sandwich,pool
    ```
 
-   The script writes only the final JSON object to stdout and uses a nonzero exit code with `status: "error"` on failure. It uses ego-browser for protected Explorer evidence, automatically discovers Chrome/Chromium for native XXYY screenshots and supported unprotected pages, and stores screenshots under `~/.xxyy/evidence` unless `--output-dir` is provided.
+   The script writes only the final JSON object to stdout and uses a nonzero exit code with `status: "error"` on failure. It uses ego-browser for every Explorer and automatically discovers Chrome/Chromium only for native XXYY screenshots. Screenshots support all six chain routes and are stored under `~/.xxyy/evidence` unless `--output-dir` is provided.
 
 4. Start the answer with normalized transaction facts: chain, transaction ID, execution status, block or slot, timestamp, fee, transaction actor/signer when evidenced, assets, direction, amount, and pool. State when any field is unavailable.
    - When the transaction source is `explorer_browser`, explicitly label it as partial browser evidence. Never describe it as RPC consensus or production-ready evidence.
