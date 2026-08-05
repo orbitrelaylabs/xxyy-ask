@@ -2,7 +2,7 @@ import type { RagIndex } from '@xxyy/shared';
 import type {
   PublicTransactionClient,
   XxyyTransactionDiagnosisHandler,
-} from '@xxyy/xxyy-transaction-diagnosis-runtime';
+} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
 import {
   createProductSearchHandler,
   type ProductSearchHandler,

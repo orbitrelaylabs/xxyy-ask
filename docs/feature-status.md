@@ -6,8 +6,7 @@
 - Web、HTTP API、Telegram Bot、流式回答、引用、反馈和管理后台。
 - 官方产品文档、媒体、X / Twitter 更新的同步、审计、摄取和知识治理。
 - Product Support capability：当前 Agent 在应用内直接调用 Product RAG，不维护独立对外 Skill 包装。
-- `onchain-transaction-inspector` Skill：用自包含浏览器 JSON CLI 查询用户提供的 EVM/Solana 单笔公开交易基础事实。
-- `xxyy-transaction-diagnosis` Skill：用固定 Explorer 与 XXYY 页面分析成交、池子和结构性 Sandwich 模式，并返回用户可见标注截图。
+- 独立 [xxyy-transaction-agent-kit](https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit) 提供 `onchain-transaction-inspector`、`xxyy-transaction-diagnosis`、SDK 和 JSON CLI；本仓库固定版本集成。
 - Capability Registry：固定 manifest/grant、schema、超时、输出限制和脱敏审计；Skill 目录不会自动注册 Planner 工具。
 - 交易运行面不要求单独服务、不调用 RPC，也不接受调用方 endpoint。
 

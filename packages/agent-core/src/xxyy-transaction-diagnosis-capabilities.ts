@@ -5,7 +5,7 @@ import {
   diagnoseXxyyTransactionInputSchema,
   diagnoseXxyyTransactionOutputSchema,
   type XxyyTransactionDiagnosisHandler,
-} from '@xxyy/xxyy-transaction-diagnosis-runtime';
+} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
 
 import { parseCapabilityManifest } from './capability-contract.js';
 import { createDenyByDefaultCapabilityPolicy } from './capability-policy.js';

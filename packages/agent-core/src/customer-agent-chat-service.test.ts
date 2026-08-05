@@ -5,7 +5,7 @@ import {
   createPublicTransactionClientStub,
   getTransactionOutputSchema,
   type GetTransactionOutput,
-} from '@xxyy/xxyy-transaction-diagnosis-runtime';
+} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
 import type { ProductSearchOutput } from '@xxyy/product-support-runtime';
 import {
   createInMemoryQualityTracer,

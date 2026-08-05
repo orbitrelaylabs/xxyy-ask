@@ -4,14 +4,14 @@
 
 该能力处理用户明确提供的一笔公开交易，回答两个问题：是否具备 Sandwich 证据，以及实际成交池是否匹配已声明 canonical pool、是否属于版本化阈值下的小流动性池。它不查询钱包历史、余额、账户或私有订单，不推断地址真实归属，也不提供交易建议。
 
-基础公开交易查询与 XXYY 产品诊断保持解耦。XXYY 页面/API、成交行交叉验证和截图位于独立 `xxyy-transaction-diagnosis-runtime` 中；对外通过自包含 Skill JSON CLI 分发。
+基础公开交易查询与 XXYY 产品诊断保持解耦。XXYY 页面/API、成交行交叉验证、截图、SDK、JSON CLI 和 Skills 位于独立仓库 [orbitrelaylabs/xxyy-transaction-agent-kit](https://github.com/orbitrelaylabs/xxyy-transaction-agent-kit)。本仓库通过固定提交依赖其公开 runtime。
 
 ## 包边界
 
-- `@xxyy/xxyy-transaction-diagnosis-core`：无网络 I/O；执行精确十进制流动性比较和 Sandwich 四态投影。
-- `@xxyy/xxyy-market-data-adapter`：只访问固定 `https://www.xxyy.io/api/data/search/v3` 和 `/api/data/trades/search`；输入不接受 endpoint、任意 HTTP 方法或任意页面。成交查询不按 maker 过滤，以便在同一受限时间窗内保留目标行前后的最多六条成交，目标行仍必须通过完整哈希和完整 maker 复核。
-- `@xxyy/xxyy-transaction-diagnosis-runtime`：组合固定 Explorer 浏览器证据、XXYY 市场适配器、判定 core 和截图提供器。
-- `skills/xxyy-transaction-diagnosis`：禁止隐式调用的自包含项目 Skill；`scripts/diagnose.mjs` 是已打包、无工作区依赖的 JSON CLI。
+- `@orbitrelaylabs/xxyy-transaction-agent-kit/core`：无网络 I/O；执行精确十进制流动性比较和 Sandwich 四态投影。
+- Agent Kit market-data 模块：只访问固定 `https://www.xxyy.io/api/data/search/v3` 和 `/api/data/trades/search`；输入不接受 endpoint、任意 HTTP 方法或任意页面。
+- `@orbitrelaylabs/xxyy-transaction-agent-kit/runtime`：组合固定 Explorer 浏览器证据、XXYY 市场适配器、判定 core 和截图提供器。
+- Agent Kit `skills/xxyy-transaction-diagnosis`：禁止隐式调用的自包含 Skill；`scripts/diagnose.mjs` 是已打包 JSON CLI。
 
 Web 和 Telegram 在本机发现 `ego-browser` 后注册固定 Explorer 浏览器证据模式，不存在 RPC 回退。两者分别为固定 `web/anonymous`、`telegram/service` 创建 `xxyy.skill.diagnose_transaction` 精确授权，并直接调用同一 runtime。
 
@@ -20,7 +20,7 @@ Web 和 Telegram 在本机发现 `ego-browser` 后注册固定 Explorer 浏览�
 ## 工具契约
 
 ```bash
-node skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs \
+pnpm xxyy:diagnose -- \
   --reference "<transaction-hash-or-explorer-url>" \
   --checks sandwich,pool
 ```

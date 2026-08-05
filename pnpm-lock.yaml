@@ -10,6 +10,10 @@ overrides:
 importers:
 
   .:
+    dependencies:
+      '@orbitrelaylabs/xxyy-transaction-agent-kit':
+        specifier: github:orbitrelaylabs/xxyy-transaction-agent-kit#d5a4e073b587fa7cf74031fc17860d9eeea5fed2
+        version: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -32,6 +36,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@orbitrelaylabs/xxyy-transaction-agent-kit':
+        specifier: github:orbitrelaylabs/xxyy-transaction-agent-kit#d5a4e073b587fa7cf74031fc17860d9eeea5fed2
+        version: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2
       '@xxyy/agent-core':
         specifier: workspace:*
         version: link:../../packages/agent-core
@@ -47,12 +54,6 @@ importers:
       '@xxyy/web':
         specifier: workspace:*
         version: link:../web
-      '@xxyy/xxyy-market-data-adapter':
-        specifier: workspace:*
-        version: link:../../packages/xxyy-market-data-adapter
-      '@xxyy/xxyy-transaction-diagnosis-runtime':
-        specifier: workspace:*
-        version: link:../../packages/xxyy-transaction-diagnosis-runtime
       zod:
         specifier: ^4.0.0
         version: 4.4.3
@@ -74,6 +75,9 @@ importers:
 
   apps/telegram-bot:
     dependencies:
+      '@orbitrelaylabs/xxyy-transaction-agent-kit':
+        specifier: github:orbitrelaylabs/xxyy-transaction-agent-kit#d5a4e073b587fa7cf74031fc17860d9eeea5fed2
+        version: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2
       '@xxyy/agent-core':
         specifier: workspace:*
         version: link:../../packages/agent-core
@@ -86,12 +90,6 @@ importers:
       '@xxyy/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@xxyy/xxyy-market-data-adapter':
-        specifier: workspace:*
-        version: link:../../packages/xxyy-market-data-adapter
-      '@xxyy/xxyy-transaction-diagnosis-runtime':
-        specifier: workspace:*
-        version: link:../../packages/xxyy-transaction-diagnosis-runtime
 
   apps/web:
     dependencies:
@@ -126,6 +124,9 @@ importers:
       '@langchain/langgraph':
         specifier: ^1.4.4
         version: 1.4.4(@langchain/core@1.2.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod-to-json-schema@3.25.2(zod@4.4.3))(zod@4.4.3)
+      '@orbitrelaylabs/xxyy-transaction-agent-kit':
+        specifier: github:orbitrelaylabs/xxyy-transaction-agent-kit#d5a4e073b587fa7cf74031fc17860d9eeea5fed2
+        version: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2
       '@xxyy/product-support-runtime':
         specifier: workspace:*
         version: link:../product-support-runtime
@@ -135,9 +136,6 @@ importers:
       '@xxyy/shared':
         specifier: workspace:*
         version: link:../shared
-      '@xxyy/xxyy-transaction-diagnosis-runtime':
-        specifier: workspace:*
-        version: link:../xxyy-transaction-diagnosis-runtime
       zod:
         specifier: ^4.0.0
         version: 4.4.3
@@ -193,45 +191,6 @@ importers:
 
   packages/shared:
     dependencies:
-      zod:
-        specifier: ^4.0.0
-        version: 4.4.3
-
-  packages/transaction-analysis-core:
-    dependencies:
-      '@xxyy/shared':
-        specifier: workspace:*
-        version: link:../shared
-      zod:
-        specifier: ^4.0.0
-        version: 4.4.3
-
-  packages/xxyy-market-data-adapter:
-    dependencies:
-      '@xxyy/xxyy-transaction-diagnosis-core':
-        specifier: workspace:*
-        version: link:../xxyy-transaction-diagnosis-core
-      zod:
-        specifier: ^4.0.0
-        version: 4.4.3
-
-  packages/xxyy-transaction-diagnosis-core:
-    dependencies:
-      zod:
-        specifier: ^4.0.0
-        version: 4.4.3
-
-  packages/xxyy-transaction-diagnosis-runtime:
-    dependencies:
-      '@xxyy/transaction-analysis-core':
-        specifier: workspace:*
-        version: link:../transaction-analysis-core
-      '@xxyy/xxyy-market-data-adapter':
-        specifier: workspace:*
-        version: link:../xxyy-market-data-adapter
-      '@xxyy/xxyy-transaction-diagnosis-core':
-        specifier: workspace:*
-        version: link:../xxyy-transaction-diagnosis-core
       zod:
         specifier: ^4.0.0
         version: 4.4.3
@@ -473,6 +432,12 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
+
+  '@orbitrelaylabs/xxyy-transaction-agent-kit@https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2':
+    resolution: {gitHosted: true, integrity: sha512-YSAkpup2Tvb+1puptsT1SV2kqoE41TVjRtwMRvLi9tMoYQyug1I7haNU0VLKMmUSw92iowIy8/QkcDlRb4MIaQ==, tarball: https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2}
+    version: 0.1.0
+    engines: {node: '>=24.16.0'}
+    hasBin: true
 
   '@oxc-project/types@0.137.0':
     resolution: {integrity: sha512-WT+Gb24i8hmvo85AIv2oEYouEXkRlKAlT9WaCa3TfLgNCN+GhrJOGZuIlMouAh38Qe4QOx26eUOVsq70qXrywA==}
@@ -1276,6 +1241,10 @@ snapshots:
       '@emnapi/runtime': 1.11.1
       '@tybys/wasm-util': 0.10.3
     optional: true
+
+  '@orbitrelaylabs/xxyy-transaction-agent-kit@https://codeload.github.com/orbitrelaylabs/xxyy-transaction-agent-kit/tar.gz/d5a4e073b587fa7cf74031fc17860d9eeea5fed2':
+    dependencies:
+      zod: 4.4.3
 
   '@oxc-project/types@0.137.0': {}
 

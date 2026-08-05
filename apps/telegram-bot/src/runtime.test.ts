@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createPublicTransactionClientStub,
   type GetTransactionOutput,
-} from '@xxyy/xxyy-transaction-diagnosis-runtime';
+} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
 import type { ChatRequest, ChatResponse } from '@xxyy/shared';
 import {
   createInMemoryQualityTracer,

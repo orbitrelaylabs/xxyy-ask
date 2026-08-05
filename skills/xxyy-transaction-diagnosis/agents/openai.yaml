@@ -1,6 +1,0 @@
-interface:
-  display_name: 'XXYY Transaction Diagnosis'
-  short_description: 'Multi-chain ego-browser diagnosis with native evidence'
-  default_prompt: 'Use $xxyy-transaction-diagnosis to check this public transaction for Sandwich evidence and pool selection with browser-only evidence.'
-policy:
-  allow_implicit_invocation: false

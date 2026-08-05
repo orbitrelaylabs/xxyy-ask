@@ -9,10 +9,10 @@
   "dependencies": {
     "@langchain/core": "^1.2.0",
     "@langchain/langgraph": "^1.4.4",
+    "@orbitrelaylabs/xxyy-transaction-agent-kit": "github:orbitrelaylabs/xxyy-transaction-agent-kit#d5a4e073b587fa7cf74031fc17860d9eeea5fed2",
     "@xxyy/product-support-runtime": "workspace:*",
     "@xxyy/rag-core": "workspace:*",
     "@xxyy/shared": "workspace:*",
-    "@xxyy/xxyy-transaction-diagnosis-runtime": "workspace:*",
     "zod": "^4.0.0"
   },
   "scripts": {

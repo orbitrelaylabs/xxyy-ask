@@ -294,15 +294,9 @@ describe('root package scripts', () => {
       'pnpm --filter @xxyy/telegram-bot curation-worker',
     );
     expect(packageJson.scripts['onchain:query:production']).toBeUndefined();
-    expect(packageJson.scripts['xxyy:diagnose']).toBe(
-      'node skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs',
-    );
-    expect(packageJson.scripts['xxyy:skill:build']).toContain(
-      'packages/xxyy-transaction-diagnosis-runtime/src/cli.ts',
-    );
-    expect(packageJson.scripts['onchain:inspect']).toBe(
-      'node skills/onchain-transaction-inspector/scripts/inspect.mjs',
-    );
+    expect(packageJson.scripts['xxyy:diagnose']).toBe('pnpm exec xxyy-diagnose');
+    expect(packageJson.scripts['xxyy:skill:build']).toBeUndefined();
+    expect(packageJson.scripts['onchain:inspect']).toBe('pnpm exec onchain-inspect');
     expect(packageJson.scripts.start).toBeUndefined();
     expect(packageJson.scripts.dev).toBeUndefined();
     expect(packageJson.scripts.sync).toBeUndefined();

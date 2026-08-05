@@ -13,7 +13,7 @@ import {
   resolvePublicTransactionReference,
   type GetTransactionInput,
   type GetTransactionOutput,
-} from '@xxyy/xxyy-transaction-diagnosis-runtime';
+} from '@orbitrelaylabs/xxyy-transaction-agent-kit/runtime';
 
 import {
   CHAIN_GET_SKILL_CAPABILITY_ID,
