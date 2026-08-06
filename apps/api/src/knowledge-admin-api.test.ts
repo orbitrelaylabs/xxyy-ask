@@ -18,6 +18,7 @@ import type {
   PgTelegramGroupMessageStore,
   PgTelegramGroupRegistryStore,
   PgTelegramCurationJobStore,
+  PgTelegramBotAccessStore,
 } from '@xxyy/rag-core';
 
 import { handleKnowledgeAdminApi, type KnowledgeAdminServices } from './knowledge-admin-api.js';
@@ -245,6 +246,60 @@ describe('handleKnowledgeAdminApi', () => {
       password: 'valid-password-123',
       role: 'reviewer',
     });
+  });
+
+  it('lets administrators manage Telegram Bot users and nullable daily limits', async () => {
+    const user = {
+      createdAt: '2026-08-06T01:00:00.000Z',
+      dailyLimit: null,
+      displayName: 'TG Operator',
+      status: 'active' as const,
+      telegramUserId: '123456',
+      todayUsed: 0,
+      updatedAt: '2026-08-06T01:00:00.000Z',
+    };
+    const createUser = vi.fn(() => Promise.resolve(user));
+    const listUsers = vi.fn(() => Promise.resolve([user]));
+    const updateUser = vi.fn(() => Promise.resolve({ ...user, dailyLimit: 20 }));
+    const services = knowledgeAdminServices({
+      telegramBotUsers: telegramBotAccessStore({ createUser, listUsers, updateUser }),
+      telegramDailyQuotaTimeZone: 'Asia/Shanghai',
+    });
+
+    const created = await callAdmin({
+      authenticator: authenticator('admin'),
+      body: { dailyLimit: null, displayName: 'TG Operator', telegramUserId: '123456' },
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/telegram-users',
+    });
+    const updated = await callAdmin({
+      authenticator: authenticator('admin'),
+      body: { dailyLimit: 20 },
+      getServices: () => Promise.resolve(services),
+      method: 'PATCH',
+      token: TOKEN,
+      url: '/admin/api/telegram-users/123456',
+    });
+    const listed = await callAdmin({
+      authenticator: authenticator('admin'),
+      getServices: () => Promise.resolve(services),
+      method: 'GET',
+      token: TOKEN,
+      url: '/admin/api/telegram-users',
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(updated.json).toMatchObject({ user: { dailyLimit: 20 } });
+    expect(listed.json).toMatchObject({ users: [{ telegramUserId: '123456' }] });
+    expect(createUser).toHaveBeenCalledWith({
+      actor: 'admin:alice',
+      dailyLimit: null,
+      displayName: 'TG Operator',
+      telegramUserId: '123456',
+    });
+    expect(listUsers).toHaveBeenCalledWith({ timeZone: 'Asia/Shanghai' });
   });
 
   it('allows viewers to inspect candidates but not mutate them', async () => {
@@ -1270,6 +1325,19 @@ function knowledgeAdminServices(
     telegramGroups: telegramGroupStore(),
     telegramCurationJobs: telegramCurationJobStore(),
     telegramMessages: telegramMessageStore(),
+    ...overrides,
+  };
+}
+
+function telegramBotAccessStore(
+  overrides: Partial<PgTelegramBotAccessStore> = {},
+): PgTelegramBotAccessStore {
+  return {
+    authorizeAndConsume: () => Promise.reject(new Error('not used')),
+    createUser: () => Promise.reject(new Error('not used')),
+    listUsers: () => Promise.resolve([]),
+    migrate: () => Promise.resolve(),
+    updateUser: () => Promise.reject(new Error('not used')),
     ...overrides,
   };
 }

@@ -36,7 +36,7 @@ API 同时将 `/api/*` 和 `/admin/api/*` 的响应结果写入 PostgreSQL `api_
 
 API 内置基础保护：
 
-- `DAILY_CHAT_LIMIT` 默认限制每个用户每个自然日最多发起 `10` 次客服对话，Web/API 与 Telegram 共用 PostgreSQL 原子配额表；`DAILY_CHAT_LIMIT_TIME_ZONE` 默认 `Asia/Shanghai`，`DAILY_CHAT_LIMIT_HASH_SALT` 可设置独立身份哈希盐，未设置时回退到 `OBSERVABILITY_CLIENT_HASH_SALT`。Telegram 优先按用户 ID、其次按会话计数；Web/API 优先按显式用户 ID、已认证 API Key ID、会话 ID，最后按客户端地址计数。公开 Web 没有登录认证时，调用方提供的 user/session ID 不是强身份边界，生产网关仍应结合账号或设备凭证。
+- Telegram 使用 `telegram_bot_users` 数据库白名单和逐用户自然日额度；只有 active 用户可调用，`daily_limit` 为空表示无限制。`telegram_bot_daily_usage` 在调用 Agent 前原子计数，`TELEGRAM_DAILY_QUOTA_TIME_ZONE` 默认 `Asia/Shanghai`。`DAILY_CHAT_LIMIT*` 仅保留给程序化 HTTP API，不再控制 Telegram。
 - `API_MAX_BODY_BYTES` 限制 JSON 请求体大小，默认 `65536` 字节。
 - `API_RATE_LIMIT_MAX` 和 `API_RATE_LIMIT_WINDOW_MS` 对聊天、流式聊天、反馈、客服升级/状态及对应 `/api/v1/*` 服务接口限流，默认 `60` 次 / `60000` 毫秒；已认证 v1 请求按 API Key ID 分桶，匿名请求按客户端地址分桶。
 - `KNOWLEDGE_ADMIN_RATE_LIMIT_MAX` 和 `KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS` 独立限制 `/admin/api/*`：登录和写操作默认 `30` 次 / `60000` 毫秒，读取操作使用独立的 10 倍额度（默认 `300` 次 / `60000` 毫秒）。未认证写请求同样计数，降低密码暴力尝试风险，同时避免后台正常并行读取耗尽写操作额度。
@@ -46,7 +46,7 @@ API 内置基础保护：
 公开部署时仍应在网关层增加共享配额，因为进程内限流不适合多实例全局控制。已认证 `/api/v1/*` 请求按 API Key 配置 ID 使用独立桶；匿名请求仍按客户端地址使用桶：
 
 - 按 session、channel 和 IP 组合限流。
-- 对匿名 Web 流量设置更低 burst，对 Telegram 或可信服务端调用设置独立配额。
+- 对程序化 API 设置独立 burst；Telegram 由数据库白名单和逐用户额度控制。
 - 对 429、5xx、超大请求体和高成本模型调用做告警。
 - 多实例部署时使用网关、Redis 或 API gateway 的共享限流，而不是依赖单个 Node 进程内存。
 
@@ -98,11 +98,11 @@ Docker / container 要求：
 
 - 镜像只包含构建产物和依赖，不包含 `.env`、`.rag/`、数据库数据或密钥。
 - 运行时通过平台 secret 注入 `OPENAI_API_KEY` 和数据库凭据。
-- 容器启动命令只启动 API / Web 服务；迁移、ingest 和 sync 使用独立 release job 或一次性任务执行。
+- 容器启动命令只启动 API / 管理后台服务；迁移、ingest 和 sync 使用独立 release job 或一次性任务执行。
 - liveness probe 使用 `/health`，readiness 或发布自检可以使用 `/health/deep`。
 - 启用群聊知识实时采集时，确认 Bot 已加入目标群、可调用 `getChatAdministrators`，并按部署需要通过 BotFather 关闭 Privacy Mode；无法验证管理员时自动失败关闭。
 
-单机 Docker Compose 试运行可使用 `pnpm run app:up`。它会后台启动 pgvector、执行迁移、在空库时首次 ingest，并启动 API/Web 与 Telegram；`app:status`、`app:logs`、`app:restart`、`app:stop` 和 `app:down` 用于日常管理。默认端口仅绑定 `127.0.0.1`，服务器应通过 Caddy/Nginx 提供 HTTPS。`app:down` 保留数据库 volume，禁止在没有已验证备份时执行 `docker compose down -v`。
+单机 Docker Compose 试运行可使用 `pnpm run app:up`。它会后台启动 pgvector、执行迁移、在空库时首次 ingest，并启动 API/管理后台与 Telegram；`app:status`、`app:logs`、`app:restart`、`app:stop` 和 `app:down` 用于日常管理。默认端口仅绑定 `127.0.0.1`，服务器应通过 Caddy/Nginx 提供 HTTPS。`app:down` 保留数据库 volume，禁止在没有已验证备份时执行 `docker compose down -v`。
 
 推荐发布流程：
 

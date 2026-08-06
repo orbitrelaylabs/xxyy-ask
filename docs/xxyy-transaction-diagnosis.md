@@ -13,7 +13,7 @@
 - `skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs`：组合固定 Explorer 浏览器证据、XXYY 市场适配器、判定 core 和截图提供器的自包含 JSON CLI。
 - `packages/transaction-skill-bridge`：本仓库内部固定路径调用、输入输出校验、取消、超时与输出上限边界。
 
-Web 和 Telegram 在本机发现 `ego-browser` 后注册固定 Explorer 浏览器证据模式，不存在 RPC 回退。两者分别为固定 `web/anonymous`、`telegram/service` 创建 `xxyy.skill.diagnose_transaction` 精确授权，并通过同一 CLI bridge 调用固定 Skill bundle。
+程序化 HTTP API 和 Telegram 在本机发现 `ego-browser` 后注册固定 Explorer 浏览器证据模式，不存在 RPC 回退。两者分别为固定 `web/anonymous`、`telegram/service` 创建 `xxyy.skill.diagnose_transaction` 精确授权，并通过同一 CLI bridge 调用固定 Skill bundle。公开 Web 客服页面已经移除。
 
 浏览器模式只打开固定 Explorer 页面并读取页面自身的受限响应，整体交易状态固定为 `partial`。当前覆盖 Solana、Ethereum、BNB Smart Chain、Base、Robinhood Chain 和 Stable Chain；六条链全部通过本机 `ego-browser` 复用同一用户验证状态，不再按站点分流到隔离 Chrome。代码只根据已校验交易哈希构造固定 allowlist 页面/API URL，不接受任意 chain ID、用户 endpoint 或页面脚本。EVM 深度 trace、池状态、反事实损失与攻击者收益不在公开路径采集，因此不会给出 `confirmed`。
 
@@ -63,7 +63,7 @@ canonical 声明通过 `XXYY_CANONICAL_POOL_CONFIG_JSON={"entries":[...]}` 注�
 
 ## 截图证据
 
-截图不是判定来源，但它是诊断成功后的正式用户可见交付物。只有结构化 API 已精确核对完整 transaction ID、完整 maker 和唯一池后，隔离 Chrome 提供器才打开固定 XXYY pair URL，并用 maker 后六位、买卖方向、成交时间、Token/原生币/USD 数量共同为候选行评分；多个候选无法唯一定位时失败关闭，不圈选可能错误的行。生成成功时 runtime 将截图标记为 `required` image attachment；Skill CLI 额外返回绝对 `filePath`，Web 必须内联展示，Telegram 必须发送图片，即使用户的问题中没有“截图”关键词。
+截图不是判定来源，但它是诊断成功后的正式用户可见交付物。只有结构化 API 已精确核对完整 transaction ID、完整 maker 和唯一池后，隔离 Chrome 提供器才打开固定 XXYY pair URL，并用 maker 后六位、买卖方向、成交时间、Token/原生币/USD 数量共同为候选行评分；多个候选无法唯一定位时失败关闭，不圈选可能错误的行。生成成功时 runtime 将截图标记为 `required` image attachment；Skill CLI 额外返回绝对 `filePath`，Telegram 必须发送图片，即使用户的问题中没有“截图”关键词。
 
 XXYY 历史成交请求固定带页面使用的 `X-CHAIN`、`X-LANGUAGE` 与 `X-VERSION` 请求头，并从交易时间前后 2 秒开始逐级扩大到 15 秒、120 秒，避免高频池的 50 条响应上限把目标哈希挤出结果。返回的 `blockNumber` 与 `logIndex` 会保留到目标和相邻成交证据中；EVM 周边成交已有这些字段时不再为每一行重复打开 Explorer。
 
@@ -90,4 +90,4 @@ command -v ego-browser
 
 Solscan、Blockscout 和 Scan 系 Explorer 都通过同一个受控页面读取器访问。API、Telegram 和两个 Skill CLI 分别复用固定命名的持久 Task Space，避免每笔交易创建新浏览器上下文而反复丢失验证状态；页面验证过期或 Cloudflare 再次拦截时返回包含 Task Space 名称的验证提示，不尝试绕过，也不回退到未知 endpoint 或无头 Chrome。`XXYY_SCREENSHOT_CHROME_EXECUTABLE`、`XXYY_BROWSER_PROFILE_DIRECTORY` 和 `XXYY_SCREENSHOT_DIRECTORY` 仅配置 XXYY 原生截图提供器；其隔离 Profile 不得指向个人日常 Chrome Profile，也不得提交仓库。
 
-Web 通过同源 `/xxyy-evidence/<hash>.png` 渲染图片；Telegram 从截图目录读取 PNG 并直接上传，不要求截图公网 URL。canonical pool 声明和小池阈值均为可选策略配置，不是浏览器访问的前提。
+程序化 API 可通过同源 `/xxyy-evidence/<hash>.png` 获取图片；Telegram 从截图目录读取 PNG 并直接上传，不要求截图公网 URL。canonical pool 声明和小池阈值均为可选策略配置，不是浏览器访问的前提。

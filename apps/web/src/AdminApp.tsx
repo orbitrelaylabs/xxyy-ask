@@ -59,6 +59,7 @@ import type {
   SupportTicketStatus,
   TelegramImportResult,
   TelegramGroupRegistryEntry,
+  TelegramBotUser,
   TrustedAuthor,
 } from './admin-types.js';
 
@@ -74,6 +75,7 @@ type AdminTab =
   | 'publications'
   | 'quality'
   | 'support'
+  | 'telegram-users'
   | 'users';
 
 export function AdminApp(): ReactElement {
@@ -256,6 +258,9 @@ export function AdminApp(): ReactElement {
             <TelegramImportPanel permissions={permissions} token={token} />
           ) : undefined}
           {activeTab === 'groups' ? <TelegramGroupsPanel token={token} /> : undefined}
+          {activeTab === 'telegram-users' ? (
+            <TelegramBotUsersPanel permissions={permissions} token={token} />
+          ) : undefined}
           {activeTab === 'graph' ? (
             <KnowledgeGraphPanel permissions={permissions} token={token} />
           ) : undefined}
@@ -1241,6 +1246,16 @@ function AdminSidebar({
           label: 'Telegram 群聊',
           meta: 'Bot 加群状态与活跃时间',
         },
+        ...(session.permissions.includes('telegram_user:manage')
+          ? [
+              {
+                icon: <TeamOutlined />,
+                id: 'telegram-users' as const,
+                label: 'Telegram 用户',
+                meta: 'Bot 白名单与每日对话额度',
+              },
+            ]
+          : []),
       ],
     },
     {
@@ -1674,6 +1689,279 @@ function qualityModeLabel(mode: QualityEvaluationMode, withJudge: boolean): stri
   if (mode === 'deterministic') return '快速确定性评测';
   if (mode === 'provider_retrieval') return '正式召回评测';
   return withJudge ? '完整 Agent + Judge' : '完整 Agent 评测';
+}
+
+function TelegramBotUsersPanel({
+  permissions,
+  token,
+}: {
+  permissions: ReadonlySet<AdminPermission>;
+  token: string;
+}): ReactElement {
+  const [users, setUsers] = useState<TelegramBotUser[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ kind: 'error' | 'success'; text: string }>();
+  const [createForm, setCreateForm] = useState({
+    dailyLimit: '',
+    displayName: '',
+    telegramUserId: '',
+  });
+  const [editForm, setEditForm] = useState({
+    dailyLimit: '',
+    displayName: '',
+    status: 'active' as TelegramBotUser['status'],
+  });
+  const selected = users.find((user) => user.telegramUserId === selectedId);
+
+  const load = useCallback(async (): Promise<void> => {
+    if (!permissions.has('telegram_user:manage')) return;
+    try {
+      const result = await knowledgeAdminRequest<{ users: TelegramBotUser[] }>(
+        token,
+        '/telegram-users',
+      );
+      setUsers(result.users);
+      setSelectedId((current) =>
+        result.users.some((user) => user.telegramUserId === current)
+          ? current
+          : (result.users[0]?.telegramUserId ?? ''),
+      );
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    }
+  }, [permissions, token]);
+
+  useEffect(() => void load(), [load]);
+  useEffect(() => {
+    if (selected === undefined) return;
+    setEditForm({
+      dailyLimit: selected.dailyLimit === null ? '' : String(selected.dailyLimit),
+      displayName: selected.displayName ?? '',
+      status: selected.status,
+    });
+  }, [selected]);
+
+  const create = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      await knowledgeAdminRequest(token, '/telegram-users', {
+        body: {
+          dailyLimit: parseOptionalDailyLimit(createForm.dailyLimit),
+          ...(createForm.displayName.trim().length === 0
+            ? {}
+            : { displayName: createForm.displayName.trim() }),
+          telegramUserId: createForm.telegramUserId.trim(),
+        },
+        method: 'POST',
+      });
+      setCreateForm({ dailyLimit: '', displayName: '', telegramUserId: '' });
+      await load();
+      setNotice({ kind: 'success', text: 'Telegram 用户已加入 Bot 白名单。' });
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const update = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (selected === undefined) return;
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      await knowledgeAdminRequest(
+        token,
+        `/telegram-users/${encodeURIComponent(selected.telegramUserId)}`,
+        {
+          body: {
+            dailyLimit: parseOptionalDailyLimit(editForm.dailyLimit),
+            displayName: editForm.displayName.trim().length === 0 ? null : editForm.displayName,
+            status: editForm.status,
+          },
+          method: 'PATCH',
+        },
+      );
+      await load();
+      setNotice({ kind: 'success', text: 'Telegram 用户权限和额度已更新。' });
+    } catch (error) {
+      setNotice({ kind: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="admin-stack">
+      {notice === undefined ? undefined : (
+        <div className={`admin-alert ${notice.kind}`}>{notice.text}</div>
+      )}
+      <section className="admin-panel">
+        <div className="admin-panel-header">
+          <div>
+            <h2>Bot 调用白名单</h2>
+            <span>{users.filter((user) => user.status === 'active').length} 个启用用户</span>
+          </div>
+          <button className="admin-secondary-button" onClick={() => void load()} type="button">
+            刷新
+          </button>
+        </div>
+        <div className="publication-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Telegram 用户</th>
+                <th>状态</th>
+                <th>每日额度</th>
+                <th>今日已用</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr
+                  className={
+                    user.telegramUserId === selectedId ? 'admin-table-selected' : undefined
+                  }
+                  key={user.telegramUserId}
+                  onClick={() => setSelectedId(user.telegramUserId)}
+                >
+                  <td>
+                    <strong>{user.displayName ?? '未命名用户'}</strong>
+                    <small>{user.telegramUserId}</small>
+                  </td>
+                  <td>{user.status === 'active' ? '允许' : '禁用'}</td>
+                  <td>{user.dailyLimit === null ? '无限制' : `${user.dailyLimit} 次`}</td>
+                  <td>{user.todayUsed} 次</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {users.length === 0 ? (
+            <div className="admin-empty">当前没有用户可调用 Telegram Bot。</div>
+          ) : undefined}
+        </div>
+      </section>
+      <div className="admin-stack two-column-admin">
+        <section className="admin-panel">
+          <SectionHeading
+            description="Telegram 用户 ID 为纯数字；每日额度留空表示无限制。"
+            title="添加允许用户"
+          />
+          <form className="admin-form-grid single" onSubmit={(event) => void create(event)}>
+            <label>
+              Telegram 用户 ID
+              <input
+                inputMode="numeric"
+                pattern="[1-9][0-9]*"
+                required
+                onChange={(event) =>
+                  setCreateForm({ ...createForm, telegramUserId: event.target.value })
+                }
+                value={createForm.telegramUserId}
+              />
+            </label>
+            <label>
+              显示名称（可选）
+              <input
+                onChange={(event) =>
+                  setCreateForm({ ...createForm, displayName: event.target.value })
+                }
+                value={createForm.displayName}
+              />
+            </label>
+            <DailyLimitInput
+              onChange={(dailyLimit) => setCreateForm({ ...createForm, dailyLimit })}
+              value={createForm.dailyLimit}
+            />
+            <button className="admin-primary-button" disabled={busy} type="submit">
+              添加用户
+            </button>
+          </form>
+        </section>
+        <section className="admin-panel">
+          <SectionHeading
+            description="禁用后该用户立即无法继续调用；额度留空表示无限制。"
+            title="编辑用户"
+          />
+          {selected === undefined ? (
+            <div className="admin-empty">选择一个 Telegram 用户。</div>
+          ) : (
+            <form className="admin-form-grid single" onSubmit={(event) => void update(event)}>
+              <label>
+                Telegram 用户 ID
+                <input disabled value={selected.telegramUserId} />
+              </label>
+              <label>
+                显示名称（可选）
+                <input
+                  onChange={(event) =>
+                    setEditForm({ ...editForm, displayName: event.target.value })
+                  }
+                  value={editForm.displayName}
+                />
+              </label>
+              <DailyLimitInput
+                onChange={(dailyLimit) => setEditForm({ ...editForm, dailyLimit })}
+                value={editForm.dailyLimit}
+              />
+              <label>
+                状态
+                <select
+                  onChange={(event) =>
+                    setEditForm({
+                      ...editForm,
+                      status: event.target.value as TelegramBotUser['status'],
+                    })
+                  }
+                  value={editForm.status}
+                >
+                  <option value="active">允许调用</option>
+                  <option value="disabled">禁用</option>
+                </select>
+              </label>
+              <button className="admin-primary-button" disabled={busy} type="submit">
+                保存修改
+              </button>
+            </form>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function DailyLimitInput({
+  onChange,
+  value,
+}: {
+  onChange: (value: string) => void;
+  value: string;
+}): ReactElement {
+  return (
+    <label>
+      每日对话额度（留空为无限制）
+      <input
+        max={1_000_000}
+        min={1}
+        placeholder="无限制"
+        type="number"
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      />
+    </label>
+  );
+}
+
+function parseOptionalDailyLimit(value: string): number | null {
+  if (value.trim().length === 0) return null;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 1_000_000) {
+    throw new Error('每日对话额度必须是 1 到 1000000 之间的整数，或留空表示无限制。');
+  }
+  return parsed;
 }
 
 function AdminUsersPanel({
@@ -3939,6 +4227,8 @@ function tabTitle(tab: AdminTab): string {
       return '回答质量';
     case 'support':
       return '客服工作台';
+    case 'telegram-users':
+      return 'Telegram 用户权限';
     case 'users':
       return '管理员用户';
   }
@@ -3966,6 +4256,8 @@ function tabDescription(tab: AdminTab): string {
       return '运行回答质量评测，查看失败案例并维护质量基线。';
     case 'support':
       return '处理客服会话、工单和人工接管任务。';
+    case 'telegram-users':
+      return '维护允许调用 Bot 的 Telegram 用户及其每日对话次数上限。';
     case 'users':
       return '维护管理员账号、角色、权限和启停状态。';
   }

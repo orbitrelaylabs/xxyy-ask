@@ -10,8 +10,19 @@ export type AdminPermission =
   | 'support:manage'
   | 'support:read'
   | 'telegram_group:read'
+  | 'telegram_user:manage'
   | 'trusted_author:manage'
   | 'user:manage';
+
+export interface TelegramBotUser {
+  createdAt: string;
+  dailyLimit: number | null;
+  status: 'active' | 'disabled';
+  telegramUserId: string;
+  todayUsed: number;
+  updatedAt: string;
+  displayName?: string;
+}
 
 export type CandidateStatus = 'approved' | 'pending' | 'published' | 'rejected';
 export type PublicationStatus = 'failed' | 'queued' | 'running' | 'succeeded';

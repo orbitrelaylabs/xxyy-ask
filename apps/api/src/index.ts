@@ -61,7 +61,7 @@ import type {
   SupportMessageRole,
   SupportEscalationReason,
 } from '@xxyy/rag-core';
-import { renderAdminPage, renderChatPage } from '@xxyy/web';
+import { renderAdminPage } from '@xxyy/web';
 
 import { createAgentApiAuthenticator, type AgentApiAuthenticator } from './agent-api-auth.js';
 import {
@@ -92,6 +92,7 @@ type ApiEnv = RagEnv &
       | 'DAILY_CHAT_LIMIT'
       | 'DAILY_CHAT_LIMIT_TIME_ZONE'
       | 'DAILY_CHAT_LIMIT_HASH_SALT'
+      | 'TELEGRAM_DAILY_QUOTA_TIME_ZONE'
       | 'ANSWER_QUALITY_CLI_MODE'
       | 'ANSWER_QUALITY_CLI_OPTIMIZED_PERCENTAGE'
       | 'ANSWER_QUALITY_TELEGRAM_MODE'
@@ -164,7 +165,6 @@ export interface CreateRequestHandlerOptions {
   logger?: ApiLogger;
   now?: () => number;
   recordFeedback?: FeedbackRecorder;
-  renderHtml?: () => string;
   renderKnowledgeAdminHtml?: () => string;
   staticAssetsDir?: string;
   webAssetsDir?: string;
@@ -270,7 +270,6 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
   const answerQualityRolloutObserver =
     options.answerQualityRolloutObserver ??
     (apiConfig.enableRolloutObservability ? createConsoleAnswerQualityObserver() : undefined);
-  const renderHtml = options.renderHtml ?? renderChatPage;
   const renderKnowledgeAdminHtml = options.renderKnowledgeAdminHtml ?? renderAdminPage;
   const getChatService =
     options.getChatService ??
@@ -443,7 +442,9 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
       }
 
       if (request.method === 'GET' && requestUrl.pathname === '/') {
-        sendHtml(response, 200, renderHtml());
+        response.statusCode = 302;
+        response.setHeader('Location', '/admin');
+        response.end();
         return;
       }
 

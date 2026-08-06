@@ -220,6 +220,13 @@ describe('startServer', () => {
 });
 
 describe('createRequestHandler', () => {
+  it('redirects the removed public Web customer page to the administration surface', async () => {
+    const response = await callHandler(createRequestHandler(), { method: 'GET', url: '/' });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.Location).toBe('/admin');
+  });
+
   it('serves the management shell with strict browser security headers', async () => {
     const handler = createRequestHandler({
       renderKnowledgeAdminHtml: () => '<!doctype html><title>Knowledge Admin</title>',

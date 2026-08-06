@@ -10,26 +10,29 @@ import {
   loadRagConfig,
   type ChatService,
   type PgSupportOperationsStore,
-  type PgDailyChatQuotaStore,
+  type PgTelegramBotAccessStore,
   type SupportConversationMessage,
 } from '@xxyy/rag-core';
 
 import {
   createTelegramChatRuntime,
   withLowEvidenceFeedback,
-  withDailyTelegramChatQuota,
+  withTelegramBotAccessControl,
   withPersistentTelegramHistory,
 } from './runtime.js';
 
 describe('createTelegramChatRuntime', () => {
   it('injects the supplied tracer into the customer runtime', async () => {
     const { records, tracer } = createInMemoryQualityTracer();
-    const runtime = createTelegramChatRuntime(loadRagConfig({}), tracer);
+    const runtime = createTelegramChatRuntime(loadRagConfig({}), tracer, {
+      telegramAccessStore: allowTelegramUser(),
+    });
     try {
       const response = await runtime.service.ask({
         channel: 'telegram',
         message: '帮我查一下钱包余额',
         requestId: 'telegram:1:1',
+        userId: 'telegram:1',
       });
 
       expect(response.agentRoute).toBe('boundary');
@@ -48,6 +51,7 @@ describe('createTelegramChatRuntime', () => {
     const explorerUrl = transaction.explorerUrl!;
     const runtime = createTelegramChatRuntime(loadRagConfig({}), undefined, {
       publicTransactionClient: createPublicTransactionClientStub(async () => transaction),
+      telegramAccessStore: allowTelegramUser(),
     });
 
     try {
@@ -56,6 +60,7 @@ describe('createTelegramChatRuntime', () => {
           channel: 'telegram',
           message: explorerUrl,
           requestId: 'telegram:chain:1',
+          userId: 'telegram:1',
         }),
       ).resolves.toMatchObject({
         agentRoute: 'chain_answer',
@@ -323,7 +328,7 @@ describe('withLowEvidenceFeedback', () => {
   });
 });
 
-describe('withDailyTelegramChatQuota', () => {
+describe('withTelegramBotAccessControl', () => {
   it('returns a user-visible limit response without invoking the underlying service', async () => {
     const ask = vi.fn();
     const service: ChatService = {
@@ -332,18 +337,18 @@ describe('withDailyTelegramChatQuota', () => {
         throw new Error('not used');
       },
     };
-    const consume = vi.fn(() =>
+    const authorizeAndConsume = vi.fn(() =>
       Promise.resolve({
         allowed: false,
-        limit: 10,
+        dailyLimit: 10,
         quotaDate: '2026-08-04',
+        reason: 'quota_exhausted' as const,
         remaining: 0,
         used: 10,
       }),
     );
-    const store = { consume } as unknown as PgDailyChatQuotaStore;
-    const response = await withDailyTelegramChatQuota(service, async () => store, {
-      limit: 10,
+    const store = { authorizeAndConsume } as unknown as PgTelegramBotAccessStore;
+    const response = await withTelegramBotAccessControl(service, async () => store, {
       timeZone: 'Asia/Shanghai',
     }).ask({
       channel: 'telegram',
@@ -352,14 +357,91 @@ describe('withDailyTelegramChatQuota', () => {
       userId: 'telegram:456',
     });
     expect(response.answer).toContain('每天最多 10 次');
-    expect(consume).toHaveBeenCalledWith({
-      identity: 'telegram:telegram:456',
-      limit: 10,
+    expect(authorizeAndConsume).toHaveBeenCalledWith({
+      telegramUserId: 'telegram:456',
       timeZone: 'Asia/Shanghai',
     });
     expect(ask).not.toHaveBeenCalled();
   });
+
+  it('rejects a Telegram user outside the allowlist', async () => {
+    const ask = vi.fn();
+    const service = { ask, stream: vi.fn() } as unknown as ChatService;
+    const store = {
+      authorizeAndConsume: vi.fn(() =>
+        Promise.resolve({
+          allowed: false,
+          dailyLimit: null,
+          quotaDate: '2026-08-06',
+          reason: 'not_allowed' as const,
+          remaining: null,
+          used: 0,
+        }),
+      ),
+    } as unknown as PgTelegramBotAccessStore;
+
+    const response = await withTelegramBotAccessControl(service, async () => store, {
+      timeZone: 'Asia/Shanghai',
+    }).ask({ channel: 'telegram', message: '你好', userId: 'telegram:999' });
+
+    expect(response.answer).toContain('未获授权');
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it('does not count the same Telegram message twice when streaming falls back to ask', async () => {
+    const authorizeAndConsume = vi.fn(() =>
+      Promise.resolve({
+        allowed: true,
+        dailyLimit: 10,
+        quotaDate: '2026-08-06',
+        reason: 'allowed' as const,
+        remaining: 9,
+        used: 1,
+      }),
+    );
+    const service: ChatService = {
+      ask: () =>
+        Promise.resolve({ answer: 'fallback', citations: [], confidence: 1, intent: 'product_qa' }),
+      async *stream() {
+        throw new Error('stream failed');
+      },
+    };
+    const wrapped = withTelegramBotAccessControl(
+      service,
+      async () => ({ authorizeAndConsume }) as unknown as PgTelegramBotAccessStore,
+      { timeZone: 'Asia/Shanghai' },
+    );
+    const request = {
+      channel: 'telegram' as const,
+      message: '你好',
+      requestId: 'telegram:1:100',
+      userId: 'telegram:456',
+    };
+
+    const consume = async () => {
+      for await (const _event of wrapped.stream(request)) {
+        // Consume until the simulated stream fails.
+      }
+    };
+    await expect(consume()).rejects.toThrow('stream failed');
+    await expect(wrapped.ask(request)).resolves.toMatchObject({ answer: 'fallback' });
+    expect(authorizeAndConsume).toHaveBeenCalledTimes(1);
+  });
 });
+
+function allowTelegramUser(): PgTelegramBotAccessStore {
+  return {
+    authorizeAndConsume: () =>
+      Promise.resolve({
+        allowed: true,
+        dailyLimit: null,
+        quotaDate: '2026-08-06',
+        reason: 'allowed',
+        remaining: null,
+        used: 1,
+      }),
+  } as unknown as PgTelegramBotAccessStore;
+}
 
 function createStoredMessage(
   role: SupportConversationMessage['role'],

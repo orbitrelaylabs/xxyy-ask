@@ -21,7 +21,7 @@ pnpm check
 
 该命令依次执行：
 
-- Web build。
+- 管理后台 build。
 - Prettier format check。
 - TypeScript typecheck。
 - Vitest tests。

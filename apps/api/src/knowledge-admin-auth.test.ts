@@ -26,6 +26,8 @@ describe('knowledge admin authorization', () => {
     expect(hasKnowledgeAdminPermission(admin, 'quality:baseline')).toBe(true);
     expect(hasKnowledgeAdminPermission(publisher, 'user:manage')).toBe(false);
     expect(hasKnowledgeAdminPermission(admin, 'user:manage')).toBe(true);
+    expect(hasKnowledgeAdminPermission(publisher, 'telegram_user:manage')).toBe(false);
+    expect(hasKnowledgeAdminPermission(admin, 'telegram_user:manage')).toBe(true);
   });
 
   it('accepts only bounded database session bearer tokens', () => {

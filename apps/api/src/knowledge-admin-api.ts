@@ -34,6 +34,7 @@ import type {
   PgApiObservabilityStore,
   PgTelegramGroupMessageStore,
   PgTelegramGroupRegistryStore,
+  PgTelegramBotAccessStore,
   PgTelegramCurationJobStore,
   SupportTicketPriority,
   SupportTicketStatus,
@@ -62,6 +63,8 @@ export interface KnowledgeAdminServices {
     serverErrorRatio: number;
   };
   telegramGroups: PgTelegramGroupRegistryStore;
+  telegramBotUsers?: PgTelegramBotAccessStore;
+  telegramDailyQuotaTimeZone?: string;
   telegramCurationJobs: PgTelegramCurationJobStore;
   telegramMessages: PgTelegramGroupMessageStore;
   importTelegram(input: {
@@ -164,6 +167,25 @@ const requestQualityEvaluationSchema = z
   });
 const telegramGroupStatusSchema = z.enum(['active', 'kicked', 'left', 'unknown']);
 const telegramMessageProcessingStatusSchema = z.enum(['all', 'processed', 'unprocessed']);
+const telegramBotUserStatusSchema = z.enum(['active', 'disabled']);
+const createTelegramBotUserSchema = z
+  .object({
+    dailyLimit: z.number().int().min(1).max(1_000_000).nullable().default(null),
+    displayName: z.string().trim().min(1).max(160).optional(),
+    telegramUserId: z
+      .string()
+      .trim()
+      .regex(/^[1-9]\d{0,19}$/u),
+  })
+  .strict();
+const updateTelegramBotUserSchema = z
+  .object({
+    dailyLimit: z.number().int().min(1).max(1_000_000).nullable().optional(),
+    displayName: z.string().trim().min(1).max(160).nullable().optional(),
+    status: telegramBotUserStatusSchema.optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, 'At least one user field is required.');
 const graphEntityTypeSchema = z.enum(['chain', 'feature', 'launchpad', 'plan', 'product']);
 const graphRelationStatusSchema = z.enum(['approved', 'rejected']);
 const supportTicketStatusSchema = z.enum([
@@ -521,6 +543,50 @@ async function routeKnowledgeAdminRequest(
           ...(segments[2] === 'reprocess' ? { reprocess: true } : {}),
         }),
       );
+      return;
+    }
+    sendNotFound(options.response);
+    return;
+  }
+
+  if (segments[0] === 'telegram-users') {
+    requirePermission(principal, 'telegram_user:manage');
+    if (services.telegramBotUsers === undefined) {
+      throw new Error('Telegram Bot user administration is not configured.');
+    }
+    if (segments.length === 1 && method === 'GET') {
+      sendJson(options.response, 200, {
+        users: await services.telegramBotUsers.listUsers({
+          timeZone: services.telegramDailyQuotaTimeZone ?? 'Asia/Shanghai',
+        }),
+      });
+      return;
+    }
+    if (segments.length === 1 && method === 'POST') {
+      const payload = createTelegramBotUserSchema.parse(
+        await readJsonBody(options.request, options.maxBodyBytes),
+      );
+      const user = await services.telegramBotUsers.createUser({
+        actor: adminActor(principal),
+        dailyLimit: payload.dailyLimit,
+        ...(payload.displayName === undefined ? {} : { displayName: payload.displayName }),
+        telegramUserId: payload.telegramUserId,
+      });
+      sendJson(options.response, 201, { user });
+      return;
+    }
+    if (segments.length === 2 && method === 'PATCH') {
+      const payload = updateTelegramBotUserSchema.parse(
+        await readJsonBody(options.request, options.maxBodyBytes),
+      );
+      const user = await services.telegramBotUsers.updateUser({
+        actor: adminActor(principal),
+        ...(payload.dailyLimit === undefined ? {} : { dailyLimit: payload.dailyLimit }),
+        ...(payload.displayName === undefined ? {} : { displayName: payload.displayName }),
+        ...(payload.status === undefined ? {} : { status: payload.status }),
+        telegramUserId: requiredPathSegment(segments[1], 'Telegram user id'),
+      });
+      sendJson(options.response, 200, { user });
       return;
     }
     sendNotFound(options.response);
@@ -958,6 +1024,7 @@ function knowledgeAdminPermissions(principal: KnowledgeAdminPrincipal): Knowledg
     'support:manage',
     'support:read',
     'telegram_group:read',
+    'telegram_user:manage',
     'trusted_author:manage',
     'user:manage',
   ];

@@ -53,7 +53,7 @@
     "telegram:curation:worker": "pnpm --filter @xxyy/telegram-bot curation-worker",
     "test": "vitest run",
     "typecheck": "pnpm -r --if-present --filter \"@xxyy/*\" typecheck",
-    "web:dev": "pnpm --filter @xxyy/web dev",
+    "admin:dev": "pnpm --filter @xxyy/web dev",
     "x:scrape": "node scripts/fetch-usexxyy-posts.mjs"
   },
   "license": "MIT",

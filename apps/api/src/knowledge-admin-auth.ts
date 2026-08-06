@@ -14,6 +14,7 @@ export type KnowledgeAdminPermission =
   | 'support:manage'
   | 'support:read'
   | 'telegram_group:read'
+  | 'telegram_user:manage'
   | 'trusted_author:manage'
   | 'user:manage';
 
@@ -36,6 +37,7 @@ const PERMISSION_LEVEL: Record<KnowledgeAdminPermission, number> = {
   'support:manage': ROLE_LEVEL.reviewer,
   'support:read': ROLE_LEVEL.viewer,
   'telegram_group:read': ROLE_LEVEL.viewer,
+  'telegram_user:manage': ROLE_LEVEL.admin,
   'trusted_author:manage': ROLE_LEVEL.admin,
   'user:manage': ROLE_LEVEL.admin,
 };

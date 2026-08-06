@@ -49,10 +49,7 @@ type TelegramEnv = RagEnv &
       | 'XXYY_BROWSER_PROFILE_DIRECTORY'
       | 'TELEGRAM_API_BASE_URL'
       | 'TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS'
-      | 'DAILY_CHAT_LIMIT'
-      | 'DAILY_CHAT_LIMIT_TIME_ZONE'
-      | 'DAILY_CHAT_LIMIT_HASH_SALT'
-      | 'OBSERVABILITY_CLIENT_HASH_SALT',
+      | 'TELEGRAM_DAILY_QUOTA_TIME_ZONE',
       string
     >
   >;
@@ -72,17 +69,16 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
   await logExplorerBrowserStartup(workspaceEnv);
   const config = loadRagConfig(workspaceEnv);
   const botConfig = loadTelegramBotConfig(workspaceEnv);
-  const dailyChatLimitHashSalt =
-    workspaceEnv.DAILY_CHAT_LIMIT_HASH_SALT ?? workspaceEnv.OBSERVABILITY_CLIENT_HASH_SALT;
   const publicTransactionClient =
     (await resolveEgoBrowserExecutable(workspaceEnv.PATH ?? process.env.PATH)) === undefined
       ? undefined
       : createTransactionSkillPublicClient({ env: workspaceEnv });
   const runtime = createTelegramChatRuntime(config, undefined, {
     answerQualityRollout: loadAnswerQualityRolloutConfig(workspaceEnv as AnswerQualityRolloutEnv),
-    dailyChatLimit: parsePositiveInteger(workspaceEnv.DAILY_CHAT_LIMIT, 10),
-    dailyChatLimitTimeZone: parseTimeZone(workspaceEnv.DAILY_CHAT_LIMIT_TIME_ZONE, 'Asia/Shanghai'),
-    ...(dailyChatLimitHashSalt === undefined ? {} : { dailyChatLimitHashSalt }),
+    telegramDailyQuotaTimeZone: parseTimeZone(
+      workspaceEnv.TELEGRAM_DAILY_QUOTA_TIME_ZONE,
+      'Asia/Shanghai',
+    ),
     ...(parseBoolean(workspaceEnv.ANSWER_QUALITY_OBSERVABILITY_ENABLED, false)
       ? {
           answerQualityRolloutObserver: (observation: AnswerQualityRolloutObservation) => {

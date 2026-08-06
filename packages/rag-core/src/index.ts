@@ -257,6 +257,17 @@ export {
 } from './daily-chat-quota.js';
 export type { DailyChatQuotaResult, PgDailyChatQuotaStore } from './daily-chat-quota.js';
 export {
+  createPgTelegramBotAccessStore,
+  migrateTelegramBotAccess,
+  normalizeTelegramBotUserId,
+} from './telegram-bot-access.js';
+export type {
+  PgTelegramBotAccessStore,
+  TelegramBotAccessResult,
+  TelegramBotUser,
+  TelegramBotUserStatus,
+} from './telegram-bot-access.js';
+export {
   createPgApiObservabilityStore,
   migrateApiObservability,
   renderPrometheusApiMetrics,

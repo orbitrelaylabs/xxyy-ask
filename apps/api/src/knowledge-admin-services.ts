@@ -14,6 +14,7 @@ import {
   createPgApiObservabilityStore,
   createPgSupportOperationsStore,
   createPgTelegramGroupRegistryStore,
+  createPgTelegramBotAccessStore,
   createPgTelegramGroupMessageStore,
   createPgTelegramCurationJobStore,
   createPgPool,
@@ -35,6 +36,7 @@ export interface KnowledgeAdminServiceEnv {
   OBSERVABILITY_CLIENT_HASH_SALT?: string;
   TELEGRAM_API_BASE_URL?: string;
   TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_DAILY_QUOTA_TIME_ZONE?: string;
 }
 
 export function createCachedKnowledgeAdminServicesLoader(options: {
@@ -70,6 +72,7 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
         : { hashSalt: normalizeOptionalEnvValue(options.env.OBSERVABILITY_CLIENT_HASH_SALT)! }),
     });
     const telegramGroups = createPgTelegramGroupRegistryStore({ client: pool });
+    const telegramBotUsers = createPgTelegramBotAccessStore({ client: pool });
     const telegramMessages = createPgTelegramGroupMessageStore({ client: pool });
     const telegramCurationJobs = createPgTelegramCurationJobStore({ client: pool });
     const trustedAuthorStore = createPgTrustedAuthorStore({ client: pool });
@@ -176,6 +179,11 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
         });
       },
       telegramGroups,
+      telegramBotUsers,
+      telegramDailyQuotaTimeZone: parseTimeZone(
+        options.env.TELEGRAM_DAILY_QUOTA_TIME_ZONE,
+        'Asia/Shanghai',
+      ),
       telegramCurationJobs,
       telegramMessages,
       importTelegram,
@@ -203,4 +211,14 @@ function parseNonNegativeNumber(value: string | undefined, fallback: number): nu
 function parseRatio(value: string | undefined, fallback: number): number {
   const parsed = parseNonNegativeNumber(value, fallback);
   return parsed <= 1 ? parsed : fallback;
+}
+
+function parseTimeZone(value: string | undefined, fallback: string): string {
+  const timeZone = normalizeOptionalEnvValue(value) ?? fallback;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date(0));
+    return timeZone;
+  } catch {
+    return fallback;
+  }
 }

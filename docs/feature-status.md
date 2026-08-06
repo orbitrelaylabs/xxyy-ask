@@ -3,7 +3,8 @@
 ## 已完成
 
 - LangGraph 客服 Agent、Product RAG、Postgres + pgvector、OpenAI-compatible chat/embedding。
-- Web、HTTP API、Telegram Bot、流式回答、引用、反馈和管理后台。
+- Telegram Bot、HTTP API、流式回答、引用、反馈和管理后台；公开 Web 客服页面已移除。
+- Telegram Bot 数据库白名单和逐用户每日对话额度；额度未设置时无限制。
 - 官方产品文档、媒体、X / Twitter 更新的同步、审计、摄取和知识治理。
 - Product Support capability：当前 Agent 在应用内直接调用 Product RAG，不维护独立对外 Skill 包装。
 - 独立 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills) 提供 `onchain-transaction-inspector`、`xxyy-transaction-diagnosis` 和自包含 JSON CLI；不提供 SDK，本仓库通过固定版本子进程桥接集成。

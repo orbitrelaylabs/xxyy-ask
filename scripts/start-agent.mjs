@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const COMMANDS = {
-  buildWeb: {
+  buildAdminUi: {
     args: ['--filter', '@xxyy/web', 'build'],
     command: 'pnpm',
-    label: 'build Web',
+    label: 'build admin UI',
   },
   ingestKnowledge: {
     args: ['rag:ingest'],
@@ -49,7 +49,7 @@ const COMMANDS = {
   startService: {
     args: ['--filter', '@xxyy/api', 'start'],
     command: 'pnpm',
-    label: 'start API and Web',
+    label: 'start API and admin UI',
   },
   syncXKnowledge: {
     args: ['rag:sync:x'],
@@ -157,7 +157,7 @@ export async function runAgentStart(options = {}) {
   }
 
   const buildExitCode = await runLoggedCommand({
-    command: COMMANDS.buildWeb,
+    command: COMMANDS.buildAdminUi,
     cwd,
     env,
     log,

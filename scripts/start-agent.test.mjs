@@ -55,7 +55,7 @@ describe('runAgentStart', () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(commands).toEqual(['build Web', 'start API and Web']);
+    expect(commands).toEqual(['build admin UI', 'start API and admin UI']);
   });
 
   it('checks incremental updates before serving when sync is requested', async () => {
@@ -78,8 +78,8 @@ describe('runAgentStart', () => {
       'knowledge stats',
       'refresh X updates',
       'sync X knowledge',
-      'build Web',
-      'start API and Web',
+      'build admin UI',
+      'start API and admin UI',
     ]);
   });
 
@@ -110,8 +110,8 @@ describe('runAgentStart', () => {
       'ingest knowledge',
       'refresh X updates',
       'sync X knowledge',
-      'build Web',
-      'start API and Web',
+      'build admin UI',
+      'start API and admin UI',
     ]);
   });
 
@@ -132,7 +132,7 @@ describe('runAgentStart', () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(commands).toEqual(['build Web', 'start API and Web']);
+    expect(commands).toEqual(['build admin UI', 'start API and admin UI']);
   });
 
   it('ingests a missing production knowledge base before incremental sync', async () => {
@@ -156,8 +156,8 @@ describe('runAgentStart', () => {
       'ingest knowledge',
       'refresh X updates',
       'sync X knowledge',
-      'build Web',
-      'start API and Web',
+      'build admin UI',
+      'start API and admin UI',
     ]);
   });
 
@@ -202,8 +202,8 @@ describe('runAgentStart', () => {
     expect(commands).toEqual([
       'knowledge stats',
       'refresh X updates',
-      'build Web',
-      'start API and Web',
+      'build admin UI',
+      'start API and admin UI',
     ]);
     expect(logs.join('\n')).toContain(
       'Warning: refresh X updates failed; starting with existing knowledge.',
@@ -229,8 +229,8 @@ describe('runAgentStart', () => {
       { args: ['docs:audit'], label: 'audit documentation coverage' },
       { args: ['x:scrape', '--', '--full'], label: 'refresh X updates' },
       { args: ['rag:ingest'], label: 'ingest knowledge' },
-      { args: ['--filter', '@xxyy/web', 'build'], label: 'build Web' },
-      { args: ['--filter', '@xxyy/api', 'start'], label: 'start API and Web' },
+      { args: ['--filter', '@xxyy/web', 'build'], label: 'build admin UI' },
+      { args: ['--filter', '@xxyy/api', 'start'], label: 'start API and admin UI' },
     ]);
   });
 
@@ -247,7 +247,7 @@ describe('runAgentStart', () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(commands).toEqual(['ingest knowledge', 'build Web', 'start API and Web']);
+    expect(commands).toEqual(['ingest knowledge', 'build admin UI', 'start API and admin UI']);
   });
 
   it('does not start the API when the Web build fails', async () => {
@@ -259,14 +259,14 @@ describe('runAgentStart', () => {
       runCommand(command) {
         commands.push(command.label);
         return Promise.resolve({
-          exitCode: command.label === 'build Web' ? 1 : 0,
+          exitCode: command.label === 'build admin UI' ? 1 : 0,
           stdout: '',
         });
       },
     });
 
     expect(exitCode).toBe(1);
-    expect(commands).toEqual(['build Web']);
+    expect(commands).toEqual(['build admin UI']);
   });
 });
 
@@ -288,7 +288,7 @@ describe('root package scripts', () => {
     );
     expect(packageJson.scripts['app:down']).toBe('docker compose down');
     expect(packageJson.scripts['api:dev']).toBe('pnpm --filter @xxyy/api start');
-    expect(packageJson.scripts['web:dev']).toBe('pnpm --filter @xxyy/web dev');
+    expect(packageJson.scripts['admin:dev']).toBe('pnpm --filter @xxyy/web dev');
     expect(packageJson.scripts['telegram:dev']).toBe('pnpm --filter @xxyy/telegram-bot start');
     expect(packageJson.scripts['telegram:curation:worker']).toBe(
       'pnpm --filter @xxyy/telegram-bot curation-worker',

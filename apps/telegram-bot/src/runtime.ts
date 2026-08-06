@@ -19,7 +19,7 @@ import {
   createLazyRetriever,
   createOpenAiAnswerProvider,
   createPgFeedbackStore,
-  createPgDailyChatQuotaStore,
+  createPgTelegramBotAccessStore,
   createPgPool,
   createPgSupportOperationsStore,
   createPgVectorStore,
@@ -28,7 +28,7 @@ import {
   type AnswerProvider,
   type ChatService,
   type PgSupportOperationsStore,
-  type PgDailyChatQuotaStore,
+  type PgTelegramBotAccessStore,
   type RagConfig,
   type QualityTracer,
   type RecordFeedbackInput,
@@ -48,11 +48,10 @@ export function createTelegramChatRuntime(
   options: {
     answerQualityRollout?: AnswerQualityRolloutConfig;
     answerQualityRolloutObserver?: AnswerQualityRolloutObserver;
-    dailyChatLimit?: number;
-    dailyChatLimitHashSalt?: string;
-    dailyChatLimitTimeZone?: string;
     publicTransactionClient?: PublicTransactionClient;
     supportOperationsStore?: PgSupportOperationsStore;
+    telegramAccessStore?: PgTelegramBotAccessStore;
+    telegramDailyQuotaTimeZone?: string;
     xxyyTransactionDiagnosis?: XxyyTransactionDiagnosisHandler;
   } = {},
 ): TelegramChatRuntime {
@@ -60,7 +59,7 @@ export function createTelegramChatRuntime(
   let feedbackPool: ReturnType<typeof createPgPool> | undefined;
   let supportPool: ReturnType<typeof createPgPool> | undefined;
   let supportStore = options.supportOperationsStore;
-  let dailyQuotaStore: PgDailyChatQuotaStore | undefined;
+  let telegramAccessStore = options.telegramAccessStore;
 
   const retriever = createLazyRetriever(async () => {
     const nextPool = createPgPool(config.databaseUrl);
@@ -132,16 +131,11 @@ export function createTelegramChatRuntime(
     supportStore = createPgSupportOperationsStore({ client: supportPool });
     return supportStore;
   };
-  const getDailyQuotaStore = async (): Promise<PgDailyChatQuotaStore> => {
-    if (dailyQuotaStore !== undefined) return dailyQuotaStore;
+  const getTelegramAccessStore = async (): Promise<PgTelegramBotAccessStore> => {
+    if (telegramAccessStore !== undefined) return telegramAccessStore;
     supportPool ??= createPgPool(config.databaseUrl);
-    dailyQuotaStore = createPgDailyChatQuotaStore({
-      client: supportPool,
-      ...(options.dailyChatLimitHashSalt === undefined
-        ? {}
-        : { hashSalt: options.dailyChatLimitHashSalt }),
-    });
-    return dailyQuotaStore;
+    telegramAccessStore = createPgTelegramBotAccessStore({ client: supportPool });
+    return telegramAccessStore;
   };
 
   const persistedService = withLowEvidenceFeedback(
@@ -158,7 +152,7 @@ export function createTelegramChatRuntime(
       const currentSupportPool = supportPool;
       supportPool = undefined;
       supportStore = options.supportOperationsStore;
-      dailyQuotaStore = undefined;
+      telegramAccessStore = options.telegramAccessStore;
       await Promise.all([
         pool?.end(),
         currentFeedbackPool?.end(),
@@ -166,33 +160,46 @@ export function createTelegramChatRuntime(
         options.publicTransactionClient?.close(),
       ]);
     },
-    service:
-      options.dailyChatLimit === undefined
-        ? persistedService
-        : withDailyTelegramChatQuota(persistedService, getDailyQuotaStore, {
-            limit: options.dailyChatLimit,
-            timeZone: options.dailyChatLimitTimeZone ?? 'Asia/Shanghai',
-          }),
+    service: withTelegramBotAccessControl(persistedService, getTelegramAccessStore, {
+      timeZone: options.telegramDailyQuotaTimeZone ?? 'Asia/Shanghai',
+    }),
   };
 }
 
-export function withDailyTelegramChatQuota(
+export function withTelegramBotAccessControl(
   service: ChatService,
-  getStore: () => Promise<PgDailyChatQuotaStore>,
-  config: { limit: number; timeZone: string },
+  getStore: () => Promise<PgTelegramBotAccessStore>,
+  config: { timeZone: string },
 ): ChatService {
+  const requestDecisions = new Map<string, Awaited<ReturnType<typeof consumeTelegramAccess>>>();
+  const authorize = async (request: ChatRequest) => {
+    const requestId = request.requestId;
+    if (requestId !== undefined) {
+      const existing = requestDecisions.get(requestId);
+      if (existing !== undefined) return existing;
+    }
+    const decision = await consumeTelegramAccess(request, getStore, config);
+    if (requestId !== undefined) {
+      requestDecisions.set(requestId, decision);
+      if (requestDecisions.size > 1_000) {
+        const oldest = requestDecisions.keys().next().value;
+        if (oldest !== undefined) requestDecisions.delete(oldest);
+      }
+    }
+    return decision;
+  };
   return {
     async ask(request) {
-      const quota = await consumeTelegramQuota(request, getStore, config);
-      return quota.allowed ? service.ask(request) : dailyTelegramLimitResponse(quota.limit);
+      const access = await authorize(request);
+      return access.allowed ? service.ask(request) : telegramAccessDeniedResponse(access);
     },
     async *stream(request) {
-      const quota = await consumeTelegramQuota(request, getStore, config);
-      if (quota.allowed) {
+      const access = await authorize(request);
+      if (access.allowed) {
         yield* service.stream(request);
         return;
       }
-      const response = dailyTelegramLimitResponse(quota.limit);
+      const response = telegramAccessDeniedResponse(access);
       yield { delta: response.answer, type: 'answer_delta' };
       yield {
         citations: response.citations,
@@ -204,22 +211,36 @@ export function withDailyTelegramChatQuota(
   };
 }
 
-async function consumeTelegramQuota(
+async function consumeTelegramAccess(
   request: ChatRequest,
-  getStore: () => Promise<PgDailyChatQuotaStore>,
-  config: { limit: number; timeZone: string },
+  getStore: () => Promise<PgTelegramBotAccessStore>,
+  config: { timeZone: string },
 ) {
-  const identity = request.userId ?? request.sessionId ?? `${request.channel}:anonymous`;
-  return (await getStore()).consume({
-    identity: `telegram:${identity}`,
-    limit: config.limit,
+  if (request.userId === undefined) {
+    return {
+      allowed: false,
+      dailyLimit: null,
+      quotaDate: '',
+      reason: 'not_allowed' as const,
+      remaining: null,
+      used: 0,
+    };
+  }
+  return (await getStore()).authorizeAndConsume({
+    telegramUserId: request.userId,
     timeZone: config.timeZone,
   });
 }
 
-function dailyTelegramLimitResponse(limit: number): ChatResponse {
+function telegramAccessDeniedResponse(input: {
+  dailyLimit: number | null;
+  reason: 'allowed' | 'not_allowed' | 'quota_exhausted';
+}): ChatResponse {
   return {
-    answer: `今天的对话次数已用完（每天最多 ${limit} 次），请明天再试。`,
+    answer:
+      input.reason === 'quota_exhausted' && input.dailyLimit !== null
+        ? `今天的对话次数已用完（每天最多 ${input.dailyLimit} 次），请明天再试。`
+        : '当前 Telegram 账号未获授权使用此客服 Bot，请联系管理员开通。',
     citations: [],
     confidence: 1,
     intent: 'unknown',

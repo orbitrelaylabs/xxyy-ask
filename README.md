@@ -13,10 +13,10 @@ XXYY 客服 Agentic RAG monorepo。系统用 LangGraph JS 编排产品问答，�
 
 ```text
 apps/
-  api/             HTTP API、Web 静态资源和管理面
+  api/             HTTP API 和管理面服务入口
   cli/             RAG ingest/sync/evaluate/ask
   telegram-bot/    Telegram Bot 与知识整理 Worker
-  web/             聊天 UI
+  web/             仅用于受保护管理后台的 React UI
 packages/
   agent-core/      LangGraph runtime、tools 和 Capability Registry
   product-support-runtime/  Product RAG 直接检索 runtime
@@ -69,7 +69,7 @@ command -v ego-browser
 
 未安装 ego-browser 不影响产品知识问答，但所有公开交易查询都会返回安装提示。当前固定支持 Solana、Ethereum、BNB Smart Chain、Base、Robinhood Chain 和 Stable Chain。
 
-Chrome 及 `XXYY_BROWSER_PROFILE_DIRECTORY` 只用于生成 XXYY 原生截图，不再读取 Explorer。Chrome 可执行文件为空时自动检测；`XXYY_SCREENSHOT_DIRECTORY` 同时供 Web 返回图片和 Telegram 上传 PNG 使用，不需要公共图片 URL。
+Chrome 及 `XXYY_BROWSER_PROFILE_DIRECTORY` 只用于生成 XXYY 原生截图，不再读取 Explorer。Chrome 可执行文件为空时自动检测；`XXYY_SCREENSHOT_DIRECTORY` 供 Telegram 上传 PNG 使用，不需要公共图片 URL。
 
 需要公开链上查询时，推荐只在 Docker 中运行 PostgreSQL，并在安装了 `ego-browser` 的宿主机运行 API 与 Telegram，使所有 Explorer 共用一致的浏览器会话：
 
@@ -149,15 +149,18 @@ pnpm rag:ask -- "XXYY Pro 有哪些权益？"
 pnpm check
 ```
 
-该命令执行 Web build、format check、workspace typecheck、测试和 deterministic golden QA。
+该命令执行管理后台 build、format check、workspace typecheck、测试和 deterministic golden QA。
 
 ## API 与边界
 
 - `GET /health`：存活检查。
 - `GET /health/deep`：模型、知识库和向量检索检查。
-- `POST /api/chat`、`POST /api/chat/stream`：公开客服问答。
+- `GET /`：跳转到受保护的 `/admin`，不再提供公开 Web 客服页面。
+- `POST /api/chat`、`POST /api/chat/stream`：保留的程序化客服 API；当前终端用户客服只开发 Telegram 端。
 - `/api/v1/*`：使用独立 Bearer Key 的外部 Agent API。
 - `GET /admin`、`/admin/api/*`：数据库管理员账号和 RBAC 保护的知识治理面。
 - `GET /xxyy-evidence/*`：同源返回已生成的 PNG 证据。
 
 系统不查询账户、订单、余额、私有交易、任意地址历史或地址真实归属，不签名或广播交易，不提供投资建议。详细设计见 [docs/README.md](docs/README.md)。
+
+Telegram Bot 使用数据库白名单。管理员在 `/admin` 的“Telegram 用户”页面添加允许调用的用户，并可为每个用户设置每日对话次数；额度留空表示无限制。未加入白名单或已禁用的用户不能调用客服 Agent。额度自然日时区由 `TELEGRAM_DAILY_QUOTA_TIME_ZONE` 配置，默认 `Asia/Shanghai`。
