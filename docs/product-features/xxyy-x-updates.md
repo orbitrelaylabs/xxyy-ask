@@ -240,13 +240,22 @@ XXYY 从 2024 年 11 月前后的 Solana meme 快速交易内测工具，逐步�
 
 ## 可溯源原始消息索引
 
-抓取时间：2026-08-06T00:00:04.054Z
+抓取时间：2026-08-07T00:00:06.358Z
 
 原始可溯源数据：[`usexxyyio-x-posts.jsonl`](sources/usexxyyio-x-posts.jsonl)；抓取元数据：[`usexxyyio-x-posts.meta.json`](sources/usexxyyio-x-posts.meta.json)。
 
 说明：以下索引来自 X Web 公开主页时间线 `UserTweets`，每条均保留 tweet id 和原始链接，便于回溯核验。
 
 ### 2026-08
+
+#### 2026-08-06T09:49:18.000Z · [2085302185160823232](https://x.com/useXXYYio/status/2085302185160823232)
+
+> Welcome @memecoin_fun_ to the XXYY trench 🔥
+> 
+> https://t.co/c95KaPmeih tokens are now LIVE on XXYY – new pairs and bonded tokens are easily searchable and tradable.
+> 
+> Look for the “https://t.co/c95KaPmeih” label and start trading！
+> #XXYY #memecoin #Robinhood https://t.co/k1OR6yW6Qq
 
 #### 2026-08-05T10:16:59.000Z · [2084946761664348209](https://x.com/useXXYYio/status/2084946761664348209)
 
