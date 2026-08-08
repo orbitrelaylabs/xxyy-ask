@@ -5,11 +5,14 @@ import { describe, expect, it } from 'vitest';
 import { AdminApp, CandidateTable } from './AdminApp.js';
 
 describe('AdminApp', () => {
-  it('renders a neutral authentication shell while restoring the administrator session', () => {
+  it('renders a neutral access check before authentication resolves', () => {
     const markup = renderToStaticMarkup(createElement(AdminApp));
 
-    expect(markup).toContain('知识库管理后台');
-    expect(markup).toContain('正在检查后台状态');
+    expect(markup).toContain('admin-auth-check-page');
+    expect(markup).toContain('正在检查访问权限');
+    expect(markup).not.toContain('admin-shell');
+    expect(markup).not.toContain('admin-sidebar');
+    expect(markup).not.toContain('知识候选');
     expect(markup).not.toContain('管理员账号');
     expect(markup).not.toContain('输入管理员密码');
   });

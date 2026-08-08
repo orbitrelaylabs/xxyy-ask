@@ -1481,15 +1481,6 @@ body:has(.admin-login-page) {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .admin-loading-nav-line,
-  .admin-loading-header-line,
-  .admin-loading-avatar {
-    animation-duration: 0.01ms;
-    animation-iteration-count: 1;
-  }
-}
-
 /* Enterprise Pro admin system */
 
 body:has(.admin-shell),
@@ -2639,114 +2630,29 @@ body:has(.admin-login-page) {
   }
 }
 
-/* Session restoration shell */
+/* Session restoration */
 
-body:has(.admin-shell-loading) {
-  background: #f4f6f8;
-}
-
-.admin-shell-loading {
-  min-height: 100vh;
-}
-
-.admin-loading-sidebar nav {
-  align-content: start;
-  gap: 14px;
-}
-
-.admin-loading-nav-line,
-.admin-loading-header-line,
-.admin-loading-avatar {
-  background: rgba(255, 255, 255, 0.08);
-  animation: admin-skeleton-pulse 1.35s ease-in-out infinite;
-}
-
-.admin-loading-nav-line {
-  width: 72%;
-  height: 10px;
-  margin: 0 12px;
-  border-radius: 5px;
-}
-
-.admin-loading-nav-line.medium {
-  width: 58%;
-}
-
-.admin-loading-nav-line.wide {
-  width: 82%;
-}
-
-.admin-loading-header {
-  justify-content: space-between;
-}
-
-.admin-loading-header-line {
-  width: 138px;
-  height: 10px;
-  border-radius: 5px;
-  background: #e7ecef;
-}
-
-.admin-loading-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: #e1e8e8;
-}
-
-.admin-auth-loading-content {
-  display: grid;
-  min-height: calc(100vh - 64px);
-  place-items: center;
-  padding: 32px;
-}
-
-.admin-auth-loading-card {
-  display: grid;
+.admin-auth-check-card {
   justify-items: center;
-  width: min(360px, 100%);
-  border: 1px solid #dce3e8;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 14px 40px rgba(28, 47, 48, 0.06);
-  padding: 34px 28px;
-  color: #0f7a64;
   text-align: center;
 }
 
-.admin-auth-loading-card > .anticon {
-  margin-bottom: 16px;
-  font-size: 24px;
+.admin-auth-check-indicator {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  margin: 22px 0 16px;
+  place-items: center;
+  border-radius: 50%;
+  background: #eaf4f1;
+  color: #0f7a64;
+  font-size: 19px;
 }
 
-.admin-auth-loading-card strong {
-  color: #26323b;
-  font-size: 14px;
+.admin-auth-check-card h1 {
+  margin-bottom: 8px;
 }
 
-.admin-auth-loading-card span:last-child {
-  margin-top: 7px;
-  color: #74808a;
-  font-size: 10px;
-}
-
-@keyframes admin-skeleton-pulse {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-@media (max-width: 760px) {
-  .admin-shell-loading .admin-loading-sidebar nav {
-    display: none;
-  }
-
-  .admin-auth-loading-content {
-    min-height: calc(100vh - 116px);
-    padding: 24px 14px;
-  }
+.admin-auth-check-card p {
+  margin-bottom: 0;
 }

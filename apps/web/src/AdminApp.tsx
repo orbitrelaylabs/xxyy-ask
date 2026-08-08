@@ -284,35 +284,15 @@ export function AdminApp(): ReactElement {
 
 function AdminAuthLoading({ restoringSession }: { restoringSession: boolean }): ReactElement {
   return (
-    <main aria-live="polite" aria-busy="true" className="admin-shell admin-shell-loading">
-      <aside aria-hidden="true" className="admin-sidebar admin-loading-sidebar">
-        <div className="admin-brand">
-          <div className="admin-brand-mark">XY</div>
-          <div>
-            <strong>XXYY</strong>
-            <span>知识库管理后台</span>
-          </div>
+    <main aria-busy="true" aria-live="polite" className="admin-login-page admin-auth-check-page">
+      <section className="admin-login-card admin-auth-check-card">
+        <div className="admin-login-mark">XY</div>
+        <div className="admin-eyebrow">Secure access</div>
+        <div className="admin-auth-check-indicator">
+          <LoadingOutlined aria-hidden="true" spin />
         </div>
-        <nav>
-          <div className="admin-loading-nav-line wide" />
-          <div className="admin-loading-nav-line" />
-          <div className="admin-loading-nav-line medium" />
-          <div className="admin-loading-nav-line" />
-          <div className="admin-loading-nav-line wide" />
-        </nav>
-      </aside>
-      <section className="admin-workbench">
-        <header className="admin-header admin-loading-header">
-          <div className="admin-loading-header-line" />
-          <div className="admin-loading-avatar" />
-        </header>
-        <div className="admin-auth-loading-content">
-          <section className="admin-auth-loading-card">
-            <LoadingOutlined aria-hidden="true" spin />
-            <strong>{restoringSession ? '正在恢复管理会话' : '正在检查后台状态'}</strong>
-            <span>请稍候，正在安全验证访问权限…</span>
-          </section>
-        </div>
+        <h1>{restoringSession ? '正在恢复管理会话' : '正在检查访问权限'}</h1>
+        <p>请稍候，验证完成后将自动进入登录页或管理后台。</p>
       </section>
     </main>
   );
