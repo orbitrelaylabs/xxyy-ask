@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { AdminApp, CandidateTable } from './AdminApp.js';
+import { AdminApp, AdminUsersPanel, CandidateTable } from './AdminApp.js';
 
 describe('AdminApp', () => {
   it('renders a neutral access check before authentication resolves', () => {
@@ -45,5 +45,19 @@ describe('AdminApp', () => {
     expect(markup).toContain('批准');
     expect(markup).toContain('拒绝');
     expect(markup).toContain('待审核');
+    expect(markup).toContain('candidate-source-cell');
+  });
+
+  it('prevents password managers from filling the new administrator form with login data', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AdminUsersPanel, {
+        currentUserId: 'admin',
+        permissions: new Set(['user:manage'] as const),
+        token: 'test-token',
+      }),
+    );
+
+    expect(markup).toContain('<form autoComplete="off"');
+    expect(markup.match(/autoComplete="new-password"/gu)).toHaveLength(2);
   });
 });

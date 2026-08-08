@@ -5,6 +5,13 @@ body:has(.admin-login-page) {
   color: #17211f;
 }
 
+.admin-shell,
+.admin-shell *,
+.admin-login-page,
+.admin-login-page * {
+  box-sizing: border-box;
+}
+
 .admin-shell {
   --admin-accent: #116856;
   --admin-accent-dark: #0a4b3e;
@@ -332,9 +339,23 @@ body:has(.admin-login-page) {
 .candidate-action-cell {
   position: sticky;
   right: 0;
-  min-width: 190px;
+  min-width: 176px;
   background: #fff;
   box-shadow: -8px 0 12px rgba(25, 48, 42, 0.025);
+}
+
+.candidate-source-cell {
+  min-width: 128px;
+}
+
+.candidate-source-cell strong,
+.candidate-source-cell small {
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+.candidate-source-cell small {
+  white-space: nowrap;
 }
 
 .candidate-actions-heading {

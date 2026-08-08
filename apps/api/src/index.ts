@@ -483,7 +483,7 @@ export function createRequestHandler(options: CreateRequestHandlerOptions = {}):
       }
 
       if (request.method === 'GET' && requestUrl.pathname.startsWith('/web-assets/')) {
-        await sendStaticAsset(response, webAssetsDir, requestUrl.pathname);
+        await sendStaticAsset(response, webAssetsDir, requestUrl.pathname, undefined, 'no-cache');
         return;
       }
 
@@ -2183,6 +2183,7 @@ async function sendStaticAsset(
   assetsDir: string,
   pathname: string,
   isAllowedAssetName?: (assetName: string) => boolean,
+  cacheControl = 'public, max-age=31536000, immutable',
 ): Promise<void> {
   const assetName = decodeURIComponent(
     pathname.replace(/^\/(?:assets|web-assets|xxyy-evidence)\//u, ''),
@@ -2199,7 +2200,7 @@ async function sendStaticAsset(
     const body = await readFile(path.join(assetsDir, assetName));
     response.statusCode = 200;
     response.setHeader('Content-Type', contentTypeForAsset(assetName));
-    response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    response.setHeader('Cache-Control', cacheControl);
     response.end(body);
   } catch (error) {
     if (isMissingFileError(error)) {

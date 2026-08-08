@@ -1206,9 +1206,11 @@ describe('createRequestHandler', () => {
     expect(script.statusCode).toBe(200);
     expect(script.body).toBe('console.log("xxyy web");');
     expect(script.headers['Content-Type']).toBe('application/javascript; charset=utf-8');
+    expect(script.headers['Cache-Control']).toBe('no-cache');
     expect(styles.statusCode).toBe(200);
     expect(styles.body).toBe('.app-shell{display:grid}');
     expect(styles.headers['Content-Type']).toBe('text/css; charset=utf-8');
+    expect(styles.headers['Cache-Control']).toBe('no-cache');
   });
 
   it('serves only hash-addressed XXYY screenshot evidence from its isolated directory', async () => {

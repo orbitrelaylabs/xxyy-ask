@@ -1944,7 +1944,7 @@ function parseOptionalDailyLimit(value: string): number | null {
   return parsed;
 }
 
-function AdminUsersPanel({
+export function AdminUsersPanel({
   currentUserId,
   permissions,
   token,
@@ -2119,10 +2119,15 @@ function AdminUsersPanel({
             description="密码至少 12 个字符，数据库只保存 scrypt 哈希。"
             title="新建账号"
           />
-          <form className="admin-form-grid single" onSubmit={(event) => void create(event)}>
+          <form
+            autoComplete="off"
+            className="admin-form-grid single"
+            onSubmit={(event) => void create(event)}
+          >
             <label>
               账号 ID
               <input
+                autoComplete="off"
                 required
                 onChange={(event) => setCreateForm({ ...createForm, id: event.target.value })}
                 value={createForm.id}
@@ -2131,6 +2136,7 @@ function AdminUsersPanel({
             <label>
               显示名称
               <input
+                autoComplete="off"
                 required
                 onChange={(event) =>
                   setCreateForm({ ...createForm, displayName: event.target.value })
@@ -2145,6 +2151,7 @@ function AdminUsersPanel({
             <label>
               初始密码
               <input
+                autoComplete="new-password"
                 minLength={12}
                 required
                 type="password"
@@ -2155,6 +2162,7 @@ function AdminUsersPanel({
             <label>
               确认初始密码
               <input
+                autoComplete="new-password"
                 minLength={12}
                 required
                 type="password"
@@ -2180,10 +2188,15 @@ function AdminUsersPanel({
           {selected === undefined ? (
             <div className="admin-empty">选择一个管理员账号。</div>
           ) : (
-            <form className="admin-form-grid single" onSubmit={(event) => void update(event)}>
+            <form
+              autoComplete="off"
+              className="admin-form-grid single"
+              onSubmit={(event) => void update(event)}
+            >
               <label>
                 显示名称
                 <input
+                  autoComplete="off"
                   required
                   onChange={(event) =>
                     setEditForm({ ...editForm, displayName: event.target.value })
@@ -2215,6 +2228,7 @@ function AdminUsersPanel({
               <label>
                 重置密码（可选）
                 <input
+                  autoComplete="new-password"
                   disabled={selected.id === currentUserId}
                   minLength={12}
                   type="password"
@@ -2225,6 +2239,7 @@ function AdminUsersPanel({
               <label>
                 确认重置密码
                 <input
+                  autoComplete="new-password"
                   disabled={selected.id === currentUserId}
                   minLength={12}
                   type="password"
@@ -2978,7 +2993,7 @@ export function CandidateTable({
                       <strong>{candidate.question}</strong>
                       <p>{candidate.canonicalAnswer}</p>
                     </td>
-                    <td>
+                    <td className="candidate-source-cell">
                       <strong>{candidate.proposedModule ?? '未分类'}</strong>
                       <small>{candidate.sourceChannel}</small>
                     </td>
