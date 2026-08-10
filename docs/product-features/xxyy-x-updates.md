@@ -240,13 +240,17 @@ XXYY 从 2024 年 11 月前后的 Solana meme 快速交易内测工具，逐步�
 
 ## 可溯源原始消息索引
 
-抓取时间：2026-08-08T00:00:06.423Z
+抓取时间：2026-08-10T00:00:04.394Z
 
 原始可溯源数据：[`usexxyyio-x-posts.jsonl`](sources/usexxyyio-x-posts.jsonl)；抓取元数据：[`usexxyyio-x-posts.meta.json`](sources/usexxyyio-x-posts.meta.json)。
 
 说明：以下索引来自 X Web 公开主页时间线 `UserTweets`，每条均保留 tweet id 和原始链接，便于回溯核验。
 
 ### 2026-08
+
+#### 2026-08-09T10:58:13.000Z · [2086406691403546829](https://x.com/useXXYYio/status/2086406691403546829)
+
+> https://t.co/pJhkwdV7RH 已率先支持 $BLINK 发射台所有内盘交易，欢迎体验 https://t.co/PlooGKMXwY
 
 #### 2026-08-06T09:49:18.000Z · [2085302185160823232](https://x.com/useXXYYio/status/2085302185160823232)
 
