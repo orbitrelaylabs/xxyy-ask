@@ -302,6 +302,49 @@ describe('handleKnowledgeAdminApi', () => {
     expect(listUsers).toHaveBeenCalledWith({ timeZone: 'Asia/Shanghai' });
   });
 
+  it('resolves an observed Telegram username before creating the allowlist entry', async () => {
+    const createUser = vi.fn(() =>
+      Promise.resolve({
+        createdAt: '2026-08-11T01:00:00.000Z',
+        dailyLimit: 5,
+        displayName: 'TG Operator',
+        status: 'active' as const,
+        telegramUserId: '123456',
+        todayUsed: 0,
+        updatedAt: '2026-08-11T01:00:00.000Z',
+        username: 'tg_operator',
+      }),
+    );
+    const resolveUserReference = vi.fn(() =>
+      Promise.resolve({
+        displayName: 'TG Operator',
+        telegramUserId: '123456',
+        username: 'tg_operator',
+      }),
+    );
+    const services = knowledgeAdminServices({
+      telegramBotUsers: telegramBotAccessStore({ createUser, resolveUserReference }),
+    });
+
+    const response = await callAdmin({
+      authenticator: authenticator('admin'),
+      body: { dailyLimit: 5, telegramUserReference: '@tg_operator' },
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/telegram-users',
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(resolveUserReference).toHaveBeenCalledWith('@tg_operator');
+    expect(createUser).toHaveBeenCalledWith({
+      actor: 'admin:alice',
+      dailyLimit: 5,
+      displayName: 'TG Operator',
+      telegramUserId: '123456',
+    });
+  });
+
   it('allows viewers to inspect candidates but not mutate them', async () => {
     const listCandidates = vi
       .fn<KnowledgeGovernanceService['listCandidates']>()
@@ -1337,6 +1380,9 @@ function telegramBotAccessStore(
     createUser: () => Promise.reject(new Error('not used')),
     listUsers: () => Promise.resolve([]),
     migrate: () => Promise.resolve(),
+    observeUser: () => Promise.resolve(),
+    resolveUserReference: (reference) =>
+      Promise.resolve(/^[1-9]\d*$/u.test(reference) ? { telegramUserId: reference } : undefined),
     updateUser: () => Promise.reject(new Error('not used')),
     ...overrides,
   };

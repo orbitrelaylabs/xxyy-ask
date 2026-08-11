@@ -266,6 +266,7 @@ export type {
   TelegramBotAccessResult,
   TelegramBotUser,
   TelegramBotUserStatus,
+  TelegramUserIdentity,
 } from './telegram-bot-access.js';
 export {
   createPgApiObservabilityStore,

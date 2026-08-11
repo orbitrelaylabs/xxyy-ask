@@ -22,6 +22,7 @@ export interface TelegramBotUser {
   todayUsed: number;
   updatedAt: string;
   displayName?: string;
+  username?: string;
 }
 
 export type CandidateStatus = 'approved' | 'pending' | 'published' | 'rejected';

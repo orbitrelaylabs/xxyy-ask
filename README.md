@@ -163,4 +163,4 @@ pnpm check
 
 系统不查询账户、订单、余额、私有交易、任意地址历史或地址真实归属，不签名或广播交易，不提供投资建议。详细设计见 [docs/README.md](docs/README.md)。
 
-Telegram Bot 使用数据库白名单。管理员在 `/admin` 的“Telegram 用户”页面添加允许调用的用户，并可为每个用户设置每日对话次数；额度留空表示无限制。未加入白名单或已禁用的用户不能调用客服 Agent。额度自然日时区由 `TELEGRAM_DAILY_QUOTA_TIME_ZONE` 配置，默认 `Asia/Shanghai`。
+Telegram Bot 使用数据库白名单。管理员在 `/admin` 的“Telegram 用户”页面可使用数字 User ID，或使用已先向 Bot 发送过消息的 `@username` 添加允许调用的用户；实际权限始终绑定稳定的数字 User ID。管理员可为每个用户设置每日对话次数，额度留空表示无限制。未加入白名单或已禁用的用户不能调用客服 Agent。额度自然日时区由 `TELEGRAM_DAILY_QUOTA_TIME_ZONE` 配置，默认 `Asia/Shanghai`。

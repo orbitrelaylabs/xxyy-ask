@@ -1685,7 +1685,7 @@ function TelegramBotUsersPanel({
   const [createForm, setCreateForm] = useState({
     dailyLimit: '',
     displayName: '',
-    telegramUserId: '',
+    telegramUserReference: '',
   });
   const [editForm, setEditForm] = useState({
     dailyLimit: '',
@@ -1733,11 +1733,11 @@ function TelegramBotUsersPanel({
           ...(createForm.displayName.trim().length === 0
             ? {}
             : { displayName: createForm.displayName.trim() }),
-          telegramUserId: createForm.telegramUserId.trim(),
+          telegramUserReference: createForm.telegramUserReference.trim(),
         },
         method: 'POST',
       });
-      setCreateForm({ dailyLimit: '', displayName: '', telegramUserId: '' });
+      setCreateForm({ dailyLimit: '', displayName: '', telegramUserReference: '' });
       await load();
       setNotice({ kind: 'success', text: 'Telegram 用户已加入 Bot 白名单。' });
     } catch (error) {
@@ -1810,7 +1810,10 @@ function TelegramBotUsersPanel({
                 >
                   <td>
                     <strong>{user.displayName ?? '未命名用户'}</strong>
-                    <small>{user.telegramUserId}</small>
+                    <small>
+                      {user.username === undefined ? '' : `@${user.username} · `}
+                      {user.telegramUserId}
+                    </small>
                   </td>
                   <td>{user.status === 'active' ? '允许' : '禁用'}</td>
                   <td>{user.dailyLimit === null ? '无限制' : `${user.dailyLimit} 次`}</td>
@@ -1827,20 +1830,22 @@ function TelegramBotUsersPanel({
       <div className="admin-stack two-column-admin">
         <section className="admin-panel">
           <SectionHeading
-            description="Telegram 用户 ID 为纯数字；每日额度留空表示无限制。"
+            description="支持数字 User ID 或 @username；username 用户需先向 Bot 发送 /start。每日额度留空表示无限制。"
             title="添加允许用户"
           />
           <form className="admin-form-grid single" onSubmit={(event) => void create(event)}>
             <label>
-              Telegram 用户 ID
+              Telegram User ID 或 @username
               <input
-                inputMode="numeric"
-                pattern="[1-9][0-9]*"
+                autoCapitalize="none"
+                autoComplete="off"
+                pattern="([1-9][0-9]*|@[A-Za-z0-9_]{5,32})"
+                placeholder="例如 123456789 或 @username"
                 required
                 onChange={(event) =>
-                  setCreateForm({ ...createForm, telegramUserId: event.target.value })
+                  setCreateForm({ ...createForm, telegramUserReference: event.target.value })
                 }
-                value={createForm.telegramUserId}
+                value={createForm.telegramUserReference}
               />
             </label>
             <label>

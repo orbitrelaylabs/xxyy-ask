@@ -41,8 +41,11 @@ export interface TelegramMessage {
   };
   date?: number;
   from?: {
+    first_name?: string;
     id: number;
     is_bot?: boolean;
+    last_name?: string;
+    username?: string;
   };
   message_id: number;
   message_thread_id?: number;
@@ -146,6 +149,15 @@ export interface CreateTelegramBotOptions {
   groupRegistry?: TelegramGroupRegistry;
   knowledgeAutomation?: TelegramKnowledgeAutomation;
   logger?: TelegramBotLogger;
+  userDirectory?: TelegramUserDirectory;
+}
+
+export interface TelegramUserDirectory {
+  observeUser(input: {
+    displayName?: string;
+    telegramUserId: string;
+    username?: string;
+  }): Promise<void>;
 }
 
 export interface TelegramGroupRegistry {
@@ -324,6 +336,8 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
       return;
     }
 
+    await observeTelegramUser(options, message);
+
     const chatId = message.chat.id;
     const text = message.text?.trim();
     const groupChat = isGroupChat(message);
@@ -478,6 +492,27 @@ export function createTelegramBot(options: CreateTelegramBotOptions): TelegramBo
       }
     },
   };
+}
+
+async function observeTelegramUser(
+  options: CreateTelegramBotOptions,
+  message: TelegramMessage,
+): Promise<void> {
+  const sender = message.from;
+  if (sender === undefined || sender.is_bot === true || options.userDirectory === undefined) return;
+  const displayName = [sender.first_name, sender.last_name]
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+    .join(' ')
+    .trim();
+  try {
+    await options.userDirectory.observeUser({
+      ...(displayName.length === 0 ? {} : { displayName }),
+      telegramUserId: String(sender.id),
+      ...(sender.username === undefined ? {} : { username: sender.username }),
+    });
+  } catch (error) {
+    options.logger?.error('Telegram user identity observation failed.', error);
+  }
 }
 
 function isGroupChat(

@@ -40,6 +40,7 @@ const TELEGRAM_HISTORY_MESSAGE_LIMIT = 12;
 export interface TelegramChatRuntime {
   close(): Promise<void>;
   service: ChatService;
+  userDirectory: Pick<PgTelegramBotAccessStore, 'observeUser'>;
 }
 
 export function createTelegramChatRuntime(
@@ -163,6 +164,11 @@ export function createTelegramChatRuntime(
     service: withTelegramBotAccessControl(persistedService, getTelegramAccessStore, {
       timeZone: options.telegramDailyQuotaTimeZone ?? 'Asia/Shanghai',
     }),
+    userDirectory: {
+      async observeUser(input) {
+        await (await getTelegramAccessStore()).observeUser(input);
+      },
+    },
   };
 }
 

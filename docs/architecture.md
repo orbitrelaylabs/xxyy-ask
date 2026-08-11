@@ -18,7 +18,7 @@ Telegram / HTTP API / CLI
 
 这是 pnpm workspace monorepo。应用入口位于 `apps/`，客服共享实现位于 `packages/`。终端用户客服当前只提供 Telegram；浏览器端只保留受保护管理后台。可分发交易 CLI 和 Skills 位于独立的 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills)。
 
-Telegram 在进入 Agent Runtime 前执行数据库白名单和逐用户日额度检查。`telegram_bot_users` 决定用户是否允许调用以及可选的 `daily_limit`；`telegram_bot_daily_usage` 原子记录自然日用量。未设置额度表示无限制，但仍记录调用次数。
+Telegram 在进入 Agent Runtime 前执行数据库白名单和逐用户日额度检查。Bot 会把已交互用户的公开 User ID、username 和显示名更新到 `telegram_user_identities`，供管理后台把 `@username` 解析为稳定的数字 User ID；username 不能直接作为授权主键。`telegram_bot_users` 决定用户是否允许调用以及可选的 `daily_limit`；`telegram_bot_daily_usage` 原子记录自然日用量。未设置额度表示无限制，但仍记录调用次数。
 
 ## 产品问答
 

@@ -11,6 +11,13 @@ export interface TelegramBotUser {
   telegramUserId: string;
   todayUsed: number;
   updatedAt: string;
+  username?: string;
+}
+
+export interface TelegramUserIdentity {
+  displayName?: string;
+  telegramUserId: string;
+  username?: string;
 }
 
 export interface TelegramBotAccessResult {
@@ -36,6 +43,8 @@ export interface PgTelegramBotAccessStore {
   }): Promise<TelegramBotUser>;
   listUsers(input: { now?: Date; timeZone: string }): Promise<TelegramBotUser[]>;
   migrate(): Promise<void>;
+  observeUser(input: TelegramUserIdentity): Promise<void>;
+  resolveUserReference(reference: string): Promise<TelegramUserIdentity | undefined>;
   updateUser(input: {
     actor: string;
     dailyLimit?: number | null;
@@ -53,6 +62,7 @@ interface TelegramBotUserRow {
   telegram_user_id: string;
   today_used: number;
   updated_at: string;
+  username: string | null;
 }
 
 interface TelegramBotAccessRow {
@@ -68,7 +78,8 @@ const USER_COLUMNS = `
   status,
   0::integer as today_used,
   created_at::text as created_at,
-  updated_at::text as updated_at
+  updated_at::text as updated_at,
+  null::text as username
 `;
 
 export function createPgTelegramBotAccessStore(options: {
@@ -158,6 +169,7 @@ export function createPgTelegramBotAccessStore(options: {
         `
         select
           users.telegram_user_id,
+          identities.username,
           users.display_name,
           users.daily_limit,
           users.status,
@@ -165,6 +177,8 @@ export function createPgTelegramBotAccessStore(options: {
           users.created_at::text as created_at,
           users.updated_at::text as updated_at
         from telegram_bot_users users
+        left join telegram_user_identities identities
+          on identities.telegram_user_id = users.telegram_user_id
         left join telegram_bot_daily_usage usage
           on usage.telegram_user_id = users.telegram_user_id
           and usage.quota_date = $1::date
@@ -176,6 +190,64 @@ export function createPgTelegramBotAccessStore(options: {
     },
 
     migrate: () => migrateTelegramBotAccess(options.client),
+
+    async observeUser(input) {
+      const telegramUserId = normalizeTelegramBotUserId(input.telegramUserId);
+      const username = normalizeTelegramUsername(input.username);
+      const displayName = normalizeDisplayName(input.displayName);
+      if (username !== null) {
+        await options.client.query(
+          `
+          update telegram_user_identities
+          set username = null, updated_at = now()
+          where lower(username) = lower($1) and telegram_user_id <> $2
+          `,
+          [username, telegramUserId],
+        );
+      }
+      await options.client.query(
+        `
+        insert into telegram_user_identities (
+          telegram_user_id, username, display_name, last_seen_at, updated_at
+        )
+        values ($1, $2, $3, now(), now())
+        on conflict (telegram_user_id) do update
+        set username = excluded.username,
+            display_name = excluded.display_name,
+            last_seen_at = now(),
+            updated_at = now()
+        `,
+        [telegramUserId, username, displayName],
+      );
+    },
+
+    async resolveUserReference(reference) {
+      const normalized = reference.trim();
+      if (/^(?:telegram:)?[1-9]\d{0,19}$/u.test(normalized)) {
+        return { telegramUserId: normalizeTelegramBotUserId(normalized) };
+      }
+      const username = normalizeTelegramUsername(normalized);
+      if (username === null) return undefined;
+      const response = await options.client.query<{
+        display_name: string | null;
+        telegram_user_id: string;
+        username: string | null;
+      }>(
+        `
+        select telegram_user_id, username, display_name
+        from telegram_user_identities
+        where lower(username) = lower($1)
+        `,
+        [username],
+      );
+      const row = response.rows[0];
+      if (row === undefined) return undefined;
+      return {
+        ...(row.display_name === null ? {} : { displayName: row.display_name }),
+        telegramUserId: row.telegram_user_id,
+        ...(row.username === null ? {} : { username: row.username }),
+      };
+    },
 
     async updateUser(input) {
       const telegramUserId = normalizeTelegramBotUserId(input.telegramUserId);
@@ -220,6 +292,21 @@ export function createPgTelegramBotAccessStore(options: {
 }
 
 export async function migrateTelegramBotAccess(client: PgClientLike): Promise<void> {
+  await client.query(`
+    create table if not exists telegram_user_identities (
+      telegram_user_id text primary key check (telegram_user_id ~ '^[1-9][0-9]{0,19}$'),
+      username text,
+      display_name text,
+      last_seen_at timestamptz not null default now(),
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+  await client.query(`
+    create unique index if not exists telegram_user_identities_username_idx
+    on telegram_user_identities (lower(username))
+    where username is not null
+  `);
   await client.query(`
     create table if not exists telegram_bot_users (
       telegram_user_id text primary key check (telegram_user_id ~ '^[1-9][0-9]{0,19}$'),
@@ -272,6 +359,15 @@ function normalizeDisplayName(value: string | undefined): string | null {
   return normalized;
 }
 
+function normalizeTelegramUsername(value: string | undefined): string | null {
+  const normalized = value?.trim().replace(/^@/u, '');
+  if (normalized === undefined || normalized.length === 0) return null;
+  if (!/^[A-Za-z0-9_]{5,32}$/u.test(normalized)) {
+    throw new TypeError('Telegram username must contain 5 to 32 letters, digits, or underscores.');
+  }
+  return normalized;
+}
+
 function normalizeActor(value: string): string {
   const normalized = value.trim();
   if (normalized.length === 0 || normalized.length > 200) {
@@ -303,5 +399,6 @@ function mapUser(row: TelegramBotUserRow): TelegramBotUser {
     telegramUserId: row.telegram_user_id,
     todayUsed: row.today_used,
     updatedAt: row.updated_at,
+    ...(row.username == null ? {} : { username: row.username }),
   };
 }

@@ -127,6 +127,7 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
     groupRegistry: knowledgeRuntime.groupRegistry,
     knowledgeAutomation: knowledgeRuntime.automation,
     logger,
+    userDirectory: runtime.userDirectory,
   });
   const abortController = new AbortController();
 

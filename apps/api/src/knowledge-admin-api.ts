@@ -175,9 +175,19 @@ const createTelegramBotUserSchema = z
     telegramUserId: z
       .string()
       .trim()
-      .regex(/^[1-9]\d{0,19}$/u),
+      .regex(/^[1-9]\d{0,19}$/u)
+      .optional(),
+    telegramUserReference: z
+      .string()
+      .trim()
+      .regex(/^(?:[1-9]\d{0,19}|@[A-Za-z0-9_]{5,32})$/u)
+      .optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) => (value.telegramUserId === undefined) !== (value.telegramUserReference === undefined),
+    'Provide exactly one Telegram user ID or @username.',
+  );
 const updateTelegramBotUserSchema = z
   .object({
     dailyLimit: z.number().int().min(1).max(1_000_000).nullable().optional(),
@@ -566,11 +576,22 @@ async function routeKnowledgeAdminRequest(
       const payload = createTelegramBotUserSchema.parse(
         await readJsonBody(options.request, options.maxBodyBytes),
       );
+      const reference = payload.telegramUserReference ?? payload.telegramUserId ?? '';
+      const identity = await services.telegramBotUsers.resolveUserReference(reference);
+      if (identity === undefined) {
+        sendJson(options.response, 422, {
+          error: 'telegram_username_not_observed',
+          message: '该 Telegram username 尚未与 Bot 交互，请让用户先向 Bot 发送 /start。',
+        });
+        return;
+      }
       const user = await services.telegramBotUsers.createUser({
         actor: adminActor(principal),
         dailyLimit: payload.dailyLimit,
-        ...(payload.displayName === undefined ? {} : { displayName: payload.displayName }),
-        telegramUserId: payload.telegramUserId,
+        ...(payload.displayName === undefined && identity.displayName === undefined
+          ? {}
+          : { displayName: payload.displayName ?? identity.displayName }),
+        telegramUserId: identity.telegramUserId,
       });
       sendJson(options.response, 201, { user });
       return;

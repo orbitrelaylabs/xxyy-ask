@@ -122,6 +122,41 @@ describe('loadTelegramBotConfig', () => {
 });
 
 describe('createTelegramBot', () => {
+  it('records a sender identity before checking whether the user is allowed', async () => {
+    const observeUser = vi.fn(() => Promise.resolve());
+    const bot = createTelegramBot({
+      api: {
+        getUpdates: vi.fn(),
+        sendMessage: createSendMessageMock(),
+        sendPhoto: vi.fn(),
+      },
+      chatService: { ask: vi.fn(() => Promise.resolve(createResponse())) },
+      config: loadTelegramBotConfig({ TELEGRAM_BOT_TOKEN: 'bot-token' }),
+      userDirectory: { observeUser },
+    });
+
+    await bot.handleUpdate({
+      message: {
+        chat: { id: 456, type: 'private' },
+        from: {
+          first_name: 'TG',
+          id: 456,
+          last_name: 'Operator',
+          username: 'tg_operator',
+        },
+        message_id: 1,
+        text: '/start',
+      },
+      update_id: 1,
+    });
+
+    expect(observeUser).toHaveBeenCalledWith({
+      displayName: 'TG Operator',
+      telegramUserId: '456',
+      username: 'tg_operator',
+    });
+  });
+
   it('registers group membership and message activity without invoking the chat model', async () => {
     const ask = vi.fn(() => Promise.resolve(createResponse()));
     const observeMembership = vi.fn(() => Promise.resolve());
