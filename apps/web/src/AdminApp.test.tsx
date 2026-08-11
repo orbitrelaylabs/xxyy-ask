@@ -2,9 +2,15 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { AdminApp, AdminUsersPanel, CandidateTable } from './AdminApp.js';
+import { AdminApp, AdminUsersPanel, CandidateTable, parseAdminTab } from './AdminApp.js';
 
 describe('AdminApp', () => {
+  it('restores the selected admin tab from the URL after refresh', () => {
+    expect(parseAdminTab('?tab=telegram-users')).toBe('telegram-users');
+    expect(parseAdminTab('?tab=users&source=refresh')).toBe('users');
+    expect(parseAdminTab('?tab=unknown')).toBe('candidates');
+  });
+
   it('renders a neutral access check before authentication resolves', () => {
     const markup = renderToStaticMarkup(createElement(AdminApp));
 

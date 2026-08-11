@@ -78,13 +78,37 @@ type AdminTab =
   | 'telegram-users'
   | 'users';
 
+const ADMIN_TABS = new Set<AdminTab>([
+  'account',
+  'authors',
+  'candidates',
+  'groups',
+  'graph',
+  'imports',
+  'observability',
+  'publications',
+  'quality',
+  'support',
+  'telegram-users',
+  'users',
+]);
+
+export function parseAdminTab(search: string): AdminTab {
+  const tab = new URLSearchParams(search).get('tab');
+  return tab !== null && ADMIN_TABS.has(tab as AdminTab) ? (tab as AdminTab) : 'candidates';
+}
+
+function readAdminTabFromLocation(): AdminTab {
+  return typeof window === 'undefined' ? 'candidates' : parseAdminTab(window.location.search);
+}
+
 export function AdminApp(): ReactElement {
   const [token, setToken] = useState(readStoredToken);
   const [session, setSession] = useState<AdminSession | undefined>();
   const [authBusy, setAuthBusy] = useState(true);
   const [authError, setAuthError] = useState<string | undefined>();
   const [setupRequired, setSetupRequired] = useState<boolean>();
-  const [activeTab, setActiveTab] = useState<AdminTab>('candidates');
+  const [activeTab, setActiveTab] = useState<AdminTab>(readAdminTabFromLocation);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const authenticate = useCallback(async (id: string, password: string): Promise<void> => {
@@ -165,6 +189,22 @@ export function AdminApp(): ReactElement {
     }
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const restoreTab = (): void => setActiveTab(readAdminTabFromLocation());
+    window.addEventListener('popstate', restoreTab);
+    return () => window.removeEventListener('popstate', restoreTab);
+  }, []);
+
+  const selectTab = useCallback((tab: AdminTab): void => {
+    setActiveTab(tab);
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') === tab) return;
+    url.searchParams.set('tab', tab);
+    window.history.pushState(null, '', url);
+  }, []);
+
   const logout = (): void => {
     if (token.length > 0) {
       void knowledgeAdminRequest(token, '/auth/logout', { method: 'POST' }).catch(() => undefined);
@@ -193,7 +233,7 @@ export function AdminApp(): ReactElement {
         activeTab={activeTab}
         collapsed={sidebarCollapsed}
         onLogout={logout}
-        onSelectTab={setActiveTab}
+        onSelectTab={selectTab}
         onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
         session={session}
       />
