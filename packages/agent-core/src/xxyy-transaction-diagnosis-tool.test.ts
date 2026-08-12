@@ -270,9 +270,11 @@ describe('formatXxyyTransactionDiagnosis', () => {
     const response = formatXxyyTransactionDiagnosis(output);
 
     expect(response.answer).toContain('本笔由路由拆分到 2 个执行池');
-    expect(response.answer).toContain(`${poolA}\`（日志 #970）`);
-    expect(response.answer).toContain(`${poolB}\`（日志 #978）`);
-    expect(response.answer).toContain('✅ 本笔执行 · pan4');
+    expect(response.answer).toContain(`${poolA}\`（日志 #970；pan4，约 $118.52）`);
+    expect(response.answer).toContain(`${poolB}\`（日志 #978；XXYY 当前池列表未返回）`);
+    expect(response.answer).toContain('XXYY 池列表已对应 1/2 个本笔执行池');
+    expect(response.answer).toContain('已定位交易执行池；被夹证据不足');
+    expect(response.answer).not.toContain('XXYY 当前发现 1 个池子');
     expect(response.answer).not.toContain('本笔成交池：未能按完整交易哈希确认');
   });
 });

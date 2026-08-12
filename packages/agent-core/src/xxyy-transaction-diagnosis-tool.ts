@@ -77,10 +77,12 @@ export function formatXxyyTransactionDiagnosis(
   } else {
     lines.push(
       '',
-      '**🧾 XXYY 成交**',
+      output.market?.status === 'conflict' && output.executionPools?.length
+        ? '**🧾 XXYY 多池成交**'
+        : '**🧾 XXYY 成交**',
       output.market?.status === 'conflict'
         ? output.executionPools?.length
-          ? '发现多个成交候选；已改用 Explorer Event Logs 定位本笔实际执行池。'
+          ? '同一交易哈希对应多个成交腿；已按 Explorer Event Logs 分别定位本笔实际执行池。'
           : '发现多个相互冲突的成交候选，无法安全选定目标记录。'
         : '未能按完整交易哈希匹配到目标成交，因此无法确认本笔成交池，也暂时无法判断是否被夹。',
     );
@@ -89,6 +91,9 @@ export function formatXxyyTransactionDiagnosis(
   const executionPools = output.executionPools ?? [];
   const executionPoolIds = new Set(
     executionPools.map((executionPool) => executionPool.poolIdentifier.toLowerCase()),
+  );
+  const executionCandidates = candidatePools.filter((candidate) =>
+    executionPoolIds.has(candidate.pairAddress.toLowerCase()),
   );
   if (
     output.poolAssessment !== undefined ||
@@ -104,15 +109,14 @@ export function formatXxyyTransactionDiagnosis(
         ? executionPools.length === 0
           ? ['本笔成交池：未能按完整交易哈希确认。']
           : executionPools.length === 1
-            ? [
-                `本笔执行池（Explorer Event Logs）：\`${executionPools[0]!.poolIdentifier}\`（日志 #${executionPools[0]!.logIndex}）`,
-              ]
+            ? [formatExecutionPool(executionPools[0]!, candidatePools)]
             : [
                 `本笔由路由拆分到 ${executionPools.length} 个执行池（Explorer Event Logs）：`,
                 ...executionPools.map(
                   (executionPool, index) =>
-                    `${index + 1}. \`${executionPool.poolIdentifier}\`（日志 #${executionPool.logIndex}）`,
+                    `${index + 1}. ${formatExecutionPool(executionPool, candidatePools)}`,
                 ),
+                `XXYY 池列表已对应 ${executionCandidates.length}/${executionPools.length} 个本笔执行池。`,
               ]
         : [
             `本笔成交池：\`${output.market.matchedPair.pairAddress}\`（${dexLabel(output.market.matchedPair.dexId)}）`,
@@ -134,7 +138,7 @@ export function formatXxyyTransactionDiagnosis(
         ? []
         : [`实际池约为主导池流动性的 ${ppmPercent(pool.relativeLiquidityPpm)}。`]),
     );
-    if (candidatePools.length > 0) {
+    if (candidatePools.length > 0 && executionPools.length === 0) {
       lines.push(`XXYY 当前发现 ${candidatePools.length} 个池子：`);
       candidatePools.forEach((candidate, index) => {
         const isMatchedTrade = candidate.pairAddress === output.market?.matchedPair?.pairAddress;
@@ -233,7 +237,24 @@ function diagnosisHeadline(output: DiagnoseXxyyTransactionOutput): {
   if (verdict === 'confirmed') return { icon: '🚨', text: '确认存在 Sandwich 证据' };
   if (verdict === 'likely') return { icon: '⚠️', text: '疑似被夹，仍需补充证据' };
   if (verdict === 'unlikely') return { icon: '✅', text: '当前证据不支持被夹' };
+  if ((output.executionPools?.length ?? 0) > 0) {
+    return { icon: '🔎', text: '已定位交易执行池；被夹证据不足' };
+  }
   return { icon: '🔎', text: '被夹检查：证据不足' };
+}
+
+function formatExecutionPool(
+  executionPool: NonNullable<DiagnoseXxyyTransactionOutput['executionPools']>[number],
+  candidatePools: ReturnType<typeof sortedCandidatePools>,
+): string {
+  const candidate = candidatePools.find(
+    (item) => item.pairAddress.toLowerCase() === executionPool.poolIdentifier.toLowerCase(),
+  );
+  const marketDetails =
+    candidate === undefined
+      ? 'XXYY 当前池列表未返回'
+      : `${dexLabel(candidate.dexId)}${candidate.liquidityUsd === undefined ? '，流动性未知' : `，约 $${formatDecimal(candidate.liquidityUsd, 2)}`}`;
+  return `\`${executionPool.poolIdentifier}\`（日志 #${executionPool.logIndex}；${marketDetails}）`;
 }
 
 function transactionWasNotFound(
@@ -289,7 +310,7 @@ function evidenceLimitLabel(warning: string): string {
     return '链上事实来自固定公开 Explorer 页面，属于单一来源的部分证据。';
   }
   if (warning.startsWith('XXYY did not return')) {
-    return 'XXYY 未返回唯一的完整交易哈希匹配。';
+    return '该交易包含多个成交腿，XXYY 未返回可安全合并为一条记录的结果。';
   }
   if (warning.startsWith('Sandwich analysis requires')) {
     return '只有精确匹配目标成交后才能分析前后夹子结构。';
