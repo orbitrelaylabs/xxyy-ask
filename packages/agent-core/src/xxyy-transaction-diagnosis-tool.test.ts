@@ -187,4 +187,92 @@ describe('formatXxyyTransactionDiagnosis', () => {
     expect(response.answer).toContain('后置交易：back-transaction');
     expect(response.answer).toContain('代币 5，原生币 0.5，约 $50，Slot 1234');
   });
+
+  it('reports split-route execution pools from Explorer event logs without selecting one trade', () => {
+    const transactionId = `0x${'1'.repeat(64)}`;
+    const token = `0x${'2'.repeat(40)}`;
+    const actor = `0x${'3'.repeat(40)}`;
+    const router = `0x${'4'.repeat(40)}`;
+    const poolA = `0x${'a'.repeat(64)}`;
+    const poolB = `0x${'b'.repeat(64)}`;
+    const output = {
+      checks: ['pool', 'sandwich'],
+      executionPools: [
+        {
+          emitterAddress: router,
+          logIndex: 970,
+          poolIdentifier: poolA,
+          source: 'explorer_event_log',
+        },
+        {
+          emitterAddress: router,
+          logIndex: 978,
+          poolIdentifier: poolB,
+          source: 'explorer_event_log',
+        },
+      ],
+      market: {
+        candidatePairs: [
+          {
+            baseToken: token,
+            chain: 'eip155:56',
+            dexId: 'pan4',
+            liquidityUsd: '118.52',
+            pairAddress: poolA,
+            quoteToken: `0x${'5'.repeat(40)}`,
+          },
+        ],
+        diagnostics: [],
+        status: 'conflict',
+      },
+      screenshotEvidence: { reason: 'trade_not_exactly_matched', status: 'unavailable' },
+      status: 'partial',
+      summary: 'Partial browser evidence.',
+      transaction: {
+        analysis: {
+          assetChanges: [],
+          conflicts: [],
+          diagnostics: [],
+          evidence: [],
+          findings: [],
+          skill: 'transaction_analysis',
+          status: 'partial',
+          summary: 'Partial browser evidence.',
+          timeline: [],
+          tokenTransfers: [],
+          transaction: {
+            blockNumber: '1',
+            blockTimestamp: '1',
+            chainId: '56',
+            executionStatus: 'success',
+            feeWei: '1',
+            from: actor,
+            hash: transactionId,
+            inputKind: 'contract_call',
+            to: router,
+            valueWei: '1',
+          },
+          version: '1.0.0',
+          warnings: [],
+        },
+        chainId: '56',
+        diagnostics: [],
+        explorerUrl: `https://bscscan.com/tx/${transactionId}`,
+        family: 'evm',
+        network: 'eip155:56',
+        status: 'partial',
+        summary: 'Partial browser evidence.',
+        transactionId,
+      },
+      warnings: ['Explorer event logs show that this transaction was split across 2 swap pools.'],
+    } satisfies DiagnoseXxyyTransactionOutput;
+
+    const response = formatXxyyTransactionDiagnosis(output);
+
+    expect(response.answer).toContain('本笔由路由拆分到 2 个执行池');
+    expect(response.answer).toContain(`${poolA}\`（日志 #970）`);
+    expect(response.answer).toContain(`${poolB}\`（日志 #978）`);
+    expect(response.answer).toContain('✅ 本笔执行 · pan4');
+    expect(response.answer).not.toContain('本笔成交池：未能按完整交易哈希确认');
+  });
 });

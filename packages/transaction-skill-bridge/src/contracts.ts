@@ -80,6 +80,19 @@ export const diagnoseXxyyTransactionOutputSchema = z
       .array(z.enum(['pool', 'sandwich']))
       .min(1)
       .max(2),
+    executionPools: z
+      .array(
+        z
+          .object({
+            emitterAddress: z.string().trim().min(1).max(256),
+            logIndex: z.number().int().nonnegative(),
+            poolIdentifier: z.string().trim().min(1).max(256),
+            source: z.literal('explorer_event_log'),
+          })
+          .strict(),
+      )
+      .max(128)
+      .optional(),
     market: z.any().optional(),
     poolAssessment: z.any().optional(),
     sandwichAssessment: z.any().optional(),

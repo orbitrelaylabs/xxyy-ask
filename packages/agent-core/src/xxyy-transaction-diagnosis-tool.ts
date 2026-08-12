@@ -79,19 +79,41 @@ export function formatXxyyTransactionDiagnosis(
       '',
       '**🧾 XXYY 成交**',
       output.market?.status === 'conflict'
-        ? '发现多个相互冲突的成交候选，无法安全选定目标记录。'
+        ? output.executionPools?.length
+          ? '发现多个成交候选；已改用 Explorer Event Logs 定位本笔实际执行池。'
+          : '发现多个相互冲突的成交候选，无法安全选定目标记录。'
         : '未能按完整交易哈希匹配到目标成交，因此无法确认本笔成交池，也暂时无法判断是否被夹。',
     );
   }
   const candidatePools = sortedCandidatePools(output.market?.candidatePairs ?? []);
-  if (output.poolAssessment !== undefined || candidatePools.length > 0) {
+  const executionPools = output.executionPools ?? [];
+  const executionPoolIds = new Set(
+    executionPools.map((executionPool) => executionPool.poolIdentifier.toLowerCase()),
+  );
+  if (
+    output.poolAssessment !== undefined ||
+    candidatePools.length > 0 ||
+    executionPools.length > 0
+  ) {
     const pool = output.poolAssessment;
     lines.push(
       '',
       '**🏊 合约与池子**',
       ...(candidatePools[0] === undefined ? [] : [`目标合约：\`${candidatePools[0].baseToken}\``]),
       ...(output.market?.matchedPair === undefined
-        ? ['本笔成交池：未能按完整交易哈希确认。']
+        ? executionPools.length === 0
+          ? ['本笔成交池：未能按完整交易哈希确认。']
+          : executionPools.length === 1
+            ? [
+                `本笔执行池（Explorer Event Logs）：\`${executionPools[0]!.poolIdentifier}\`（日志 #${executionPools[0]!.logIndex}）`,
+              ]
+            : [
+                `本笔由路由拆分到 ${executionPools.length} 个执行池（Explorer Event Logs）：`,
+                ...executionPools.map(
+                  (executionPool, index) =>
+                    `${index + 1}. \`${executionPool.poolIdentifier}\`（日志 #${executionPool.logIndex}）`,
+                ),
+              ]
         : [
             `本笔成交池：\`${output.market.matchedPair.pairAddress}\`（${dexLabel(output.market.matchedPair.dexId)}）`,
           ]),
@@ -115,9 +137,10 @@ export function formatXxyyTransactionDiagnosis(
     if (candidatePools.length > 0) {
       lines.push(`XXYY 当前发现 ${candidatePools.length} 个池子：`);
       candidatePools.forEach((candidate, index) => {
-        const isActual = candidate.pairAddress === output.market?.matchedPair?.pairAddress;
+        const isMatchedTrade = candidate.pairAddress === output.market?.matchedPair?.pairAddress;
+        const isObservedExecution = executionPoolIds.has(candidate.pairAddress.toLowerCase());
         lines.push(
-          `${index + 1}. ${isActual ? '✅ 本笔成交 · ' : ''}${dexLabel(candidate.dexId)} · ${candidate.liquidityUsd === undefined ? '流动性未知' : `约 $${formatDecimal(candidate.liquidityUsd, 2)}`}`,
+          `${index + 1}. ${isMatchedTrade ? '✅ 本笔成交 · ' : isObservedExecution ? '✅ 本笔执行 · ' : ''}${dexLabel(candidate.dexId)} · ${candidate.liquidityUsd === undefined ? '流动性未知' : `约 $${formatDecimal(candidate.liquidityUsd, 2)}`}`,
           `   池：\`${candidate.pairAddress}\`｜报价：\`${candidate.quoteToken}\``,
         );
       });
@@ -276,6 +299,9 @@ function evidenceLimitLabel(warning: string): string {
   }
   if (warning.startsWith('Some surrounding XXYY trades')) {
     return '部分周边成交未能解析到区块或 Slot。';
+  }
+  if (warning.startsWith('Explorer event logs show')) {
+    return 'Explorer Event Logs 显示该交易由路由拆分到多个 Swap 池。';
   }
   return '部分证据暂不可用，结论按现有可核验数据给出。';
 }
