@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@orbitrelaylabs/xxyy-transaction-skills": "github:orbitrelaylabs/skills#23bfe51f538df26c1881929639e12b208d90018a",
+    "@orbitrelaylabs/xxyy-transaction-skills": "github:orbitrelaylabs/skills#c27fff9389148207bb518ded9d6172ce17a2eba5",
     "zod": "^4.0.0"
   },
   "scripts": {

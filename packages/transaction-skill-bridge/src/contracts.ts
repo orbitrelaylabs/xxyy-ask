@@ -84,7 +84,16 @@ export const diagnoseXxyyTransactionOutputSchema = z
       .array(
         z
           .object({
+            amount0Raw: z
+              .string()
+              .regex(/^-?(?:0|[1-9]\d*)$/u)
+              .optional(),
+            amount1Raw: z
+              .string()
+              .regex(/^-?(?:0|[1-9]\d*)$/u)
+              .optional(),
             emitterAddress: z.string().trim().min(1).max(256),
+            isPrimary: z.boolean().optional(),
             logIndex: z.number().int().nonnegative(),
             poolIdentifier: z.string().trim().min(1).max(256),
             source: z.literal('explorer_event_log'),

@@ -199,13 +199,18 @@ describe('formatXxyyTransactionDiagnosis', () => {
       checks: ['pool', 'sandwich'],
       executionPools: [
         {
+          amount0Raw: '-100000000000000000',
+          amount1Raw: '1000',
           emitterAddress: router,
           logIndex: 970,
           poolIdentifier: poolA,
           source: 'explorer_event_log',
         },
         {
+          amount0Raw: '-300000000000000000',
+          amount1Raw: '3000',
           emitterAddress: router,
+          isPrimary: true,
           logIndex: 978,
           poolIdentifier: poolB,
           source: 'explorer_event_log',
@@ -219,7 +224,7 @@ describe('formatXxyyTransactionDiagnosis', () => {
             dexId: 'pan4',
             liquidityUsd: '118.52',
             pairAddress: poolA,
-            quoteToken: `0x${'5'.repeat(40)}`,
+            quoteToken: '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c',
           },
         ],
         diagnostics: [],
@@ -270,8 +275,10 @@ describe('formatXxyyTransactionDiagnosis', () => {
     const response = formatXxyyTransactionDiagnosis(output);
 
     expect(response.answer).toContain('本笔由路由拆分到 2 个执行池');
-    expect(response.answer).toContain(`${poolA}\`（日志 #970；pan4，约 $118.52）`);
-    expect(response.answer).toContain(`${poolB}\`（日志 #978；XXYY 当前池列表未返回）`);
+    expect(response.answer).toContain(`${poolA}\`（日志 #970；pan4，约 $118.52；本腿约 0.1 BNB）`);
+    expect(response.answer).toContain(
+      `⭐ 主执行池 · \`${poolB}\`（日志 #978；XXYY 当前池列表未返回；本腿约 0.3 BNB）`,
+    );
     expect(response.answer).toContain('XXYY 池列表已对应 1/2 个本笔执行池');
     expect(response.answer).toContain('已定位交易执行池；被夹证据不足');
     expect(response.answer).not.toContain('XXYY 当前发现 1 个池子');

@@ -95,6 +95,7 @@ export function formatXxyyTransactionDiagnosis(
   const executionCandidates = candidatePools.filter((candidate) =>
     executionPoolIds.has(candidate.pairAddress.toLowerCase()),
   );
+  const nativeExecutionSymbol = inferNativeExecutionSymbol(output, executionCandidates);
   if (
     output.poolAssessment !== undefined ||
     candidatePools.length > 0 ||
@@ -109,12 +110,12 @@ export function formatXxyyTransactionDiagnosis(
         ? executionPools.length === 0
           ? ['本笔成交池：未能按完整交易哈希确认。']
           : executionPools.length === 1
-            ? [formatExecutionPool(executionPools[0]!, candidatePools)]
+            ? [formatExecutionPool(executionPools[0]!, candidatePools, nativeExecutionSymbol)]
             : [
                 `本笔由路由拆分到 ${executionPools.length} 个执行池（Explorer Event Logs）：`,
                 ...executionPools.map(
                   (executionPool, index) =>
-                    `${index + 1}. ${formatExecutionPool(executionPool, candidatePools)}`,
+                    `${index + 1}. ${formatExecutionPool(executionPool, candidatePools, nativeExecutionSymbol)}`,
                 ),
                 `XXYY 池列表已对应 ${executionCandidates.length}/${executionPools.length} 个本笔执行池。`,
               ]
@@ -246,6 +247,7 @@ function diagnosisHeadline(output: DiagnoseXxyyTransactionOutput): {
 function formatExecutionPool(
   executionPool: NonNullable<DiagnoseXxyyTransactionOutput['executionPools']>[number],
   candidatePools: ReturnType<typeof sortedCandidatePools>,
+  nativeSymbol?: string,
 ): string {
   const candidate = candidatePools.find(
     (item) => item.pairAddress.toLowerCase() === executionPool.poolIdentifier.toLowerCase(),
@@ -254,7 +256,31 @@ function formatExecutionPool(
     candidate === undefined
       ? 'XXYY 当前池列表未返回'
       : `${dexLabel(candidate.dexId)}${candidate.liquidityUsd === undefined ? '，流动性未知' : `，约 $${formatDecimal(candidate.liquidityUsd, 2)}`}`;
-  return `\`${executionPool.poolIdentifier}\`（日志 #${executionPool.logIndex}；${marketDetails}）`;
+  const amountDetails =
+    nativeSymbol === undefined || executionPool.amount0Raw === undefined
+      ? ''
+      : `；本腿约 ${formatRaw18(executionPool.amount0Raw)} ${nativeSymbol}`;
+  const primaryLabel = executionPool.isPrimary === true ? '⭐ 主执行池 · ' : '';
+  return `${primaryLabel}\`${executionPool.poolIdentifier}\`（日志 #${executionPool.logIndex}；${marketDetails}${amountDetails}）`;
+}
+
+function inferNativeExecutionSymbol(
+  output: DiagnoseXxyyTransactionOutput,
+  executionCandidates: ReturnType<typeof sortedCandidatePools>,
+): string | undefined {
+  if (output.transaction.family !== 'evm' || output.transaction.chainId !== '56') return undefined;
+  const wrappedBnb = '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c';
+  return executionCandidates.some((candidate) => candidate.quoteToken.toLowerCase() === wrappedBnb)
+    ? 'BNB'
+    : undefined;
+}
+
+function formatRaw18(value: string): string {
+  const absolute = value.startsWith('-') ? value.slice(1) : value;
+  const padded = absolute.padStart(19, '0');
+  const whole = padded.slice(0, -18).replace(/^0+(?=\d)/u, '');
+  const fraction = padded.slice(-18).replace(/0+$/u, '');
+  return `${whole}${fraction.length === 0 ? '' : `.${fraction}`}`;
 }
 
 function transactionWasNotFound(
