@@ -10,7 +10,7 @@ import {
 } from '@xxyy/shared';
 import {
   filterQuestionRelevantAttachments,
-  redactSensitiveSupportText,
+  redactSensitiveConversationHistoryText,
   type ChatService,
 } from '@xxyy/rag-core';
 
@@ -747,7 +747,7 @@ function sanitizeTelegramReplyHistoryText(text: string | undefined): string | un
   if (text === undefined) {
     return undefined;
   }
-  const sanitized = redactSensitiveSupportText(text.trim()).slice(
+  const sanitized = redactSensitiveConversationHistoryText(text.trim()).slice(
     0,
     TELEGRAM_REPLY_HISTORY_TEXT_LIMIT,
   );

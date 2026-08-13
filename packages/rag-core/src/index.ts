@@ -282,7 +282,7 @@ export type {
   PgApiObservabilityStore,
   StoredApiCallObservation,
 } from './api-observability.js';
-export { redactSensitiveSupportText } from './redaction.js';
+export { redactSensitiveConversationHistoryText, redactSensitiveSupportText } from './redaction.js';
 export { aggregateRetrievalResults, evaluateRetrievalRanking } from './retrieval-evaluate.js';
 export { reciprocalRankFusionScore } from './hybrid-rank.js';
 export type { RetrievedChunk } from './retrieve.js';

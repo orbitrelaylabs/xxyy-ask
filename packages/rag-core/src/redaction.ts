@@ -22,3 +22,27 @@ export function redactSensitiveSupportText(text: string): string {
     )
     .replace(/(\b(?:my\s+)?password\s*(?:is|:|=)\s*)[^\s,，。；;]+/giu, '$1[sensitive_credential]');
 }
+
+export function redactSensitiveConversationHistoryText(text: string): string {
+  const publicTransactionIds: string[] = [];
+  const protectTransactionId = (_match: string, prefix: string, transactionId: string) => {
+    const placeholder = `[public_transaction_${publicTransactionIds.length}]`;
+    publicTransactionIds.push(transactionId);
+    return `${prefix}${placeholder}`;
+  };
+  const protectedText = text
+    .replace(
+      /(https:\/\/[^\s<>"']{0,240}?\/(?:tx|transaction)\/)(0x[a-fA-F0-9]{64})\b/giu,
+      protectTransactionId,
+    )
+    .replace(
+      /((?:交易哈希|交易(?!私钥|密钥)|transaction(?:\s+hash)?|tx(?:\s+hash)?)[^\n\r]{0,24}?)(0x[a-fA-F0-9]{64})\b/giu,
+      protectTransactionId,
+    );
+  const redacted = redactSensitiveSupportText(protectedText);
+  return publicTransactionIds.reduce(
+    (result, transactionId, index) =>
+      result.replace(`[public_transaction_${index}]`, transactionId),
+    redacted,
+  );
+}

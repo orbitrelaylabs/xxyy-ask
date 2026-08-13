@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import type { ChatResponse, ChatStreamEvent } from '@xxyy/shared';
-import { createInMemoryQualityTracer, LlmConfigurationError } from '@xxyy/rag-core';
+import {
+  createInMemoryQualityTracer,
+  LlmConfigurationError,
+  redactSensitiveConversationHistoryText,
+} from '@xxyy/rag-core';
 
 import { createLangGraphCustomerRuntime } from './langgraph-customer-runtime.js';
 import {
@@ -226,6 +230,70 @@ describe('createLangGraphCustomerRuntime', () => {
         reference: explorerUrl,
       },
       expect.objectContaining({ channel: 'web' }),
+    );
+  });
+
+  it('reuses the latest public transaction for a contextual Telegram pool follow-up', async () => {
+    const registry = createToolRegistry();
+    const genericExecute = vi.fn(() => Promise.reject(new Error('generic tool must not run')));
+    const diagnosisExecute = vi.fn(() =>
+      Promise.resolve({
+        agentRoute: 'chain_answer' as const,
+        answer: '链上共执行 3 个池。',
+        citations: [],
+        confidence: 0.9,
+        intent: 'onchain_transaction' as const,
+      }),
+    );
+    registry.register({
+      name: 'get_public_transaction',
+      description: 'Generic transaction lookup.',
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.custom<ChatResponse>(() => true),
+      execute: genericExecute,
+    });
+    registry.register({
+      name: 'diagnose_xxyy_transaction',
+      description: 'XXYY transaction diagnosis.',
+      inputSchema: z.object({
+        checks: z.array(z.enum(['sandwich', 'pool'])),
+        network: z.string().optional(),
+        reference: z.string(),
+      }),
+      outputSchema: z.custom<ChatResponse>(() => true),
+      execute: diagnosisExecute,
+    });
+    const transactionHash = `0x${'8'.repeat(64)}`;
+
+    const response = await createLangGraphCustomerRuntime({
+      planner: createScriptedPlannerModel([]),
+      registry,
+    }).ask({
+      channel: 'telegram',
+      history: [
+        {
+          role: 'user',
+          content: redactSensitiveConversationHistoryText(
+            `检查 BSC 交易 ${transactionHash} 是否被夹、走了哪些池子`,
+          ),
+        },
+        {
+          role: 'assistant',
+          content: `交易：${transactionHash}\n链：BNB Smart Chain\n链上共执行 3 个池。`,
+        },
+      ],
+      message: '所以这笔交易走了几个池子？',
+    });
+
+    expect(response.answer).toContain('3 个池');
+    expect(genericExecute).not.toHaveBeenCalled();
+    expect(diagnosisExecute).toHaveBeenCalledWith(
+      {
+        checks: ['pool'],
+        network: 'eip155:56',
+        reference: transactionHash,
+      },
+      expect.objectContaining({ channel: 'telegram' }),
     );
   });
 

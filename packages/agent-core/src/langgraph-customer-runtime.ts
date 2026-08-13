@@ -109,8 +109,9 @@ export function createLangGraphCustomerRuntime(
   const tracer = options.tracer ?? noopQualityTracer;
 
   async function askInternal(request: ChatRequest): Promise<ChatResponse> {
+    const contextualRequest = contextualizePublicTransactionFollowup(request);
     const guardedResponse = await tracePreGuard(
-      request,
+      contextualRequest,
       tracer,
       options.registry,
       answerQualityVariant,
@@ -120,15 +121,16 @@ export function createLangGraphCustomerRuntime(
     }
 
     const finalState = (await graph.invoke(
-      createInitialAgentState(request, { maxSteps }),
+      createInitialAgentState(contextualRequest, { maxSteps }),
     )) as LangGraphAgentState;
 
     return finalState.finalResponse ?? createClarificationResponse('无法生成可靠回答。');
   }
 
   async function* streamInternal(request: ChatRequest): AsyncIterable<ChatStreamEvent> {
+    const contextualRequest = contextualizePublicTransactionFollowup(request);
     const guardedResponse = await tracePreGuard(
-      request,
+      contextualRequest,
       tracer,
       options.registry,
       answerQualityVariant,
@@ -138,7 +140,7 @@ export function createLangGraphCustomerRuntime(
       return;
     }
 
-    yield* streamRuntimeRequest(request, options, maxSteps);
+    yield* streamRuntimeRequest(contextualRequest, options, maxSteps);
   }
 
   return {
@@ -665,7 +667,7 @@ function requestedXxyyDiagnosisChecks(query: string): Array<'sandwich' | 'pool'>
     checks.push('sandwich');
   }
   if (
-    /小池(?:子)?|小流动性池|买错(?:了)?池(?:子)?|错误池(?:子)?|(?:正确|官方|canonical|主流动性)池(?:子)?|wrong\s+pool|small(?:[-\s]+liquidity)?\s+pool/iu.test(
+    /小池(?:子)?|小流动性池|买错(?:了)?池(?:子)?|错误池(?:子)?|(?:正确|官方|canonical|主流动性)池(?:子)?|(?:走|经过|执行|用了?|拆分到).{0,8}(?:几个|多少个|哪些)?池(?:子)?|(?:几个|多少个|哪些)池(?:子)?|wrong\s+pool|small(?:[-\s]+liquidity)?\s+pool/iu.test(
       normalized,
     )
   ) {
@@ -961,6 +963,52 @@ function productQuestionForRequest(request: ChatRequest): string {
       content: redactSensitiveSupportText(message.content).slice(0, 800),
     })),
   );
+}
+
+function contextualizePublicTransactionFollowup(request: ChatRequest): ChatRequest {
+  if (
+    resolveSinglePublicTransactionInput(request.message) !== undefined ||
+    !isContextDependentTransactionFollowup(request.message)
+  ) {
+    return request;
+  }
+
+  const transaction = findRecentPublicTransactionInput(request.history ?? []);
+  if (transaction === undefined) return request;
+
+  return {
+    ...request,
+    message:
+      `${request.message}\n上下文公开交易：${transaction.network ?? ''} ${transaction.reference}`.trim(),
+  };
+}
+
+function isContextDependentTransactionFollowup(message: string): boolean {
+  const normalized = message.normalize('NFKC');
+  return (
+    /这笔|这个交易|该交易|该笔|刚才(?:那笔)?|上(?:一|面)笔|前面(?:那笔)?|它/iu.test(normalized) &&
+    /交易|池(?:子)?|被夹|夹子|三明治|sandwich|\bmev\b|成交腿|路由/iu.test(normalized)
+  );
+}
+
+function findRecentPublicTransactionInput(
+  history: NonNullable<ChatRequest['history']>,
+): ReturnType<typeof resolveSinglePublicTransactionInput> {
+  for (const message of history.slice(-10).reverse()) {
+    const content = message.content.slice(0, 8_192);
+    const direct = resolveSinglePublicTransactionInput(content);
+    if (direct !== undefined) return direct;
+
+    const transactionId = content.match(
+      /(?:^|\n)\s*(?:交易|交易哈希|transaction(?:\s+hash)?)\s*[：:]\s*`?(0x[a-f0-9]{64})`?/iu,
+    )?.[1];
+    const network = content.match(/(?:^|\n)\s*(?:链|网络|network)\s*[：:]\s*([^\n\r]+)/iu)?.[1];
+    if (transactionId === undefined || network === undefined) continue;
+
+    const labeled = resolveSinglePublicTransactionInput(`${network} ${transactionId}`);
+    if (labeled !== undefined) return labeled;
+  }
+  return undefined;
 }
 
 function normalizePlannerPlan(plan: AgentPlan, state: LangGraphAgentState): AgentPlan {

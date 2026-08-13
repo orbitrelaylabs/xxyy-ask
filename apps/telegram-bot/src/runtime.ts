@@ -24,7 +24,7 @@ import {
   createPgSupportOperationsStore,
   createPgVectorStore,
   noopQualityTracer,
-  redactSensitiveSupportText,
+  redactSensitiveConversationHistoryText,
   type AnswerProvider,
   type ChatService,
   type PgSupportOperationsStore,
@@ -364,7 +364,7 @@ function mergeTelegramHistory(
   const merged: ChatHistoryMessage[] = [];
   const seen = new Set<string>();
   for (const message of [...storedHistory, ...replyHistory]) {
-    const content = redactSensitiveSupportText(message.content.trim()).slice(0, 2_000);
+    const content = redactSensitiveConversationHistoryText(message.content.trim()).slice(0, 2_000);
     if (content.length === 0) {
       continue;
     }
