@@ -12,8 +12,8 @@ importers:
   .:
     dependencies:
       '@orbitrelaylabs/xxyy-transaction-skills':
-        specifier: github:orbitrelaylabs/skills#c27fff9389148207bb518ded9d6172ce17a2eba5
-        version: '@orbitrelaylabs/skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/c27fff9389148207bb518ded9d6172ce17a2eba5'
+        specifier: github:orbitrelaylabs/skills#fd333e2415015d8588314558420ef21f3134eb8b
+        version: '@orbitrelaylabs/skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/fd333e2415015d8588314558420ef21f3134eb8b'
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -198,8 +198,8 @@ importers:
   packages/transaction-skill-bridge:
     dependencies:
       '@orbitrelaylabs/xxyy-transaction-skills':
-        specifier: github:orbitrelaylabs/skills#c27fff9389148207bb518ded9d6172ce17a2eba5
-        version: '@orbitrelaylabs/skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/c27fff9389148207bb518ded9d6172ce17a2eba5'
+        specifier: github:orbitrelaylabs/skills#fd333e2415015d8588314558420ef21f3134eb8b
+        version: '@orbitrelaylabs/skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/fd333e2415015d8588314558420ef21f3134eb8b'
       zod:
         specifier: ^4.0.0
         version: 4.4.3
@@ -442,8 +442,8 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
-  '@orbitrelaylabs/skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/c27fff9389148207bb518ded9d6172ce17a2eba5':
-    resolution: {gitHosted: true, integrity: sha512-EuO2nLF4iVLn3t7gtLZanlZuQTJzv7euoYuVPnL6qzHzKAdXzGYX5IcLzbSjhl1tbFbjzmvHWMBO7aW1xP2c+A==, tarball: https://codeload.github.com/orbitrelaylabs/skills/tar.gz/c27fff9389148207bb518ded9d6172ce17a2eba5}
+  '@orbitrelaylabs/skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/fd333e2415015d8588314558420ef21f3134eb8b':
+    resolution: {gitHosted: true, integrity: sha512-WT6FpyucbUWKVbX+IV/+IF+4Px9SM4JgJgcRPltMGGFM1ZXcLLU4NcszTMC4JQLweYjWi59B2vSCqd2cCr4USg==, tarball: https://codeload.github.com/orbitrelaylabs/skills/tar.gz/fd333e2415015d8588314558420ef21f3134eb8b}
     version: 0.1.0
     engines: {node: '>=24.16.0'}
     hasBin: true
@@ -1251,7 +1251,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.3
     optional: true
 
-  '@orbitrelaylabs/skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/c27fff9389148207bb518ded9d6172ce17a2eba5':
+  '@orbitrelaylabs/skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/fd333e2415015d8588314558420ef21f3134eb8b':
     dependencies:
       zod: 4.4.3
 

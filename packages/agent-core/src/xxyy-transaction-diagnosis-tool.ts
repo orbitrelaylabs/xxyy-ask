@@ -58,12 +58,18 @@ export function formatXxyyTransactionDiagnosis(
       '在交易被公开 Explorer 精确解析前，无法安全确认目标合约、本笔成交池或该合约的池子清单。',
     );
   }
-  if (output.market?.status === 'exact') {
+  if (output.market?.status === 'exact' || output.market?.status === 'multi_exact') {
     const trade = output.market.trade!;
     const pair = output.market.matchedPair!;
     lines.push(
       '',
-      '**🧾 XXYY 成交**',
+      output.market.status === 'multi_exact' ? '**🧾 XXYY 选定分析成交腿**' : '**🧾 XXYY 成交**',
+      ...(output.market.status === 'multi_exact'
+        ? [
+            `XXYY 共匹配 ${output.market.matchedTrades?.length ?? 0} 个执行池成交腿；选择其中成交规模最大的可覆盖池继续分析。`,
+            `选定分析池：\`${pair.pairAddress}\`（${dexLabel(pair.dexId)}）`,
+          ]
+        : []),
       `买卖方向：${trade.type === 'buy' ? '买入' : '卖出'}`,
       `交易者：\`${trade.maker}\``,
       `XXYY 成交时间：${new Date(trade.timestamp).toISOString()}`,
@@ -120,7 +126,17 @@ export function formatXxyyTransactionDiagnosis(
                 `XXYY 池列表已对应 ${executionCandidates.length}/${executionPools.length} 个本笔执行池。`,
               ]
         : [
-            `本笔成交池：\`${output.market.matchedPair.pairAddress}\`（${dexLabel(output.market.matchedPair.dexId)}）`,
+            `${output.market.status === 'multi_exact' ? 'XXYY 选定分析池' : '本笔成交池'}：\`${output.market.matchedPair.pairAddress}\`（${dexLabel(output.market.matchedPair.dexId)}）`,
+            ...(executionPools.length > 1
+              ? [
+                  `链上共执行 ${executionPools.length} 个池：`,
+                  ...executionPools.map(
+                    (executionPool, index) =>
+                      `${index + 1}. ${formatExecutionPool(executionPool, candidatePools, nativeExecutionSymbol)}`,
+                  ),
+                  `XXYY 池列表已对应 ${executionCandidates.length}/${executionPools.length} 个本笔执行池。`,
+                ]
+              : []),
           ]),
       ...(pool === undefined
         ? []
@@ -337,6 +353,9 @@ function evidenceLimitLabel(warning: string): string {
   }
   if (warning.startsWith('XXYY did not return')) {
     return '该交易包含多个成交腿，XXYY 未返回可安全合并为一条记录的结果。';
+  }
+  if (warning.startsWith('XXYY matched multiple execution legs')) {
+    return 'XXYY 已匹配多条成交腿，并选择可覆盖成交规模最大的执行池继续分析。';
   }
   if (warning.startsWith('Sandwich analysis requires')) {
     return '只有精确匹配目标成交后才能分析前后夹子结构。';

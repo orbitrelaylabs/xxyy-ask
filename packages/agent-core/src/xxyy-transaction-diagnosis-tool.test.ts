@@ -188,7 +188,7 @@ describe('formatXxyyTransactionDiagnosis', () => {
     expect(response.answer).toContain('代币 5，原生币 0.5，约 $50，Slot 1234');
   });
 
-  it('reports split-route execution pools from Explorer event logs without selecting one trade', () => {
+  it('reports the selected XXYY leg and Sandwich result for a split-route transaction', () => {
     const transactionId = `0x${'1'.repeat(64)}`;
     const token = `0x${'2'.repeat(40)}`;
     const actor = `0x${'3'.repeat(40)}`;
@@ -228,7 +228,48 @@ describe('formatXxyyTransactionDiagnosis', () => {
           },
         ],
         diagnostics: [],
-        status: 'conflict',
+        matchedPair: {
+          baseToken: token,
+          chain: 'eip155:56',
+          dexId: 'pan4',
+          liquidityUsd: '118.52',
+          pairAddress: poolA,
+          quoteToken: '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c',
+        },
+        matchedTrades: [{}, {}],
+        status: 'multi_exact',
+        trade: {
+          maker: actor,
+          nativeAmount: '0.1',
+          timestamp: 1_700_000_000_000,
+          tokenAmount: '1000',
+          transactionId,
+          type: 'buy',
+          usdAmount: '60',
+        },
+      },
+      poolAssessment: {
+        actualLiquidityUsd: '118.52',
+        canonicalMatch: 'unknown',
+        dominantLiquidityUsd: '10000',
+        dominantPoolAddress: poolB,
+        liquidityClass: 'small',
+        policyVersion: '1.0.0',
+        reasonCodes: [],
+        relativeLiquidityPpm: 11852,
+      },
+      sandwichAssessment: {
+        criteria: {
+          actorLoop: 'unknown',
+          adverseVictimImpact: 'unknown',
+          profitableActor: 'unknown',
+          sameBlockOrSlot: 'unknown',
+          samePool: 'unknown',
+          transactionOrder: 'unknown',
+          twoSidedDirection: 'unknown',
+        },
+        reasonCodes: ['no_bracketing_transactions'],
+        verdict: 'unlikely',
       },
       screenshotEvidence: { reason: 'trade_not_exactly_matched', status: 'unavailable' },
       status: 'partial',
@@ -274,13 +315,16 @@ describe('formatXxyyTransactionDiagnosis', () => {
 
     const response = formatXxyyTransactionDiagnosis(output);
 
-    expect(response.answer).toContain('本笔由路由拆分到 2 个执行池');
+    expect(response.answer).toContain('当前证据不支持被夹');
+    expect(response.answer).toContain('XXYY 选定分析成交腿');
+    expect(response.answer).toContain(`XXYY 选定分析池：\`${poolA}\``);
+    expect(response.answer).toContain('链上共执行 2 个池');
     expect(response.answer).toContain(`${poolA}\`（日志 #970；pan4，约 $118.52；本腿约 0.1 BNB）`);
     expect(response.answer).toContain(
       `⭐ 主执行池 · \`${poolB}\`（日志 #978；XXYY 当前池列表未返回；本腿约 0.3 BNB）`,
     );
     expect(response.answer).toContain('XXYY 池列表已对应 1/2 个本笔执行池');
-    expect(response.answer).toContain('已定位交易执行池；被夹证据不足');
+    expect(response.answer).toContain('Sandwich 结论：当前完整相邻成交证据不支持 Sandwich 结构');
     expect(response.answer).not.toContain('XXYY 当前发现 1 个池子');
     expect(response.answer).not.toContain('本笔成交池：未能按完整交易哈希确认');
   });
