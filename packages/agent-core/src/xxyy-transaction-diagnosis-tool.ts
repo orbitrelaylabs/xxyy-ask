@@ -9,6 +9,10 @@ import {
 import type { CapabilityRegistry } from './capability-registry.js';
 import type { PublicChainAnalysisCaller } from './chain-analysis-capabilities.js';
 import type { ToolDefinition } from './tool-registry.js';
+import {
+  estimateTransactionExecutionLoss,
+  type TransactionLossEstimate,
+} from './transaction-loss-estimate.js';
 import { XXYY_DIAGNOSIS_SKILL_CAPABILITY_ID } from './xxyy-transaction-diagnosis-capabilities.js';
 
 export const PUBLIC_XXYY_TRANSACTION_DIAGNOSIS_TOOL_NAME = 'diagnose_xxyy_transaction';
@@ -204,6 +208,10 @@ export function formatXxyyTransactionDiagnosis(
       lines.push(formatSurroundingTrade(trade));
     }
   }
+  const lossEstimate = estimateTransactionExecutionLoss(output);
+  if (lossEstimate !== undefined) {
+    lines.push('', '**💸 用户损失估算**', ...formatLossEstimate(lossEstimate, output));
+  }
   if (output.warnings.length > 0) {
     const limits = [...new Set(output.warnings.map(evidenceLimitLabel))];
     lines.push('', '**ℹ️ 证据范围**', ...limits.map((warning) => `• ${warning}`));
@@ -244,6 +252,68 @@ export function formatXxyyTransactionDiagnosis(
     confidence: output.status === 'success' ? 0.9 : output.status === 'partial' ? 0.65 : 0.35,
     intent: 'onchain_transaction',
   }) as ChatResponse;
+}
+
+function formatLossEstimate(
+  estimate: TransactionLossEstimate,
+  output: DiagnoseXxyyTransactionOutput,
+): string[] {
+  const scope =
+    estimate.scope === 'selected_trade_leg'
+      ? '仅覆盖 XXYY 选定的分析成交腿，不代表整笔多池路由的总损失'
+      : '覆盖当前精确匹配的 XXYY 成交';
+  const findingLabel = estimate.relatedFindings
+    .map((finding) => (finding === 'small_pool' ? '小流动性池' : '疑似 Sandwich'))
+    .join('、');
+  if (estimate.status === 'insufficient_data') {
+    return [
+      `关联发现：${findingLabel}。`,
+      `估算范围：${scope}。`,
+      estimate.reason === 'missing_prior_same_side_trade'
+        ? '金额：数据不足；缺少目标成交前最近一笔同池、同方向 XXYY 成交，无法建立价格基准。'
+        : '金额：数据不足；目标成交金额字段缺失或无效。',
+      '说明：不会用池流动性大小直接猜测损失金额。',
+    ];
+  }
+
+  const symbol = transactionNativeSymbol(output);
+  const sideFormula =
+    estimate.side === 'buy'
+      ? '买入多付 = 实际支付原生币 − 实际获得代币 × 基准单价'
+      : '卖出少收 = 实际卖出代币 × 基准单价 − 实际收到原生币';
+  const common = [
+    `关联发现：${findingLabel}${estimate.relatedFindings.length > 1 ? '；影响无法拆分，金额不能重复相加' : ''}。`,
+    `估算范围：${scope}。`,
+    `价格基准：目标成交前最近一笔同池、同方向 XXYY 成交 ${estimate.benchmarkTransactionId}。`,
+    `实际均价：${formatEstimatedAmount(estimate.actualUnitPriceNative, 12)} ${symbol}/Token；基准均价：${formatEstimatedAmount(estimate.benchmarkUnitPriceNative, 12)} ${symbol}/Token。`,
+    `计算：${sideFormula}。`,
+  ];
+  if (estimate.status === 'no_adverse_deviation') {
+    return [
+      ...common,
+      '估算结果：按该相邻成交基准未观察到正向不利偏差（记为 0）；这不等同于证明用户没有损失。',
+      '说明：该估算不是无攻击/主导池状态下的反事实损失证明，不含 Gas、Token 税、其他路由腿或价格继续波动。',
+    ];
+  }
+  return [
+    ...common,
+    `估算不利偏差：约 ${formatEstimatedAmount(estimate.lossNativeAmount, 8)} ${symbol}${estimate.lossUsdAmount === undefined ? '' : `（约 $${formatEstimatedAmount(estimate.lossUsdAmount, 2)}）`}，约为基准应成交金额的 ${ppmPercent(estimate.lossPpm)}。`,
+    '说明：这是相邻同池成交基准下的可观测价格偏差估算，不是无攻击/主导池状态下的反事实损失证明；不含 Gas、Token 税、其他路由腿或价格继续波动。',
+  ];
+}
+
+function transactionNativeSymbol(output: DiagnoseXxyyTransactionOutput): string {
+  if (output.transaction.family === 'solana') return 'SOL';
+  if (output.transaction.chainId === '56') return 'BNB';
+  if (output.transaction.chainId === '1' || output.transaction.chainId === '8453') return 'ETH';
+  return '原生币';
+}
+
+function formatEstimatedAmount(value: number, maximumFractionDigits: number): string {
+  if (value > 0 && value < 10 ** -maximumFractionDigits) {
+    return value.toExponential(Math.min(maximumFractionDigits, 6));
+  }
+  return value.toLocaleString('en-US', { maximumFractionDigits, useGrouping: true });
 }
 
 function diagnosisHeadline(output: DiagnoseXxyyTransactionOutput): {

@@ -659,6 +659,7 @@ function deterministicInitialPlan(
 function requestedXxyyDiagnosisChecks(query: string): Array<'sandwich' | 'pool'> {
   const normalized = query.normalize('NFKC');
   const checks: Array<'sandwich' | 'pool'> = [];
+  const asksForLoss = /损失|亏损|多付|少收|滑点损耗|loss/iu.test(normalized);
   if (
     /detect[_\s-]?sandwich|被夹|夹子|三明治(?:攻击)?|sandwich|\bmev\b|front[- ]?run|back[- ]?run/iu.test(
       normalized,
@@ -672,6 +673,9 @@ function requestedXxyyDiagnosisChecks(query: string): Array<'sandwich' | 'pool'>
     )
   ) {
     checks.push('pool');
+  }
+  if (asksForLoss && checks.length === 0) {
+    checks.push('sandwich', 'pool');
   }
   return checks;
 }
@@ -986,8 +990,12 @@ function contextualizePublicTransactionFollowup(request: ChatRequest): ChatReque
 function isContextDependentTransactionFollowup(message: string): boolean {
   const normalized = message.normalize('NFKC');
   return (
-    /这笔|这个交易|该交易|该笔|刚才(?:那笔)?|上(?:一|面)笔|前面(?:那笔)?|它/iu.test(normalized) &&
-    /交易|池(?:子)?|被夹|夹子|三明治|sandwich|\bmev\b|成交腿|路由/iu.test(normalized)
+    /这笔|这个交易|该交易|该笔|刚才(?:那笔)?|上(?:一|面)笔|前面(?:那笔)?|它|那(?:大概)?(?:损失|亏损)/iu.test(
+      normalized,
+    ) &&
+    /交易|池(?:子)?|被夹|夹子|三明治|sandwich|\bmev\b|成交腿|路由|损失|亏损|多付|少收/iu.test(
+      normalized,
+    )
   );
 }
 

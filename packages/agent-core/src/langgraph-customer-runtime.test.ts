@@ -297,6 +297,52 @@ describe('createLangGraphCustomerRuntime', () => {
     );
   });
 
+  it('runs both XXYY checks when a transaction loss estimate is requested', async () => {
+    const registry = createToolRegistry();
+    const diagnosisExecute = vi.fn(() =>
+      Promise.resolve({
+        agentRoute: 'chain_answer' as const,
+        answer: '用户损失估算完成。',
+        citations: [],
+        confidence: 0.65,
+        intent: 'onchain_transaction' as const,
+      }),
+    );
+    registry.register({
+      name: 'get_public_transaction',
+      description: 'Generic transaction lookup.',
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.custom<ChatResponse>(() => true),
+      execute: vi.fn(() => Promise.reject(new Error('generic tool must not run'))),
+    });
+    registry.register({
+      name: 'diagnose_xxyy_transaction',
+      description: 'XXYY transaction diagnosis.',
+      inputSchema: z.object({
+        checks: z.array(z.enum(['sandwich', 'pool'])),
+        network: z.string().optional(),
+        reference: z.string(),
+      }),
+      outputSchema: z.custom<ChatResponse>(() => true),
+      execute: diagnosisExecute,
+    });
+    const transactionHash = `0x${'7'.repeat(64)}`;
+
+    const response = await createLangGraphCustomerRuntime({
+      planner: createScriptedPlannerModel([]),
+      registry,
+    }).ask({
+      channel: 'telegram',
+      message: `BSC 交易 ${transactionHash} 用户损失了多少钱？`,
+    });
+
+    expect(response.answer).toContain('损失估算完成');
+    expect(diagnosisExecute).toHaveBeenCalledWith(
+      { checks: ['sandwich', 'pool'], network: 'eip155:56', reference: transactionHash },
+      expect.objectContaining({ channel: 'telegram' }),
+    );
+  });
+
   it('clarifies instead of guessing a tool when planner parsing repeatedly fails', async () => {
     const registry = createToolRegistry();
     const response: ChatResponse = {

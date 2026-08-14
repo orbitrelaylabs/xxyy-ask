@@ -186,6 +186,10 @@ describe('formatXxyyTransactionDiagnosis', () => {
     expect(response.answer).toContain('前置交易：front-transaction');
     expect(response.answer).toContain('后置交易：back-transaction');
     expect(response.answer).toContain('代币 5，原生币 0.5，约 $50，Slot 1234');
+    expect(response.answer).toContain('用户损失估算');
+    expect(response.answer).toContain('影响无法拆分，金额不能重复相加');
+    expect(response.answer).toContain('按该相邻成交基准未观察到正向不利偏差');
+    expect(response.answer).toContain('不是无攻击/主导池状态下的反事实损失证明');
   });
 
   it('reports the selected XXYY leg and Sandwich result for a split-route transaction', () => {
