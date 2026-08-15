@@ -32,7 +32,7 @@ external dependency:
 
 ## 环境
 
-需要 Node `24.16.0` 和 pnpm `11.17.0`。先复制环境模板并填写模型与数据库配置：
+需要 Node `24.18.0` 和 pnpm `11.17.0`。先复制环境模板并填写模型与数据库配置：
 
 ```bash
 cp .env.example .env
