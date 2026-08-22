@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@orbitrelaylabs/xxyy-transaction-skills": "workspace:*",
+    "@orbitrelaylabs/skills": "workspace:*",
     "zod": "^4.0.0"
   },
   "scripts": {

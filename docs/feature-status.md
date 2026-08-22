@@ -7,7 +7,7 @@
 - Telegram Bot 数据库白名单和逐用户每日对话额度；支持用已与 Bot 交互过的 `@username` 添加，实际授权绑定数字 User ID；额度未设置时无限制。
 - 官方产品文档、媒体、X / Twitter 更新的同步、审计、摄取和知识治理。
 - Product Support capability：当前 Agent 在应用内直接调用 Product RAG，不维护独立对外 Skill 包装。
-- `vendor/orbitrelaylabs-skills` 保存来自 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills) 固定上游 commit 的 `onchain-transaction-inspector`、`xxyy-transaction-diagnosis` 和自包含 JSON CLI；不提供 SDK，本仓库通过固定路径子进程桥接集成。
+- `vendor/orbitrelaylabs-skills` 是固定 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills) 审核 commit 的 Git submodule，提供 `onchain-transaction-inspector`、`xxyy-transaction-diagnosis` 和自包含 JSON CLI；不提供 SDK，本仓库通过固定路径子进程桥接集成。
 - Capability Registry：固定 manifest/grant、schema、超时、输出限制和脱敏审计；Skill 目录不会自动注册 Planner 工具。
 - 交易运行面不要求单独服务、不调用 RPC，也不接受调用方 endpoint。
 

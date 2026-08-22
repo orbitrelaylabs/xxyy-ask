@@ -2,7 +2,7 @@
 
 XXYY 客服 Agentic RAG monorepo。系统用 LangGraph JS 编排产品问答，并对用户明确提供的公开交易执行浏览器只读查询与 XXYY 成交诊断。
 
-产品问答由当前 Agent 在进程内直接调用 Product RAG。交易能力源自 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills)，并以记录上游 commit 的可审计源码快照保存在 `vendor/orbitrelaylabs-skills`：
+产品问答由当前 Agent 在进程内直接调用 Product RAG。交易能力源自 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills)，并以固定 commit 的 Git submodule 保存在 `vendor/orbitrelaylabs-skills`：
 
 - `onchain-transaction-inspector`：通过自包含浏览器 CLI 查询单笔 EVM/Solana 交易基础事实。
 - `xxyy-transaction-diagnosis`：通过自包含浏览器 CLI 查询 XXYY 成交、池子和结构性 Sandwich 模式，返回真实 XXYY 标注截图。
@@ -27,7 +27,7 @@ packages/
 docs/              架构、状态和产品知识
 
 external dependency:
-  @orbitrelaylabs/xxyy-transaction-skills
+  vendor/orbitrelaylabs-skills  @orbitrelaylabs/skills Git submodule
 ```
 
 ## 环境
@@ -36,6 +36,7 @@ external dependency:
 
 ```bash
 cp .env.example .env
+git submodule update --init --recursive
 pnpm install --frozen-lockfile
 ```
 
@@ -125,7 +126,7 @@ pnpm xxyy:diagnose -- \
 
 诊断会访问固定 Explorer 和 XXYY 页面，等待关键页面数据，定位目标成交及相邻行，并生成真实整页标注截图。页面字段不完整时返回 `partial` 或 `insufficient_data`。
 
-JSON CLI 和 Skill 的来源与刷新说明见 `vendor/orbitrelaylabs-skills/UPSTREAM.md`。该包不提供 SDK；本仓库只通过受限子进程桥接调用两个经过验证并随源码提交的 bundle。
+JSON CLI 和 Skill 由 `vendor/orbitrelaylabs-skills` submodule 固定到审核过的上游 commit。该包不提供 SDK；本仓库只通过受限子进程桥接调用两个构建完成的 bundle。更新时先在 Skill 仓库提交并推送，再在本仓库提交新的 submodule 指针。
 
 ## 知识库命令
 

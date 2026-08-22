@@ -1,6 +1,6 @@
 # Transaction Analysis Core
 
-`vendor/orbitrelaylabs-skills` 中的 transaction-analysis 模块是来自 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills) 固定上游 commit 的无网络 EVM 交易快照领域实现。浏览器 CLI 从固定 Explorer 页面提取有限事实，校验后交给 core 生成稳定的交易状态、发送方、接收方、区块、时间、原生价值、gas fee、资产变化、warnings 和 evidence。它只作为自包含 Skill bundle 的内部实现发布，不作为 SDK 模块导出。
+`vendor/orbitrelaylabs-skills` submodule 中的 transaction-analysis 模块是来自 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills) 固定上游 commit 的无网络 EVM 交易快照领域实现。浏览器 CLI 从固定 Explorer 页面提取有限事实，校验后交给 core 生成稳定的交易状态、发送方、接收方、区块、时间、原生价值、gas fee、资产变化、warnings 和 evidence。它只作为自包含 Skill bundle 的内部实现发布，不作为 SDK 模块导出。
 
 核心不负责：
 

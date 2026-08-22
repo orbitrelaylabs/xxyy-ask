@@ -11,7 +11,7 @@ importers:
 
   .:
     dependencies:
-      '@orbitrelaylabs/xxyy-transaction-skills':
+      '@orbitrelaylabs/skills':
         specifier: workspace:*
         version: link:vendor/orbitrelaylabs-skills
     devDependencies:
@@ -197,7 +197,7 @@ importers:
 
   packages/transaction-skill-bridge:
     dependencies:
-      '@orbitrelaylabs/xxyy-transaction-skills':
+      '@orbitrelaylabs/skills':
         specifier: workspace:*
         version: link:../../vendor/orbitrelaylabs-skills
       zod:
@@ -217,7 +217,7 @@ importers:
         specifier: ^0.28.0
         version: 0.28.0
       prettier:
-        specifier: ^3.8.3
+        specifier: 3.8.3
         version: 3.8.3
       tsx:
         specifier: ^4.22.3

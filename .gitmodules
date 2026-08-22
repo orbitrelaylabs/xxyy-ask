@@ -1,0 +1,3 @@
+[submodule "vendor/orbitrelaylabs-skills"]
+	path = vendor/orbitrelaylabs-skills
+	url = git@github.com:orbitrelaylabs/skills.git

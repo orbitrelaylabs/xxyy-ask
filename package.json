@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@orbitrelaylabs/xxyy-transaction-skills": "workspace:*"
+    "@orbitrelaylabs/skills": "workspace:*"
   },
   "scripts": {
     "agent:smoke": "node scripts/agent-smoke.mjs",
@@ -17,7 +17,7 @@
     "app:status": "docker compose ps",
     "app:stop": "docker compose stop api telegram telegram-curation-worker",
     "app:up": "docker compose up --detach --build",
-    "check": "pnpm --filter @xxyy/web build && pnpm --filter @orbitrelaylabs/xxyy-transaction-skills check && pnpm format:check && pnpm typecheck && pnpm test && pnpm rag:evaluate",
+    "check": "pnpm --filter @xxyy/web build && pnpm --filter @orbitrelaylabs/skills check && pnpm format:check && pnpm typecheck && pnpm test && pnpm rag:evaluate",
     "docs:sync": "node scripts/sync-xxyy-docs.mjs",
     "docs:audit": "node scripts/audit-xxyy-docs.mjs",
     "docs:enrich:media": "node scripts/enrich-xxyy-media.mjs",

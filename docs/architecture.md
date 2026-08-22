@@ -16,7 +16,7 @@ Telegram / HTTP API / CLI
  Postgres + pgvector   Explorer pages  XXYY pages/screenshots
 ```
 
-这是 pnpm workspace monorepo。应用入口位于 `apps/`，客服共享实现位于 `packages/`。终端用户客服当前只提供 Telegram；浏览器端只保留受保护管理后台。可分发交易 CLI 和 Skills 源自 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills)，可审计快照位于 `vendor/orbitrelaylabs-skills`。
+这是 pnpm workspace monorepo。应用入口位于 `apps/`，客服共享实现位于 `packages/`。终端用户客服当前只提供 Telegram；浏览器端只保留受保护管理后台。可分发交易 CLI 和 Skills 源自 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills)，并以固定 commit 的 Git submodule 位于 `vendor/orbitrelaylabs-skills`。
 
 Telegram 在进入 Agent Runtime 前执行数据库白名单和逐用户日额度检查。Bot 会把已交互用户的公开 User ID、username 和显示名更新到 `telegram_user_identities`，供管理后台把 `@username` 解析为稳定的数字 User ID；username 不能直接作为授权主键。`telegram_bot_users` 决定用户是否允许调用以及可选的 `daily_limit`；`telegram_bot_daily_usage` 原子记录自然日用量。未设置额度表示无限制，但仍记录调用次数。
 
@@ -28,14 +28,14 @@ Telegram 在进入 Agent Runtime 前执行数据库白名单和逐用户日额�
 
 ## 公开交易查询
 
-Vendored `@orbitrelaylabs/xxyy-transaction-skills` 的两个自包含 bundle 管理固定 Explorer 路由、XXYY 页面定位、数据等待和隔离 Chrome 截图；本仓库的 Chrome/CDP driver 提供独立 Profile，Node preload层还会把固定 XXYY pair/trade fetch转换成页面原生 Vue组件操作，并禁止直接 Explorer/XXYY数据 API 与 RPC。其维护源码组合：
+Submodule package `@orbitrelaylabs/skills` 的两个自包含 bundle 管理固定 Explorer 路由、XXYY 页面定位、数据等待和隔离 Chrome 截图；本仓库的 Chrome/CDP driver 提供独立 Profile，Node preload层还会把固定 XXYY pair/trade fetch转换成页面原生 Vue组件操作，并禁止直接 Explorer/XXYY数据 API 与 RPC。其维护源码组合：
 
 - `transaction-analysis-core`：EVM 浏览器快照的确定性领域投影；
 - runtime-local Solana contracts：Solana 浏览器页面数据校验；
 - `xxyy-market-data-adapter`：固定 XXYY 页面成交与多池数据；
 - `xxyy-transaction-diagnosis-core`：池子大小、canonical 匹配和结构性 Sandwich 四态结论。
 
-两个交易 Skill 和 JSON CLI 从 vendored 源码构建，无需启动常驻服务，也不暴露 SDK。`packages/transaction-skill-bridge` 只执行固定路径脚本、校验 JSON、限制超时与输出大小，并用环境变量 allowlist 隔离模型与数据库密钥；它不接受 endpoint，不调用 RPC，不读取账户私有数据。
+两个交易 Skill 和 JSON CLI 从固定 submodule commit 构建，无需启动常驻服务，也不暴露 SDK。`packages/transaction-skill-bridge` 只执行固定路径脚本、校验 JSON、限制超时与输出大小，并用环境变量 allowlist 隔离模型与数据库密钥；它不接受 endpoint，不调用 RPC，不读取账户私有数据。
 
 ## 授权与失败模式
 

@@ -14,7 +14,7 @@ if (command !== 'inspect' && command !== 'diagnose') {
   process.stderr.write('Usage: run-pinned-skill.mjs <inspect|diagnose> [arguments]\n');
   process.exitCode = 1;
 } else {
-  const packageJson = require.resolve('@orbitrelaylabs/xxyy-transaction-skills/package.json');
+  const packageJson = require.resolve('@orbitrelaylabs/skills/package.json');
   const dependencyRoot = path.dirname(packageJson);
   const driverDirectory = path.dirname(fileURLToPath(import.meta.url));
   const browserFetchShim = path.join(driverDirectory, 'xxyy-browser-fetch-shim.mjs');

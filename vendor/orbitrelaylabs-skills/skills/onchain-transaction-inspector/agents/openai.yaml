@@ -1,6 +1,0 @@
-interface:
-  display_name: 'Onchain Transaction Inspector'
-  short_description: 'Read XXYY-supported transaction facts with isolated Chrome'
-  default_prompt: 'Use $onchain-transaction-inspector to inspect this public transaction with browser-only evidence.'
-policy:
-  allow_implicit_invocation: false

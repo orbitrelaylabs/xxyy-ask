@@ -103,7 +103,7 @@ export function createTransactionSkillDiagnosisHandler(
 }
 
 export function resolveTransactionSkillScriptPaths(): { diagnose: string; inspect: string } {
-  const packageJson = require.resolve('@orbitrelaylabs/xxyy-transaction-skills/package.json');
+  const packageJson = require.resolve('@orbitrelaylabs/skills/package.json');
   const root = path.dirname(packageJson);
   return {
     diagnose: path.join(root, 'skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs'),

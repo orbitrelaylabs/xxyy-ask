@@ -8,6 +8,7 @@ checkout 的 Git 配置。验证由开发者按改动风险手动执行。
 ```bash
 corepack enable
 corepack install
+git submodule update --init --recursive
 pnpm install --frozen-lockfile
 ```
 

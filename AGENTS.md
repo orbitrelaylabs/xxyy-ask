@@ -39,8 +39,8 @@
 - `packages/rag-core`：意图分类、检索接口、pgvector store、LLM answer provider、边界回复和配置错误类型。
 - `packages/agent-core`：LangGraph 客服 Agent runtime、planner、tool registry、Capability Registry，以及内部产品能力和两个公开交易 Skill 的显式授权 bridge。
 - `packages/product-support-runtime`：产品知识检索的直接 runtime 与输入输出契约。
-- `packages/transaction-skill-bridge`：只执行 vendored 固定源码快照中的两个 Skill JSON CLI，校验输入输出、限制超时和输出大小，并只向子进程传递浏览器/XXYY 配置环境变量；不暴露浏览器内部 API 或模型/数据库密钥。
-- `vendor/orbitrelaylabs-skills` / `@orbitrelaylabs/xxyy-transaction-skills`：记录 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills) 上游 commit 的可审计源码快照；包含自包含的 EVM/Solana 浏览器查询与 XXYY 成交/池子/Sandwich/截图 JSON CLI，不提供 SDK。
+- `packages/transaction-skill-bridge`：只执行固定 submodule commit 中的两个 Skill JSON CLI，校验输入输出、限制超时和输出大小，并只向子进程传递浏览器/XXYY 配置环境变量；不暴露浏览器内部 API 或模型/数据库密钥。
+- `vendor/orbitrelaylabs-skills` / `@orbitrelaylabs/skills`：[orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills) 的 Git submodule；主仓库固定审核过的 commit，包含自包含的 EVM/Solana 浏览器查询与 XXYY 成交/池子/Sandwich/截图 JSON CLI，不提供 SDK。克隆后必须初始化 submodule；更新时先在 Skill 仓库提交并推送，再提交本仓库的 gitlink。
 - `apps/cli`：`rag:ingest`、`rag:sync:x`、`rag:migrate`、`rag:stats`、`rag:evaluate`、`rag:ask`。
 - `apps/api`：HTTP API 和受保护管理面服务入口。
 - `apps/telegram-bot`：Telegram Bot long polling 与独立群知识整理 Worker；群消息实时写入本地 PostgreSQL 审计缓冲并入持久化队列，群内保持静默，Worker 自动生成待审候选，管理员批准后才进入发布队列，Bot 和整理 Worker 都不执行 pgvector 发布。

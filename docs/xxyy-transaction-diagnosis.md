@@ -4,7 +4,7 @@
 
 该能力处理用户明确提供的一笔公开交易，回答是否具备 Sandwich 证据、实际成交池是否匹配已声明 canonical pool、是否属于版本化阈值下的小流动性池，并在发现小池或疑似 Sandwich 时给出证据受控的成交偏差估算。它不查询钱包历史、余额、账户或私有订单，不推断地址真实归属，也不提供交易建议。
 
-基础公开交易查询与 XXYY 产品诊断保持解耦。XXYY 页面、成交行交叉验证、截图、JSON CLI 和 Skills 源自 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills)，并以记录上游 commit 的源码快照保存在 `vendor/orbitrelaylabs-skills`。该包不提供 SDK；本仓库通过受限 JSON CLI 子进程和浏览器兼容层桥接集成。
+基础公开交易查询与 XXYY 产品诊断保持解耦。XXYY 页面、成交行交叉验证、截图、JSON CLI 和 Skills 源自 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills)，并以固定 commit 的 Git submodule 保存在 `vendor/orbitrelaylabs-skills`。该包不提供 SDK；本仓库通过受限 JSON CLI 子进程和浏览器兼容层桥接集成。
 
 ## 包边界
 
