@@ -19,6 +19,8 @@ describe('quality evaluation jobs', () => {
     expect(sql).toContain('quality_evaluation_reports');
     expect(sql).toContain("mode in ('deterministic','provider_retrieval','provider')");
     expect(sql).toContain('quality_evaluation_reports_baseline_mode_idx');
+    expect(sql).toContain("gate_reasons='{}'::jsonb");
+    expect(sql).toContain("failures='{}'::jsonb");
   });
 
   it('deduplicates active requests by fixed mode and maps the returned job', async () => {
@@ -95,6 +97,13 @@ describe('quality evaluation jobs', () => {
     expect(query.mock.calls.map((call) => String(call[0]))).toEqual(
       expect.arrayContaining(['begin', 'commit']),
     );
+    const insertCall = query.mock.calls.find((call) =>
+      String(call[0]).includes('insert into quality_evaluation_reports'),
+    );
+    expect(String(insertCall?.[0])).toContain('$10::jsonb,$11::jsonb');
+    expect(insertCall?.[1]?.[7]).toBe('{"casePassRate":1,"recallAtK":1}');
+    expect(insertCall?.[1]?.[9]).toBe('[]');
+    expect(insertCall?.[1]?.[10]).toBe('[]');
     expect(transaction.release).toHaveBeenCalled();
   });
 });

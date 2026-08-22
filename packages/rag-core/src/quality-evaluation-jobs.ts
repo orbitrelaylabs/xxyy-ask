@@ -235,7 +235,7 @@ export function createPgQualityEvaluationJobStore(options: {
           `insert into quality_evaluation_reports (
              id, job_id, mode, with_judge, generated_at, total_cases, passed_cases,
              metrics, gates_passed, gate_reasons, failures
-           ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           ) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10::jsonb,$11::jsonb)
            returning ${REPORT_COLUMNS}`,
           [
             reportId,
@@ -245,10 +245,10 @@ export function createPgQualityEvaluationJobStore(options: {
             input.generatedAt,
             normalizeCount(input.totalCases),
             normalizeCount(input.passedCases),
-            input.metrics,
+            JSON.stringify(input.metrics),
             input.gatesPassed,
-            input.gateReasons.slice(0, 50),
-            input.failures.slice(0, 200),
+            JSON.stringify(input.gateReasons.slice(0, 50)),
+            JSON.stringify(input.failures.slice(0, 200)),
           ],
         );
         const updated = await query<QualityEvaluationJobRow>(
@@ -401,6 +401,13 @@ export async function migrateQualityEvaluationJobs(client: PgClientLike): Promis
     client,
     `create unique index if not exists quality_evaluation_reports_baseline_mode_idx
      on quality_evaluation_reports (mode) where is_baseline=true`,
+  );
+  await query(
+    client,
+    `update quality_evaluation_reports set
+       gate_reasons=case when gate_reasons='{}'::jsonb then '[]'::jsonb else gate_reasons end,
+       failures=case when failures='{}'::jsonb then '[]'::jsonb else failures end
+     where gate_reasons='{}'::jsonb or failures='{}'::jsonb`,
   );
   await query(
     client,
