@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - vendor/*
 overrides:
   '@types/node': ^24.0.0
 allowBuilds:

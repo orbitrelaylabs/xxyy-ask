@@ -4,6 +4,8 @@ coverage/
 *.tsbuildinfo
 skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs
 skills/onchain-transaction-inspector/scripts/inspect.mjs
+vendor/orbitrelaylabs-skills/skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs
+vendor/orbitrelaylabs-skills/skills/onchain-transaction-inspector/scripts/inspect.mjs
 
 pnpm-lock.yaml
 docs/product-features/

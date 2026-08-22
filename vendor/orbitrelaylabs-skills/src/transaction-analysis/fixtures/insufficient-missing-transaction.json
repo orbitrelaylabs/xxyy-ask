@@ -1,0 +1,12 @@
+{
+  "chainId": "1",
+  "observedAt": "2026-07-21T12:04:00.000Z",
+  "requestedTransactionHash": "0x5656565656565656565656565656565656565656565656565656565656565656",
+  "sources": [
+    {
+      "id": "fixture-primary",
+      "kind": "fixture",
+      "observedAt": "2026-07-21T12:04:00.000Z"
+    }
+  ]
+}

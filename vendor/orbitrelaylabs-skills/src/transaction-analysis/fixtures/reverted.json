@@ -1,0 +1,39 @@
+{
+  "block": {
+    "hash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "number": "19000001",
+    "sourceId": "fixture-primary",
+    "timestamp": "1700000012"
+  },
+  "chainId": "1",
+  "observedAt": "2026-07-21T12:01:00.000Z",
+  "receipt": {
+    "blockNumber": "19000001",
+    "effectiveGasPrice": "3000000000",
+    "gasUsed": "50000",
+    "logs": [],
+    "sourceId": "fixture-primary",
+    "status": "reverted",
+    "transactionHash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "transactionIndex": 13
+  },
+  "requestedTransactionHash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "sources": [
+    {
+      "id": "fixture-primary",
+      "kind": "fixture",
+      "observedAt": "2026-07-21T12:01:00.000Z"
+    }
+  ],
+  "transaction": {
+    "blockNumber": "19000001",
+    "from": "0x1111111111111111111111111111111111111111",
+    "hash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "input": "0x",
+    "nonce": "43",
+    "sourceId": "fixture-primary",
+    "to": "0x2222222222222222222222222222222222222222",
+    "transactionIndex": 13,
+    "value": "500000000000000000"
+  }
+}

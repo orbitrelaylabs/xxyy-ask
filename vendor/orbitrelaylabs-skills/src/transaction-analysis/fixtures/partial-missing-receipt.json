@@ -1,0 +1,21 @@
+{
+  "chainId": "8453",
+  "observedAt": "2026-07-21T12:02:00.000Z",
+  "requestedTransactionHash": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "sources": [
+    {
+      "id": "fixture-primary",
+      "kind": "fixture",
+      "observedAt": "2026-07-21T12:02:00.000Z"
+    }
+  ],
+  "transaction": {
+    "from": "0x1111111111111111111111111111111111111111",
+    "hash": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "input": "0x",
+    "nonce": "44",
+    "sourceId": "fixture-primary",
+    "to": "0x2222222222222222222222222222222222222222",
+    "value": "1"
+  }
+}

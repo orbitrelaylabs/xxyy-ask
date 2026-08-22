@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import {
-  EgoBrowserUnavailableError,
+  ExplorerBrowserUnavailableError,
   createTransactionSkillDiagnosisHandler,
   createTransactionSkillPublicClient,
   resolveTransactionSkillScriptPaths,
@@ -47,7 +47,7 @@ describe('transaction Skill CLI bridge', () => {
   it('maps CLI browser failures to the stable host error', async () => {
     const client = createTransactionSkillPublicClient({ scriptPaths });
     await expect(client.getTransaction({ reference: 'fail' })).rejects.toBeInstanceOf(
-      EgoBrowserUnavailableError,
+      ExplorerBrowserUnavailableError,
     );
   });
 });

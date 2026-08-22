@@ -294,9 +294,19 @@ describe('root package scripts', () => {
       'pnpm --filter @xxyy/telegram-bot curation-worker',
     );
     expect(packageJson.scripts['onchain:query:production']).toBeUndefined();
-    expect(packageJson.scripts['xxyy:diagnose']).toBe('xxyy-diagnose');
+    expect(packageJson.scripts['xxyy:diagnose']).toBe(
+      'node packages/transaction-skill-bridge/bin/run-pinned-skill.mjs diagnose',
+    );
     expect(packageJson.scripts['xxyy:skill:build']).toBeUndefined();
-    expect(packageJson.scripts['onchain:inspect']).toBe('onchain-inspect');
+    expect(packageJson.scripts['onchain:inspect']).toBe(
+      'node packages/transaction-skill-bridge/bin/run-pinned-skill.mjs inspect',
+    );
+    expect(packageJson.scripts['explorer:verify']).toBe(
+      'node packages/transaction-skill-bridge/bin/xxyy-chrome-driver.mjs verify',
+    );
+    expect(packageJson.scripts['explorer:stop']).toBe(
+      'node packages/transaction-skill-bridge/bin/xxyy-chrome-driver.mjs stop',
+    );
     expect(packageJson.scripts.start).toBeUndefined();
     expect(packageJson.scripts.dev).toBeUndefined();
     expect(packageJson.scripts.sync).toBeUndefined();

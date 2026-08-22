@@ -1,5 +1,6 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import {
@@ -13,6 +14,11 @@ import {
 } from './contracts.js';
 
 const require = createRequire(import.meta.url);
+const bundledBrowserDriverDirectory = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../bin',
+);
+const browserFetchShim = path.join(bundledBrowserDriverDirectory, 'xxyy-browser-fetch-shim.mjs');
 const MAX_STDOUT_BYTES = 1_048_576;
 const MAX_STDERR_BYTES = 65_536;
 const ALLOWED_ENV_KEYS = [
@@ -29,12 +35,12 @@ const ALLOWED_ENV_KEYS = [
   'XXYY_SMALL_POOL_MAX_RELATIVE_LIQUIDITY_PPM',
 ] as const;
 
-export class EgoBrowserUnavailableError extends Error {
-  readonly code = 'ego_browser_unavailable';
+export class ExplorerBrowserUnavailableError extends Error {
+  readonly code = 'explorer_browser_unavailable';
 
   constructor() {
-    super('ego-browser is required for public Explorer queries.');
-    this.name = 'EgoBrowserUnavailableError';
+    super('Chrome or Chromium is required for public Explorer queries.');
+    this.name = 'ExplorerBrowserUnavailableError';
   }
 }
 
@@ -105,21 +111,48 @@ export function resolveTransactionSkillScriptPaths(): { diagnose: string; inspec
   };
 }
 
-export async function resolveEgoBrowserExecutable(
-  pathValue: string | undefined,
+export async function resolveExplorerBrowserExecutable(
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<string | undefined> {
-  const directories = (pathValue ?? '').split(path.delimiter).filter(Boolean);
   const { access } = await import('node:fs/promises');
-  for (const directory of directories) {
-    const candidate = path.join(directory, 'ego-browser');
+  const configured = env.XXYY_SCREENSHOT_CHROME_EXECUTABLE?.trim();
+  const candidates = (
+    configured
+      ? [configured]
+      : [
+          process.platform === 'darwin'
+            ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+            : undefined,
+          process.platform === 'darwin'
+            ? '/Applications/Chromium.app/Contents/MacOS/Chromium'
+            : undefined,
+          process.platform === 'linux' ? '/usr/bin/google-chrome-stable' : undefined,
+          process.platform === 'linux' ? '/usr/bin/google-chrome' : undefined,
+          process.platform === 'linux' ? '/usr/bin/chromium' : undefined,
+          process.platform === 'linux' ? '/usr/bin/chromium-browser' : undefined,
+        ]
+  ).filter((candidate): candidate is string => candidate !== undefined && candidate.length > 0);
+  for (const candidate of candidates) {
     try {
       await access(candidate);
-      return candidate;
+      const resolved = path.resolve(candidate);
+      if (await isChromeExecutable(resolved)) return resolved;
     } catch {
-      // Continue searching the configured PATH.
+      // Try the next fixed local browser location.
     }
   }
   return undefined;
+}
+
+function isChromeExecutable(executable: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile(executable, ['--version'], { timeout: 2_000 }, (error, stdout, stderr) => {
+      resolve(
+        error === null &&
+          /(?:Google Chrome|Chromium|Chrome for Testing)/iu.test(`${stdout}${stderr}`),
+      );
+    });
+  });
 }
 
 async function runJsonCli(
@@ -128,7 +161,7 @@ async function runJsonCli(
   options: { env?: NodeJS.ProcessEnv; signal?: AbortSignal; timeoutMs: number },
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [scriptPath, ...args], {
+    const child = spawn(process.execPath, ['--import', browserFetchShim, scriptPath, ...args], {
       env: createSkillEnvironment(options.env ?? process.env),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -184,11 +217,15 @@ async function runJsonCli(
 }
 
 function createSkillEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return Object.fromEntries(
+  const environment = Object.fromEntries(
     ALLOWED_ENV_KEYS.flatMap((key) =>
       source[key] === undefined ? [] : [[key, source[key]] as const],
     ),
   );
+  environment.PATH = [bundledBrowserDriverDirectory, source.PATH]
+    .filter((value): value is string => value !== undefined && value.length > 0)
+    .join(path.delimiter);
+  return environment;
 }
 
 function extractCliError(value: unknown): string | undefined {
@@ -199,7 +236,11 @@ function extractCliError(value: unknown): string | undefined {
 }
 
 function classifyCliError(message: string): Error {
-  if (message.includes('ego-browser')) return new EgoBrowserUnavailableError();
-  if (message.toLowerCase().includes('verification')) return new ExplorerBrowserVerificationError();
+  if (message.toLowerCase().includes('verification')) {
+    return new ExplorerBrowserVerificationError();
+  }
+  if (/xxyy-chrome-driver|Chrome or Chromium is required/iu.test(message)) {
+    return new ExplorerBrowserUnavailableError();
+  }
   return new Error(message || 'Transaction Skill failed.');
 }

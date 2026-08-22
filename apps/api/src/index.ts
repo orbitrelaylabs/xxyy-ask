@@ -15,7 +15,7 @@ import {
 import {
   createTransactionSkillDiagnosisHandler,
   createTransactionSkillPublicClient,
-  resolveEgoBrowserExecutable,
+  resolveExplorerBrowserExecutable,
 } from '@xxyy/transaction-skill-bridge';
 import { createOpenAiEmbeddingProvider, EmbeddingConfigurationError } from '@xxyy/knowledge';
 import {
@@ -1311,16 +1311,16 @@ async function checkBrowserRuntime(env: ApiEnv): Promise<HealthCheck> {
     await access(chromeExecutable!, fsConstants.X_OK);
     await access(profileDirectory!, fsConstants.R_OK | fsConstants.W_OK);
     await access(screenshotDirectory!, fsConstants.R_OK | fsConstants.W_OK);
-    const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH ?? process.env.PATH);
-    if (egoBrowserExecutable === undefined) {
+    const explorerBrowserExecutable = await resolveExplorerBrowserExecutable(env);
+    if (explorerBrowserExecutable === undefined) {
       return {
         configured: true,
-        driver: 'ego-browser-unavailable',
-        message: 'ego-browser is unavailable; public Explorer queries are disabled.',
+        driver: 'chrome-cdp-unavailable',
+        message: 'Chrome or Chromium is unavailable; public Explorer queries are disabled.',
         status: 'error',
       };
     }
-    return { configured: true, driver: 'ego-browser', status: 'ok' };
+    return { configured: true, driver: 'chrome-cdp', status: 'ok' };
   } catch {
     return {
       configured: true,
@@ -1564,11 +1564,11 @@ export function startServer(options: StartServerOptions = {}): ReturnType<typeof
 }
 
 async function logExplorerBrowserStartup(env: ApiEnv): Promise<void> {
-  const executable = await resolveEgoBrowserExecutable(env.PATH ?? process.env.PATH);
+  const executable = await resolveExplorerBrowserExecutable(env);
   process.stdout.write(
     executable === undefined
-      ? 'Explorer browser: ego-browser not found. Install ego lite from https://lite.ego.app/ for public transaction queries; product Q&A remains available.\n'
-      : `Explorer browser: ego-browser ready for all supported chains (${executable}).\n`,
+      ? 'Explorer browser: Chrome or Chromium not found; public transaction queries are disabled while product Q&A remains available.\n'
+      : `Explorer browser: isolated Chrome/CDP runtime ready for all supported chains (${executable}).\n`,
   );
 }
 
@@ -1689,8 +1689,8 @@ function createCachedChatServiceLoader(
 }
 
 async function createOptionalTransactionSkillClient(env: ApiEnv) {
-  const egoBrowserExecutable = await resolveEgoBrowserExecutable(env.PATH ?? process.env.PATH);
-  return egoBrowserExecutable === undefined
+  const explorerBrowserExecutable = await resolveExplorerBrowserExecutable(env);
+  return explorerBrowserExecutable === undefined
     ? undefined
     : createTransactionSkillPublicClient({ env });
 }

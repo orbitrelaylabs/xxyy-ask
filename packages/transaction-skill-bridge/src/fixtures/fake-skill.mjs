@@ -8,7 +8,7 @@ const value = (name) => {
 
 if (value('--reference') === 'fail') {
   process.stdout.write(
-    `${JSON.stringify({ error: { message: 'ego-browser is unavailable' }, status: 'error' })}\n`,
+    `${JSON.stringify({ error: { message: 'xxyy-chrome-driver is unavailable' }, status: 'error' })}\n`,
   );
   process.exitCode = 1;
 } else {

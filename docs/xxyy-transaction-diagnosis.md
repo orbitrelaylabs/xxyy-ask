@@ -4,18 +4,18 @@
 
 该能力处理用户明确提供的一笔公开交易，回答是否具备 Sandwich 证据、实际成交池是否匹配已声明 canonical pool、是否属于版本化阈值下的小流动性池，并在发现小池或疑似 Sandwich 时给出证据受控的成交偏差估算。它不查询钱包历史、余额、账户或私有订单，不推断地址真实归属，也不提供交易建议。
 
-基础公开交易查询与 XXYY 产品诊断保持解耦。XXYY 页面/API、成交行交叉验证、截图、JSON CLI 和 Skills 位于独立仓库 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills)。该仓库不提供 SDK；本仓库通过固定提交依赖和受限 JSON CLI 子进程桥接集成。
+基础公开交易查询与 XXYY 产品诊断保持解耦。XXYY 页面、成交行交叉验证、截图、JSON CLI 和 Skills 源自 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills)，并以记录上游 commit 的源码快照保存在 `vendor/orbitrelaylabs-skills`。该包不提供 SDK；本仓库通过受限 JSON CLI 子进程和浏览器兼容层桥接集成。
 
 ## 包边界
 
 - 独立仓库维护源码中的 diagnosis core：无网络 I/O；执行精确十进制流动性比较和 Sandwich 四态投影。
-- 独立仓库维护源码中的 market-data 模块：只访问固定 `https://www.xxyy.io/api/data/search/v3` 和 `/api/data/trades/search`；输入不接受 endpoint、任意 HTTP 方法或任意页面。
+- 独立仓库维护源码中的 market-data 契约和匹配逻辑；本仓库的 Node preload compatibility layer 拦截其两个固定 fetch，改为在 XXYY 页面原生 `SearchDialog` 与 `tradeTable` Vue 组件中执行搜索和历史筛选。运行时不向这两个接口发出直接 Node HTTP 请求。
 - `skills/xxyy-transaction-diagnosis/scripts/diagnose.mjs`：组合固定 Explorer 浏览器证据、XXYY 市场适配器、判定 core 和截图提供器的自包含 JSON CLI。
 - `packages/transaction-skill-bridge`：本仓库内部固定路径调用、输入输出校验、取消、超时与输出上限边界。
 
-程序化 HTTP API 和 Telegram 在本机发现 `ego-browser` 后注册固定 Explorer 浏览器证据模式，不存在 RPC 回退。两者分别为固定 `web/anonymous`、`telegram/service` 创建 `xxyy.skill.diagnose_transaction` 精确授权，并通过同一 CLI bridge 调用固定 Skill bundle。公开 Web 客服页面已经移除。
+程序化 HTTP API 和 Telegram 在本机发现 Chrome/Chromium 后注册固定 Explorer 浏览器证据模式，不存在 Explorer API 或 RPC 回退。两者分别为固定 `web/anonymous`、`telegram/service` 创建 `xxyy.skill.diagnose_transaction` 精确授权，并通过同一 CLI bridge 调用固定 Skill bundle。公开 Web 客服页面已经移除。
 
-浏览器模式只打开固定 Explorer 页面并读取页面自身的受限响应，整体交易状态固定为 `partial`。当前覆盖 Solana、Ethereum、BNB Smart Chain、Base、Robinhood Chain 和 Stable Chain；六条链全部通过本机 `ego-browser` 复用同一用户验证状态，不再按站点分流到隔离 Chrome。代码只根据已校验交易哈希构造固定 allowlist 页面/API URL，不接受任意 chain ID、用户 endpoint 或页面脚本。EVM 深度 trace、池状态、反事实损失与攻击者收益不在公开路径采集，因此不会给出 `confirmed`。
+浏览器模式只打开固定 Explorer 交易页面并从 DOM 读取事实，整体交易状态固定为 `partial`。当前覆盖 Solana、Ethereum、BNB Smart Chain、Base、Robinhood Chain 和 Stable Chain；六条链全部通过本机独立 Chrome/CDP Profile 复用验证状态。兼容驱动会把固定 Skill 中原有的页面内 Explorer fetch 请求替换为站点专用 DOM 提取器，禁止 Explorer API、RPC、任意 chain ID、用户 endpoint 或模型提供的页面脚本。EVM 深度 trace、池状态、反事实损失与攻击者收益不在公开路径采集，因此不会给出 `confirmed`。
 
 ## 工具契约
 
@@ -73,11 +73,11 @@ canonical 声明通过 `XXYY_CANONICAL_POOL_CONFIG_JSON={"entries":[...]}` 注�
 
 ## 截图证据
 
-截图不是判定来源，但它是诊断成功后的正式用户可见交付物。只有结构化 API 已精确核对完整 transaction ID、完整 maker 和唯一池后，隔离 Chrome 提供器才打开固定 XXYY pair URL，并用 maker 后六位、买卖方向、成交时间、Token/原生币/USD 数量共同为候选行评分；多个候选无法唯一定位时失败关闭，不圈选可能错误的行。生成成功时 runtime 将截图标记为 `required` image attachment；Skill CLI 额外返回绝对 `filePath`，Telegram 必须发送图片，即使用户的问题中没有“截图”关键词。
+截图不是判定来源，但它是诊断成功后的正式用户可见交付物。只有浏览器组件状态已精确核对完整 transaction ID、完整 maker 和唯一池后，隔离 Chrome 提供器才打开固定 XXYY pair URL，并用 maker 后六位、买卖方向、成交时间、Token/原生币/USD 数量共同为候选行评分；多个候选无法唯一定位时失败关闭，不圈选可能错误的行。生成成功时 runtime 将截图标记为 `required` image attachment；Skill CLI 额外返回绝对 `filePath`，Telegram 必须发送图片，即使用户的问题中没有“截图”关键词。
 
-XXYY 历史成交请求固定带页面使用的 `X-CHAIN`、`X-LANGUAGE` 与 `X-VERSION` 请求头，并从交易时间前后 2 秒开始逐级扩大到 15 秒、120 秒，避免高频池的 50 条响应上限把目标哈希挤出结果。返回的 `blockNumber` 与 `logIndex` 会保留到目标和相邻成交证据中；EVM 周边成交已有这些字段时不再为每一行重复打开 Explorer。
+XXYY 浏览器兼容层调用页面原生历史筛选，从交易时间前后 2 秒开始逐级扩大到 15 秒、120 秒，并在同一个后台 Target 中选择仍包含目标完整哈希的最大上下文，避免高频池的 50 条显示上限把目标挤出结果。页面组件提供的 `blockNumber` 与 `logIndex` 会保留到目标和相邻成交证据中；EVM 周边成交已有这些字段时不再为每一行重复打开 Explorer。
 
-截图提供器调用 XXYY 页面自身 Vue 成交组件的原生历史筛选动作来定位目标时间窗，并且只允许给 XXYY 原生“最新成交”行增加红色轮廓。提供器不会绘制、注入或拼接成交列表，也不会在截图流程中直接请求成交 API；即使结构化查询已返回目标数据，只要站点原生表格没有渲染出可唯一定位的成交行，截图也必须返回 unavailable，不能生成合成证据图。
+结构化匹配和截图提供器都调用 XXYY 页面自身 Vue 成交组件的原生历史筛选动作；截图流程只允许给 XXYY 原生“最新成交”行增加红色轮廓。提供器不会绘制、注入或拼接成交列表，也不会直接请求成交 API；只要站点原生组件没有返回完整哈希或表格没有渲染出可唯一定位的成交行，诊断就必须返回 partial/insufficient_data 或截图 unavailable，不能生成合成证据图。
 
 截图保存前还会检查 TradingView iframe 已返回有效 OHLC 数值，并从原生 K 线 canvas 中检测到实际行情颜色像素；条件必须连续三次稳定。首次超时会强制刷新固定 XXYY 页面，再完整重做历史筛选、目标行居中和 K 线校验；第二次仍未就绪时返回截图 unavailable，不交付空白 K 线图片。
 
@@ -92,12 +92,14 @@ API 只从该目录公开名称为 64 位小写 SHA-256 加 `.png` 的文件。C
 
 ## 零 RPC 浏览器模式
 
-公开交易查询只要求已完成首次引导的 ego-browser：
+公开交易查询只要求可用的 Chrome/Chromium 和可写的隔离 Profile：
 
 ```bash
-command -v ego-browser
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version
+pnpm explorer:verify -- https://basescan.org/tx/<transaction-hash>
+pnpm explorer:stop
 ```
 
-Solscan、Blockscout 和 Scan 系 Explorer 都通过同一个受控页面读取器访问。API、Telegram 和两个 Skill CLI 分别复用固定命名的持久 Task Space，避免每笔交易创建新浏览器上下文而反复丢失验证状态；页面验证过期或 Cloudflare 再次拦截时返回包含 Task Space 名称的验证提示，不尝试绕过，也不回退到未知 endpoint 或无头 Chrome。`XXYY_SCREENSHOT_CHROME_EXECUTABLE`、`XXYY_BROWSER_PROFILE_DIRECTORY` 和 `XXYY_SCREENSHOT_DIRECTORY` 仅配置 XXYY 原生截图提供器；其隔离 Profile 不得指向个人日常 Chrome Profile，也不得提交仓库。
+Solscan、Blockscout、Scan 系 Explorer 和 XXYY市场页面都通过同一个受控 Chrome/CDP 页面读取器访问。驱动复用 `XXYY_BROWSER_PROFILE_DIRECTORY/explorer-chrome`，在后台 Target 中串行导航，不激活用户日常标签页；成功提取后把完整页面截图写入 `XXYY_SCREENSHOT_DIRECTORY/explorer`。页面验证过期或 Cloudflare再次拦截时返回人工验证提示，不尝试绕过，也不回退到直接数据 API、RPC或未知 endpoint。`pnpm explorer:verify -- <url>` 会在同一隔离 Profile中打开可见窗口供管理员完成验证。该 Profile不得指向个人日常 Chrome Profile，也不得提交仓库。
 
 程序化 API 可通过同源 `/xxyy-evidence/<hash>.png` 获取图片；Telegram 从截图目录读取 PNG 并直接上传，不要求截图公网 URL。canonical pool 声明和小池阈值均为可选策略配置，不是浏览器访问的前提。

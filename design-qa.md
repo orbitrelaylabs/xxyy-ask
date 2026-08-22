@@ -44,7 +44,7 @@
 ## Comparison History
 
 - Initial pass: blocked at the login screen because source and implementation states were incomparable.
-- Authenticated pass: reset the existing local administrator password, logged in through ego-browser, normalized both visuals to `1487 × 1058`, and generated a side-by-side comparison.
+- Authenticated pass: reset the existing local administrator password, logged in through the isolated Chrome/CDP browser runtime, normalized both visuals to `1487 × 1058`, and generated a side-by-side comparison.
 - Responsive pass: verified the compact mobile layout and table actions at `390 × 844`.
 - Motion pass: added restrained interaction feedback, recaptured the settled authenticated state at `1487 × 1058`, and confirmed no steady-state fidelity regression or console errors.
 - Session-restoration pass: replaced the transient login form with a shell-aligned loading state and verified the no-flash path under both delayed and normal authentication timing.

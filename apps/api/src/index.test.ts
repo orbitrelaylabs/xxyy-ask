@@ -478,7 +478,7 @@ describe('createRequestHandler', () => {
     });
   });
 
-  it('reports disabled Explorer queries when ego-browser is unavailable', async () => {
+  it('reports disabled Explorer queries when the configured executable is not Chrome', async () => {
     const handler = createRequestHandler({
       env: {
         PATH: '',
@@ -495,8 +495,8 @@ describe('createRequestHandler', () => {
 
     expect(payload.checks.browser).toEqual({
       configured: true,
-      driver: 'ego-browser-unavailable',
-      message: 'ego-browser is unavailable; public Explorer queries are disabled.',
+      driver: 'chrome-cdp-unavailable',
+      message: 'Chrome or Chromium is unavailable; public Explorer queries are disabled.',
       status: 'error',
     });
   });
@@ -1518,7 +1518,9 @@ describe('createRequestHandler', () => {
     const xxyyTransactionDiagnosis = { diagnoseXxyyTransaction: vi.fn() };
     const createTransactionSkillPublicClient = vi.fn(() => publicTransactionClient);
     const createTransactionSkillDiagnosisHandler = vi.fn(() => xxyyTransactionDiagnosis);
-    const resolveEgoBrowserExecutable = vi.fn(() => Promise.resolve('/usr/local/bin/ego-browser'));
+    const resolveExplorerBrowserExecutable = vi.fn(() =>
+      Promise.resolve('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
+    );
 
     vi.doMock('@xxyy/agent-core', async (importOriginal) => {
       const actual = await importOriginal<Record<string, unknown>>();
@@ -1540,7 +1542,7 @@ describe('createRequestHandler', () => {
         ...actual,
         createTransactionSkillDiagnosisHandler,
         createTransactionSkillPublicClient,
-        resolveEgoBrowserExecutable,
+        resolveExplorerBrowserExecutable,
       };
     });
     vi.doMock('@xxyy/rag-core', async (importOriginal) => {
@@ -1612,7 +1614,11 @@ describe('createRequestHandler', () => {
         principal: 'anonymous',
       });
       expect(serviceOptions.xxyyTransactionDiagnosis).toBe(xxyyTransactionDiagnosis);
-      expect(resolveEgoBrowserExecutable).toHaveBeenCalledWith(process.env.PATH);
+      expect(resolveExplorerBrowserExecutable).toHaveBeenCalledWith(
+        expect.objectContaining({
+          DATABASE_URL: 'postgres://xxyy:secret@example.test/xxyy_ask',
+        }),
+      );
       expect(createTransactionSkillPublicClient).toHaveBeenCalledTimes(1);
       expect(createTransactionSkillDiagnosisHandler).toHaveBeenCalledTimes(1);
       expect(serviceOptions.retriever).toBe(retriever);

@@ -1,0 +1,52 @@
+{
+  "block": {
+    "hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "number": "19000000",
+    "sourceId": "fixture-primary",
+    "timestamp": "1700000000"
+  },
+  "chainId": "1",
+  "observedAt": "2026-07-21T12:00:00.000Z",
+  "receipt": {
+    "blockNumber": "19000000",
+    "effectiveGasPrice": "2000000000",
+    "gasUsed": "21000",
+    "logs": [
+      {
+        "address": "0x3333333333333333333333333333333333333333",
+        "data": "0x00000000000000000000000000000000000000000000000000000000000003e8",
+        "logIndex": 7,
+        "sourceId": "fixture-primary",
+        "topics": [
+          "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+          "0x0000000000000000000000001111111111111111111111111111111111111111",
+          "0x0000000000000000000000004444444444444444444444444444444444444444"
+        ]
+      }
+    ],
+    "sourceId": "fixture-primary",
+    "status": "success",
+    "transactionHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "transactionIndex": 12
+  },
+  "requestedTransactionHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sources": [
+    {
+      "id": "fixture-primary",
+      "kind": "fixture",
+      "observedAt": "2026-07-21T12:00:00.000Z",
+      "payloadHash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+  ],
+  "transaction": {
+    "blockNumber": "19000000",
+    "from": "0x1111111111111111111111111111111111111111",
+    "hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input": "0xa9059cbb",
+    "nonce": "42",
+    "sourceId": "fixture-primary",
+    "to": "0x2222222222222222222222222222222222222222",
+    "transactionIndex": 12,
+    "value": "1000000000000000000"
+  }
+}

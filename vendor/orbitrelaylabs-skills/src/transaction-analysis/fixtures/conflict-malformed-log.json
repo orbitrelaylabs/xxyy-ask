@@ -1,0 +1,64 @@
+{
+  "block": {
+    "hash": "0x1212121212121212121212121212121212121212121212121212121212121212",
+    "number": "19000002",
+    "sourceId": "rpc-primary",
+    "timestamp": "1700000024"
+  },
+  "chainId": "1",
+  "conflicts": [
+    {
+      "field": "receipt.status",
+      "observations": [
+        { "sourceId": "rpc-primary", "value": "success" },
+        { "sourceId": "indexer-secondary", "value": "reverted" }
+      ]
+    }
+  ],
+  "observedAt": "2026-07-21T12:03:00.000Z",
+  "receipt": {
+    "blockNumber": "19000002",
+    "effectiveGasPrice": "2000000000",
+    "gasUsed": "70000",
+    "logs": [
+      {
+        "address": "0x3333333333333333333333333333333333333333",
+        "data": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "logIndex": 8,
+        "sourceId": "rpc-primary",
+        "topics": [
+          "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+          "0x0000000000000000000000001111111111111111111111111111111111111111"
+        ]
+      }
+    ],
+    "sourceId": "rpc-primary",
+    "status": "success",
+    "transactionHash": "0xabababababababababababababababababababababababababababababababab",
+    "transactionIndex": 14
+  },
+  "requestedTransactionHash": "0xabababababababababababababababababababababababababababababababab",
+  "sources": [
+    {
+      "id": "rpc-primary",
+      "kind": "fixture",
+      "observedAt": "2026-07-21T12:03:00.000Z"
+    },
+    {
+      "id": "indexer-secondary",
+      "kind": "fixture",
+      "observedAt": "2026-07-21T12:03:01.000Z"
+    }
+  ],
+  "transaction": {
+    "blockNumber": "19000002",
+    "from": "0x1111111111111111111111111111111111111111",
+    "hash": "0xabababababababababababababababababababababababababababababababab",
+    "input": "0x1234",
+    "nonce": "45",
+    "sourceId": "rpc-primary",
+    "to": "0x2222222222222222222222222222222222222222",
+    "transactionIndex": 14,
+    "value": "0"
+  }
+}

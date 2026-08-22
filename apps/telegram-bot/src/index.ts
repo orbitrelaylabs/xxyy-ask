@@ -8,7 +8,7 @@ import {
 import {
   createTransactionSkillDiagnosisHandler,
   createTransactionSkillPublicClient,
-  resolveEgoBrowserExecutable,
+  resolveExplorerBrowserExecutable,
 } from '@xxyy/transaction-skill-bridge';
 import {
   loadAnswerQualityRolloutConfig,
@@ -70,7 +70,7 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
   const config = loadRagConfig(workspaceEnv);
   const botConfig = loadTelegramBotConfig(workspaceEnv);
   const publicTransactionClient =
-    (await resolveEgoBrowserExecutable(workspaceEnv.PATH ?? process.env.PATH)) === undefined
+    (await resolveExplorerBrowserExecutable(workspaceEnv)) === undefined
       ? undefined
       : createTransactionSkillPublicClient({ env: workspaceEnv });
   const runtime = createTelegramChatRuntime(config, undefined, {
@@ -158,11 +158,11 @@ async function main(env: TelegramEnv = process.env): Promise<void> {
 }
 
 async function logExplorerBrowserStartup(env: TelegramEnv): Promise<void> {
-  const executable = await resolveEgoBrowserExecutable(env.PATH ?? process.env.PATH);
+  const executable = await resolveExplorerBrowserExecutable(env);
   logger.info(
     executable === undefined
-      ? 'Explorer browser: ego-browser not found. Install ego lite from https://lite.ego.app/ for public transaction queries; product Q&A remains available.'
-      : `Explorer browser: ego-browser ready for all supported chains (${executable}).`,
+      ? 'Explorer browser: Chrome or Chromium not found; public transaction queries are disabled while product Q&A remains available.'
+      : `Explorer browser: isolated Chrome/CDP runtime ready for all supported chains (${executable}).`,
   );
 }
 

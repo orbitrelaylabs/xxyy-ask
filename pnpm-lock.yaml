@@ -12,8 +12,8 @@ importers:
   .:
     dependencies:
       '@orbitrelaylabs/xxyy-transaction-skills':
-        specifier: github:orbitrelaylabs/skills#fd333e2415015d8588314558420ef21f3134eb8b
-        version: '@orbitrelaylabs/skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/fd333e2415015d8588314558420ef21f3134eb8b'
+        specifier: workspace:*
+        version: link:vendor/orbitrelaylabs-skills
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -198,11 +198,36 @@ importers:
   packages/transaction-skill-bridge:
     dependencies:
       '@orbitrelaylabs/xxyy-transaction-skills':
-        specifier: github:orbitrelaylabs/skills#fd333e2415015d8588314558420ef21f3134eb8b
-        version: '@orbitrelaylabs/skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/fd333e2415015d8588314558420ef21f3134eb8b'
+        specifier: workspace:*
+        version: link:../../vendor/orbitrelaylabs-skills
       zod:
         specifier: ^4.0.0
         version: 4.4.3
+
+  vendor/orbitrelaylabs-skills:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      esbuild:
+        specifier: ^0.28.0
+        version: 0.28.0
+      prettier:
+        specifier: ^3.8.3
+        version: 3.8.3
+      tsx:
+        specifier: ^4.22.3
+        version: 4.22.3
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.8(@types/node@24.13.3)(vite@8.1.0(@types/node@24.13.3)(esbuild@0.28.0)(tsx@4.22.3))
 
 packages:
 
@@ -441,12 +466,6 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
-
-  '@orbitrelaylabs/skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/fd333e2415015d8588314558420ef21f3134eb8b':
-    resolution: {gitHosted: true, integrity: sha512-WT6FpyucbUWKVbX+IV/+IF+4Px9SM4JgJgcRPltMGGFM1ZXcLLU4NcszTMC4JQLweYjWi59B2vSCqd2cCr4USg==, tarball: https://codeload.github.com/orbitrelaylabs/skills/tar.gz/fd333e2415015d8588314558420ef21f3134eb8b}
-    version: 0.1.0
-    engines: {node: '>=24.16.0'}
-    hasBin: true
 
   '@oxc-project/types@0.137.0':
     resolution: {integrity: sha512-WT+Gb24i8hmvo85AIv2oEYouEXkRlKAlT9WaCa3TfLgNCN+GhrJOGZuIlMouAh38Qe4QOx26eUOVsq70qXrywA==}
@@ -1250,10 +1269,6 @@ snapshots:
       '@emnapi/runtime': 1.11.1
       '@tybys/wasm-util': 0.10.3
     optional: true
-
-  '@orbitrelaylabs/skills@https://codeload.github.com/orbitrelaylabs/skills/tar.gz/fd333e2415015d8588314558420ef21f3134eb8b':
-    dependencies:
-      zod: 4.4.3
 
   '@oxc-project/types@0.137.0': {}
 

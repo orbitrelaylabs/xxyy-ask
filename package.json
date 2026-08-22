@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@orbitrelaylabs/xxyy-transaction-skills": "github:orbitrelaylabs/skills#fd333e2415015d8588314558420ef21f3134eb8b"
+    "@orbitrelaylabs/xxyy-transaction-skills": "workspace:*"
   },
   "scripts": {
     "agent:smoke": "node scripts/agent-smoke.mjs",
@@ -17,15 +17,17 @@
     "app:status": "docker compose ps",
     "app:stop": "docker compose stop api telegram telegram-curation-worker",
     "app:up": "docker compose up --detach --build",
-    "check": "pnpm --filter @xxyy/web build && pnpm format:check && pnpm typecheck && pnpm test && pnpm rag:evaluate",
+    "check": "pnpm --filter @xxyy/web build && pnpm --filter @orbitrelaylabs/xxyy-transaction-skills check && pnpm format:check && pnpm typecheck && pnpm test && pnpm rag:evaluate",
     "docs:sync": "node scripts/sync-xxyy-docs.mjs",
     "docs:audit": "node scripts/audit-xxyy-docs.mjs",
     "docs:enrich:media": "node scripts/enrich-xxyy-media.mjs",
     "docs:sync:external": "node scripts/sync-xxyy-external-docs.mjs",
+    "explorer:verify": "node packages/transaction-skill-bridge/bin/xxyy-chrome-driver.mjs verify",
+    "explorer:stop": "node packages/transaction-skill-bridge/bin/xxyy-chrome-driver.mjs stop",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}\" \".vscode/*.json\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}\" \".vscode/*.json\"",
-    "xxyy:diagnose": "xxyy-diagnose",
-    "onchain:inspect": "onchain-inspect",
+    "xxyy:diagnose": "node packages/transaction-skill-bridge/bin/run-pinned-skill.mjs diagnose",
+    "onchain:inspect": "node packages/transaction-skill-bridge/bin/run-pinned-skill.mjs inspect",
     "rag:ask": "pnpm --filter @xxyy/cli rag:ask",
     "rag:evaluate": "pnpm --filter @xxyy/cli rag:evaluate",
     "rag:feedback:backlog": "pnpm --filter @xxyy/cli rag:feedback:backlog",

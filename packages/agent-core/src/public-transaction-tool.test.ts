@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createPublicTransactionClientStub,
-  EgoBrowserUnavailableError,
+  ExplorerBrowserUnavailableError,
   ExplorerBrowserVerificationError,
   getTransactionOutputSchema,
   type GetTransactionOutput,
@@ -105,12 +105,12 @@ describe('public browser transaction Skill tool', () => {
     expect(output.answer).toContain('不会自动绕过验证');
   });
 
-  it('returns an installation hint when ego-browser is unavailable', async () => {
+  it('returns a configuration hint when the isolated Chrome runtime is unavailable', async () => {
     const caller = { channel: 'telegram' as const, principal: 'service' as const };
     const registry = createPublicChainAnalysisCapabilityRegistry({
       caller,
       client: createPublicTransactionClientStub(async () => {
-        throw new EgoBrowserUnavailableError();
+        throw new ExplorerBrowserUnavailableError();
       }),
     });
 
@@ -119,7 +119,8 @@ describe('public browser transaction Skill tool', () => {
       { channel: 'telegram' },
     );
 
-    expect(output.answer).toContain('https://lite.ego.app/');
+    expect(output.answer).toContain('Chrome 或 Chromium');
+    expect(output.answer).toContain('隔离浏览器 Profile');
     expect(output.answer).toContain('产品知识问答不受影响');
   });
 });

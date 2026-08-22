@@ -2,7 +2,7 @@
 
 XXYY 客服 Agentic RAG monorepo。系统用 LangGraph JS 编排产品问答，并对用户明确提供的公开交易执行浏览器只读查询与 XXYY 成交诊断。
 
-产品问答由当前 Agent 在进程内直接调用 Product RAG。交易能力由独立仓库 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills) 提供：
+产品问答由当前 Agent 在进程内直接调用 Product RAG。交易能力源自 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills)，并以记录上游 commit 的可审计源码快照保存在 `vendor/orbitrelaylabs-skills`：
 
 - `onchain-transaction-inspector`：通过自包含浏览器 CLI 查询单笔 EVM/Solana 交易基础事实。
 - `xxyy-transaction-diagnosis`：通过自包含浏览器 CLI 查询 XXYY 成交、池子和结构性 Sandwich 模式，返回真实 XXYY 标注截图。
@@ -61,17 +61,18 @@ XXYY_SCREENSHOT_DIRECTORY=
 XXYY_CANONICAL_POOL_CONFIG_JSON='{"entries":[]}'
 ```
 
-所有公开 Explorer 查询统一使用 [ego lite](https://lite.ego.app/)；先完成首次引导并确认命令可用：
+所有公开 Explorer 查询统一使用仓库自带的 Chrome/CDP 驱动。宿主机默认发现 Google Chrome，容器默认使用 `/usr/bin/chromium`；可显式确认浏览器版本：
 
 ```bash
-command -v ego-browser
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version
+# 或：/usr/bin/chromium --version
 ```
 
-未安装 ego-browser 不影响产品知识问答，但所有公开交易查询都会返回安装提示。当前固定支持 Solana、Ethereum、BNB Smart Chain、Base、Robinhood Chain 和 Stable Chain。
+未安装 Chrome/Chromium 不影响产品知识问答，但所有公开交易查询都会返回配置提示。当前固定支持 Solana、Ethereum、BNB Smart Chain、Base、Robinhood Chain 和 Stable Chain。
 
-Chrome 及 `XXYY_BROWSER_PROFILE_DIRECTORY` 只用于生成 XXYY 原生截图，不再读取 Explorer。Chrome 可执行文件为空时自动检测；`XXYY_SCREENSHOT_DIRECTORY` 供 Telegram 上传 PNG 使用，不需要公共图片 URL。
+Chrome/CDP 只导航固定 Explorer和 XXYY页面，从 DOM/Vue原生组件提取事实并生成浏览器证据，不直接调用 Explorer API、XXYY数据 API或 RPC。`XXYY_BROWSER_PROFILE_DIRECTORY` 下的 `explorer-chrome` 子目录保存独立验证状态；同一根目录仍供 XXYY原生截图使用。Chrome可执行文件为空时自动检测；`XXYY_SCREENSHOT_DIRECTORY/explorer` 保存按页面 URL哈希命名的浏览器 PNG，目录根部的 XXYY证据 PNG供 Telegram上传，不需要公共图片 URL。
 
-需要公开链上查询时，推荐只在 Docker 中运行 PostgreSQL，并在安装了 `ego-browser` 的宿主机运行 API 与 Telegram，使所有 Explorer 共用一致的浏览器会话：
+需要公开链上查询时，可只在 Docker 中运行 PostgreSQL，并在宿主机运行 API 与 Telegram，使所有 Explorer 共用同一个独立 Chrome Profile：
 
 ```bash
 docker compose up -d postgres
@@ -84,7 +85,7 @@ pnpm run app:dev
 pnpm run telegram:dev
 ```
 
-这种模式不需要 MCP 或 RPC。检测到 Cloudflare 验证时系统会明确提示人工验证，不会自动绕过验证，也不会静默回退到 Docker Chromium；`/health/deep` 会将缺少 ego-browser 标记为不可用于可靠 Explorer 查询。
+这种模式不需要 MCP、Explorer API 或 RPC。检测到 Cloudflare 验证时系统会明确提示人工验证，不会自动绕过。使用 `pnpm explorer:verify -- <Explorer交易URL>` 打开同一个隔离 Chrome 完成人工验证；维护时可用 `pnpm explorer:stop` 关闭持久浏览器。`/health/deep` 会将缺少 Chrome/Chromium 标记为不可用于可靠 Explorer 查询。
 
 ## 启动
 
@@ -124,7 +125,7 @@ pnpm xxyy:diagnose -- \
 
 诊断会访问固定 Explorer 和 XXYY 页面，等待关键页面数据，定位目标成交及相邻行，并生成真实整页标注截图。页面字段不完整时返回 `partial` 或 `insufficient_data`。
 
-JSON CLI 和 Skill 的安装与独立维护说明见 [orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills)。该仓库不提供 SDK；本仓库固定依赖经过验证的提交，并只通过受限子进程桥接调用两个 bundle。
+JSON CLI 和 Skill 的来源与刷新说明见 `vendor/orbitrelaylabs-skills/UPSTREAM.md`。该包不提供 SDK；本仓库只通过受限子进程桥接调用两个经过验证并随源码提交的 bundle。
 
 ## 知识库命令
 
