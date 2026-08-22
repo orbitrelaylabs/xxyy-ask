@@ -56,7 +56,7 @@ describe('createKnowledgeGovernanceService', () => {
     });
   });
 
-  it('automatically invokes a configured curator model for uncovered complex threads', async () => {
+  it('automatically invokes a configured curator model for every eligible author thread', async () => {
     const curateThread = vi.fn<KnowledgeCuratorModel['curateThread']>().mockResolvedValue([]);
     const service = createKnowledgeGovernanceService({
       candidateStore: candidateStore(),
@@ -65,7 +65,7 @@ describe('createKnowledgeGovernanceService', () => {
     });
 
     const result = await service.importTelegram({
-      rawExport: multiMessageTelegramExport(),
+      rawExport: telegramExport(),
       runId: 'curator_run_auto',
     });
 
@@ -76,7 +76,9 @@ describe('createKnowledgeGovernanceService', () => {
         eligibleThreadCount: 1,
         succeededThreadCount: 1,
       },
+      candidateCount: 1,
       curationMode: 'auto',
+      deterministicCandidateCount: 1,
     });
   });
 
@@ -255,34 +257,6 @@ function candidateStore(
     revise: () => Promise.reject(new Error('not used')),
     review: () => Promise.reject(new Error('not used')),
     ...overrides,
-  };
-}
-
-function multiMessageTelegramExport() {
-  return {
-    id: -100123,
-    messages: [
-      {
-        date: '2026-07-15T01:00:00Z',
-        from_id: 'user456',
-        id: 1,
-        text: 'XXYY 如何设置价格提醒？',
-      },
-      {
-        date: '2026-07-15T01:01:00Z',
-        from_id: 'user456',
-        id: 2,
-        reply_to_message_id: 1,
-        text: '入口在哪里？',
-      },
-      {
-        date: '2026-07-15T01:02:00Z',
-        from_id: 'user123',
-        id: 3,
-        reply_to_message_id: 2,
-        text: '在提醒设置中开启并保存。',
-      },
-    ],
   };
 }
 

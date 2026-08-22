@@ -240,13 +240,28 @@ XXYY 从 2024 年 11 月前后的 Solana meme 快速交易内测工具，逐步�
 
 ## 可溯源原始消息索引
 
-抓取时间：2026-08-14T00:00:05.520Z
+抓取时间：2026-08-21T00:00:04.693Z
 
 原始可溯源数据：[`usexxyyio-x-posts.jsonl`](sources/usexxyyio-x-posts.jsonl)；抓取元数据：[`usexxyyio-x-posts.meta.json`](sources/usexxyyio-x-posts.meta.json)。
 
 说明：以下索引来自 X Web 公开主页时间线 `UserTweets`，每条均保留 tweet id 和原始链接，便于回溯核验。
 
 ### 2026-08
+
+#### 2026-08-18T07:18:31.000Z · [2089612894870900899](https://x.com/useXXYYio/status/2089612894870900899)
+
+> Robinhood链新增支持letscash、Pools Instant、Pools Crowd、dontblink、DYOR Fun V3、https://t.co/FlzmoRR2sm、stonk launcher、Up.发射台交易和扫链筛选！
+> 
+> 欢迎加入 XXYY👏
+> @letscashfun
+> @pools_dot_fun
+> @dontblinkfamily
+> @DYORSWAPDEX
+> @TradePools
+> @ClutchMarkets
+> @uponrh
+> 
+> #Robinhood #XXYY #memecoin
 
 #### 2026-08-09T10:58:13.000Z · [2086406691403546829](https://x.com/useXXYYio/status/2086406691403546829)
 

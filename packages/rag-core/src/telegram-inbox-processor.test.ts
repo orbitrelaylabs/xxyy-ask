@@ -5,7 +5,10 @@ import type {
   PgTelegramGroupMessageStore,
   TelegramGroupMessageRecord,
 } from './telegram-group-messages.js';
-import { processTelegramKnowledgeInbox } from './telegram-inbox-processor.js';
+import {
+  curateSelectedTelegramKnowledgeMessages,
+  processTelegramKnowledgeInbox,
+} from './telegram-inbox-processor.js';
 
 const messages: TelegramGroupMessageRecord[] = [
   {
@@ -68,6 +71,53 @@ describe('processTelegramKnowledgeInbox', () => {
         telegramMessages: messageStore(),
       }),
     ).rejects.toThrow('model unavailable');
+  });
+});
+
+describe('curateSelectedTelegramKnowledgeMessages', () => {
+  it('expands selected replies to their question context and requires Agent curation', async () => {
+    const importTelegram = vi.fn().mockResolvedValue(importResult());
+    const markProcessed = vi.fn();
+    const listByIds = vi.fn(({ messageIds }: { messageIds: readonly string[] }) =>
+      Promise.resolve(messages.filter((message) => messageIds.includes(message.messageId))),
+    );
+
+    const result = await curateSelectedTelegramKnowledgeMessages({
+      chatId: '-100123',
+      importTelegram,
+      messageIds: ['11'],
+      telegramMessages: messageStore({ listByIds, markProcessed }),
+    });
+
+    expect(result.candidateCount).toBe(1);
+    expect(listByIds).toHaveBeenCalledTimes(2);
+    expect(importTelegram).toHaveBeenCalledWith(
+      expect.objectContaining({
+        curationMode: 'required',
+        manualReviewRequired: true,
+        runAutomation: false,
+        sourceChannel: 'telegram',
+      }),
+    );
+    const rawExport = importTelegram.mock.calls[0]?.[0].rawExport as {
+      messages: Array<{ id: string }>;
+    };
+    expect(rawExport.messages.map((message) => message.id)).toEqual(['10', '11']);
+    expect(markProcessed).not.toHaveBeenCalled();
+  });
+
+  it('rejects unavailable selected messages before invoking the Agent', async () => {
+    const importTelegram = vi.fn();
+
+    await expect(
+      curateSelectedTelegramKnowledgeMessages({
+        chatId: '-100123',
+        importTelegram,
+        messageIds: ['missing'],
+        telegramMessages: messageStore({ listByIds: () => Promise.resolve([]) }),
+      }),
+    ).rejects.toThrow('unavailable message IDs');
+    expect(importTelegram).not.toHaveBeenCalled();
   });
 });
 

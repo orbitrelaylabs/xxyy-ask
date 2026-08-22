@@ -1,5 +1,6 @@
 import {
   createKnowledgeAutomationController,
+  curateSelectedTelegramKnowledgeMessages,
   createKnowledgeGovernanceService,
   createOpenAiKnowledgeCandidateSuggestionProvider,
   createOpenAiKnowledgeCuratorModel,
@@ -186,6 +187,12 @@ export function createCachedKnowledgeAdminServicesLoader(options: {
       ),
       telegramCurationJobs,
       telegramMessages,
+      curateTelegramConversations: (input) =>
+        curateSelectedTelegramKnowledgeMessages({
+          ...input,
+          importTelegram,
+          telegramMessages,
+        }),
       importTelegram,
       processTelegramInbox: (input) =>
         processTelegramKnowledgeInbox({

@@ -67,6 +67,10 @@ export interface KnowledgeAdminServices {
   telegramDailyQuotaTimeZone?: string;
   telegramCurationJobs: PgTelegramCurationJobStore;
   telegramMessages: PgTelegramGroupMessageStore;
+  curateTelegramConversations(input: {
+    chatId: string;
+    messageIds: readonly string[];
+  }): Promise<ImportTelegramKnowledgeResult>;
   importTelegram(input: {
     curationMode: KnowledgeCurationMode;
     rawExport: unknown;
@@ -167,6 +171,19 @@ const requestQualityEvaluationSchema = z
   });
 const telegramGroupStatusSchema = z.enum(['active', 'kicked', 'left', 'unknown']);
 const telegramMessageProcessingStatusSchema = z.enum(['all', 'processed', 'unprocessed']);
+const curateTelegramConversationsSchema = z
+  .object({
+    messageIds: z
+      .array(
+        z
+          .string()
+          .trim()
+          .regex(/^-?[A-Za-z0-9_:.@-]{1,200}$/u),
+      )
+      .min(1)
+      .max(200),
+  })
+  .strict();
 const telegramBotUserStatusSchema = z.enum(['active', 'disabled']);
 const createTelegramBotUserSchema = z
   .object({
@@ -551,6 +568,22 @@ async function routeKnowledgeAdminRequest(
         await services.processTelegramInbox({
           chatId,
           ...(segments[2] === 'reprocess' ? { reprocess: true } : {}),
+        }),
+      );
+      return;
+    }
+    if (segments.length === 3 && segments[2] === 'curate') {
+      requirePermission(principal, 'import:telegram');
+      requireMethod(method, 'POST');
+      const payload = curateTelegramConversationsSchema.parse(
+        await readJsonBody(options.request, options.maxBodyBytes),
+      );
+      sendJson(
+        options.response,
+        200,
+        await services.curateTelegramConversations({
+          chatId,
+          messageIds: payload.messageIds,
         }),
       );
       return;

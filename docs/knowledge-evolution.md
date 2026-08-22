@@ -8,14 +8,18 @@
 flowchart LR
   Live["Telegram 实时 Update"] --> Inbox["本地群消息收件箱"]
   Inbox --> Job["每群持久化整理任务"]
+  Inbox --> Manual["后台多选对话：required Agent"]
   Job --> Worker["自动整理 Worker：租约 + 重试"]
   Export["Telegram JSON 导出"] --> Role["作者角色与有效期验证"]
   Worker --> Role
+  Manual --> Role
   Role --> Thread["Reply、紧邻对话与连续发言重建"]
   Thread --> Rules["确定性问答配对提取"]
-  Thread --> Agent["Auto / deterministic / required Curator"]
-  Rules --> Guard["脱敏 / 边界 / 标准化"]
-  Agent --> Guard
+  Rules --> Agent["Auto / required Curator：全部合格作者线程"]
+  Rules -->|deterministic| Guard["脱敏 / 边界 / 标准化"]
+  Agent -->|标准化 Q/A| Guard
+  Agent -->|不可用、失败或空结果| Fallback["已验证规则候选兜底"]
+  Fallback --> Guard
   Guard --> Match["候选与正式 chunk 去重、冲突检查"]
   Match --> Pending["pending + manual_review_required"]
   Pending --> Review["管理员编辑、批准或拒绝"]
@@ -112,7 +116,7 @@ Bot 同时订阅 `my_chat_member`，把加群、退群和被移除状态写入 `
 
 候选保持 `pending` 时，“标准答案”输入框下向具备 `candidate:review` 权限的管理员提供“AI 优化答案”。模型使用输入框中尚未保存的当前问题与答案，并结合已脱敏 Telegram 来源证据和冲突摘要；Prompt 将这些内容声明为不可信证据，并禁止增加来源中不存在的能力、数字、URL、步骤、链或资产范围。服务端还会拒绝新出现的数字和 URL。建议返回 `suggestion`、`needs_clarification` 或 `no_change`，并携带缺失信息、风险和理由。结果只在答案输入框下方预览；只有管理员应用到标准答案并保存后，才由既有 Revision 与治理审计记录最终修改。
 
-受保护管理后台的“Telegram 群聊”页面只显示群状态、自动整理任务状态和待识别数量，不展示原始消息，也不提供人工整理按钮。管理员的工作入口统一为“知识候选”：
+受保护管理后台的“Telegram 群聊”页面显示群状态、自动整理任务状态和待识别数量。具备 `telegram_group:read` 的管理员可以打开最近 200 条本地文本消息，页面按 Reply 根关系重建为可多选的对话；具备 `import:telegram` 的管理员可以点击“用 Agent 清洗为知识候选”。服务端只读取本次明确选中的消息并补齐最多 8 层 Reply 上下文，强制使用 `required` Curator，模型缺失、失败或超过调用预算时整次失败关闭。结果固定带 `manual_review_required`、保持 `pending`，不修改 Inbox 的 processed 状态，也不直接发布。后续工作入口仍统一为“知识候选”：
 
 1. Worker 读取该群最近最多 2000 条本地消息，合并同一作者的连续发言。
 2. 调用 `getChatAdministrators` 或时间有效的可信作者名册验证答案作者。
@@ -120,6 +124,8 @@ Bot 同时订阅 `my_chat_member`，把加群、退群和被移除状态写入 `
 4. 执行脱敏、边界、标准化、重复和冲突检查。
 5. 创建带 `manual_review_required` 的 `pending` 候选，并标记本批消息已整理。
 6. 管理员在候选详情中修改标准问答、使用 AI 优化答案，并选择批准或拒绝。
+
+人工多选清洗与自动 Inbox 整理相互独立：人工操作不会把所选消息标记为已自动处理，重复选择依赖候选内容哈希保持幂等；后台只展示本地保留期内仍存在的消息，无法恢复 Telegram Bot API 未曾收到或已超过保留期的历史内容。
 
 Bot、匿名管理员、`sender_chat` 和无法验证作者的普通发言不会成为知识答案。Bot 必须能看到普通群消息；需要关闭 BotFather Privacy Mode，或把 Bot 设为有相应读取能力的群管理员。
 
@@ -138,7 +144,7 @@ pnpm rag:knowledge:import:telegram -- /absolute/path/result.json
 3. 兼容旧流程，可显式重复传入 `--admin-id`；这种未版本化覆盖会增加 `unversioned_explicit_admin` 风险并自动拒绝，不应用于无人值守生产链路。
 4. 三种方式都无法验证任何作者时失败关闭，不创建候选。
 
-默认使用 `auto` 模式：先运行高精度确定性路径；如果 Chat 模型配置完整，只把包含已验证作者、尚未被确定性路径完整覆盖的多消息线程交给 Curator Agent。没有配置模型时安全退化为纯确定性提取，不会阻止可由确定性规则处理的内容。
+默认使用 `auto` 模式：先运行高精度确定性路径建立问题、答案来源和作者证据；如果 Chat 模型配置完整，再把每个同时包含已验证知识作者和参与者上下文的合格线程交给 Curator Agent。模型会把直接回复和多轮讨论统一改写为自包含的标准 Q/A，并在同一线程内合并同一事实的重复问法；有效 Agent 结果替换同一管理员答案的规则候选。模型缺失、单线程失败、输出为空或 proposal 未通过权限与边界校验时，保留已经通过确定性检查的规则候选，不会因模型故障丢失高置信度问答。
 
 三种模式可由 CLI、管理 API 和管理后台统一选择：
 
@@ -151,11 +157,11 @@ pnpm rag:knowledge:import:telegram -- /absolute/path/result.json \
   --curation-mode required
 ```
 
-- `auto`（默认）：模型可用时自动处理复杂线程；模型缺失或单线程调用失败时保留确定性结果，并返回脱敏失败统计。
+- `auto`（默认）：模型可用时处理全部合格作者线程，并优先采用通过校验的标准化 Agent Q/A；模型缺失、单线程调用失败或没有有效 proposal 时保留确定性结果，并返回脱敏失败统计。
 - `deterministic`：完全不调用模型，适合离线导入、成本控制或故障排查；兼容别名为 `--no-agent`。
-- `required`：明确要求 Agent；模型缺失、任一线程失败或需要调用的线程超过单批上限时整批失败关闭；原有 `--agent` 继续作为该模式的兼容别名。
+- `required`：明确要求 Agent；只保留通过校验的 Agent proposal，不使用同线程的规则候选兜底。模型缺失、任一线程失败或需要调用的线程超过单批上限时整批失败关闭；原有 `--agent` 继续作为该模式的兼容别名。
 
-Agent 使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL`。普通管理员直接回复不会为了“使用 Agent”重复调用模型。每次导入按稳定线程顺序最多尝试 20 个 Agent 线程；`auto` 会统计因预算跳过的剩余线程，`required` 会拒绝超预算导入。自动模式按线程隔离错误，不保留 Provider 异常原文，只输出 `timeout`、`provider_error`、`invalid_output`、`unknown` 四类计数。
+Agent 使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL`。普通管理员直接回复与多轮答疑都会进入 Curator；同一答案已有有效 Agent proposal 时不会再保留一份重复的规则候选。每次导入按稳定线程顺序最多尝试 20 个 Agent 线程；`auto` 会统计因预算跳过的剩余线程并保留对应规则兜底，`required` 会拒绝超预算导入。自动模式按线程隔离错误，不保留 Provider 异常原文，只输出 `timeout`、`provider_error`、`invalid_output`、`unknown` 四类计数。
 
 整理摘要包含模式、消息/线程数、已验证和未验证作者消息数、Agent eligible/attempted/succeeded/failed/跳过统计、确定性与 Agent 候选数、被拒绝的 Agent proposal、边界过滤数、重复数、Curator run ID 和新建候选数。
 

@@ -16,6 +16,68 @@ export interface TelegramInboxProcessingResult {
   unverifiedAuthorMessageCount: number;
 }
 
+export async function curateSelectedTelegramKnowledgeMessages(input: {
+  chatId: string;
+  importTelegram(input: {
+    curationMode: 'required';
+    manualReviewRequired: true;
+    rawExport: unknown;
+    runAutomation: false;
+    sourceChannel: 'telegram';
+  }): Promise<ImportTelegramKnowledgeResult>;
+  messageIds: readonly string[];
+  telegramMessages: PgTelegramGroupMessageStore;
+}): Promise<ImportTelegramKnowledgeResult> {
+  const selectedIds = [...new Set(input.messageIds.map((messageId) => messageId.trim()))].filter(
+    (messageId) => messageId.length > 0,
+  );
+  if (selectedIds.length === 0) {
+    throw new Error('Telegram selected messages must contain at least one message ID.');
+  }
+  const selectedMessages = await input.telegramMessages.listByIds({
+    chatId: input.chatId,
+    messageIds: selectedIds,
+  });
+  const selectedMessageIds = new Set(selectedMessages.map((message) => message.messageId));
+  if (selectedIds.some((messageId) => !selectedMessageIds.has(messageId))) {
+    throw new Error('Telegram selected messages include unavailable message IDs.');
+  }
+
+  const messagesById = new Map(selectedMessages.map((message) => [message.messageId, message]));
+  let replyIds = selectedMessages.flatMap((message) =>
+    message.replyToMessageId === undefined ? [] : [message.replyToMessageId],
+  );
+  for (let depth = 0; depth < 8 && replyIds.length > 0; depth += 1) {
+    const missingReplyIds = [
+      ...new Set(replyIds.filter((messageId) => !messagesById.has(messageId))),
+    ];
+    if (missingReplyIds.length === 0) break;
+    const replyMessages = await input.telegramMessages.listByIds({
+      chatId: input.chatId,
+      messageIds: missingReplyIds,
+    });
+    for (const message of replyMessages) messagesById.set(message.messageId, message);
+    replyIds = replyMessages.flatMap((message) =>
+      message.replyToMessageId === undefined ? [] : [message.replyToMessageId],
+    );
+  }
+
+  const inboxExport = createTelegramInboxKnowledgeExport({
+    chatId: input.chatId,
+    messages: [...messagesById.values()],
+  });
+  if (inboxExport.rawExport.messages.length === 0) {
+    throw new Error('Telegram selected messages are not eligible for knowledge curation.');
+  }
+  return input.importTelegram({
+    curationMode: 'required',
+    manualReviewRequired: true,
+    rawExport: inboxExport.rawExport,
+    runAutomation: false,
+    sourceChannel: 'telegram',
+  });
+}
+
 export async function processTelegramKnowledgeInbox(input: {
   chatId: string;
   importTelegram(input: {

@@ -2677,3 +2677,112 @@ body:has(.admin-login-page) {
 .admin-auth-check-card p {
   margin-bottom: 0;
 }
+
+/* Telegram conversation curation */
+
+.telegram-conversation-workspace {
+  display: grid;
+  gap: 16px;
+}
+
+.telegram-conversation-heading {
+  margin-bottom: 0;
+}
+
+.admin-muted-copy {
+  margin: 0;
+  color: #66736f;
+}
+
+.telegram-conversation-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid #dbe5e2;
+  border-radius: 10px;
+  background: #f8fbfa;
+}
+
+.telegram-conversation-toolbar .admin-actions {
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: 0;
+}
+
+.telegram-conversation-toolbar span {
+  color: #66736f;
+  font-size: 11px;
+}
+
+.telegram-conversation-list {
+  display: grid;
+  gap: 12px;
+  max-height: 720px;
+  overflow: auto;
+}
+
+.telegram-conversation-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #dbe5e2;
+  border-radius: 11px;
+  background: #fff;
+  padding: 14px;
+  cursor: pointer;
+}
+
+.telegram-conversation-card:has(input:checked) {
+  border-color: #70a99a;
+  box-shadow: 0 0 0 2px rgba(17, 104, 86, 0.08);
+}
+
+.telegram-conversation-selector {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.telegram-conversation-selector span {
+  color: #73817c;
+  font-size: 10px;
+}
+
+.telegram-conversation-messages {
+  display: grid;
+  gap: 8px;
+}
+
+.telegram-conversation-message {
+  border-left: 3px solid #d8e7e2;
+  border-radius: 0 8px 8px 0;
+  background: #f8fbfa;
+  padding: 9px 11px;
+}
+
+.telegram-conversation-message > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: #73817c;
+  font-size: 9px;
+}
+
+.telegram-conversation-message p {
+  margin: 5px 0 0;
+  color: #2e3b37;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .telegram-conversation-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .telegram-conversation-toolbar .admin-actions {
+    flex-wrap: wrap;
+  }
+}

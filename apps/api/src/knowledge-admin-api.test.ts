@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type {
   FeedbackRecord,
+  ImportTelegramKnowledgeResult,
   KnowledgeCandidate,
   KnowledgeGovernanceService,
   KnowledgePublicationJob,
@@ -505,7 +506,7 @@ describe('handleKnowledgeAdminApi', () => {
     expect(list).toHaveBeenCalledWith({ limit: 20, membershipStatus: 'active' });
   });
 
-  it('lets reviewers inspect and process a Telegram group inbox', async () => {
+  it('lets reviewers inspect, process, and explicitly curate selected Telegram conversations', async () => {
     const list = vi.fn(() =>
       Promise.resolve([
         {
@@ -533,7 +534,11 @@ describe('handleKnowledgeAdminApi', () => {
         unverifiedAuthorMessageCount: 0,
       }),
     );
+    const curateTelegramConversations = vi
+      .fn<KnowledgeAdminServices['curateTelegramConversations']>()
+      .mockResolvedValue(telegramImportResult({ curationMode: 'required' }));
     const services = knowledgeAdminServices({
+      curateTelegramConversations,
       processTelegramInbox,
       telegramMessages: telegramMessageStore({ list }),
     });
@@ -573,6 +578,39 @@ describe('handleKnowledgeAdminApi', () => {
     expect(processTelegramInbox).toHaveBeenLastCalledWith({
       chatId: '-100123',
       reprocess: true,
+    });
+
+    const curated = await callAdmin({
+      authenticator: authenticator('reviewer'),
+      body: { messageIds: ['10', '11'] },
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/telegram-groups/-100123/curate',
+    });
+    const forbidden = await callAdmin({
+      authenticator: authenticator('viewer'),
+      body: { messageIds: ['10'] },
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/telegram-groups/-100123/curate',
+    });
+    const invalid = await callAdmin({
+      authenticator: authenticator('reviewer'),
+      body: { messageIds: [] },
+      getServices: () => Promise.resolve(services),
+      method: 'POST',
+      token: TOKEN,
+      url: '/admin/api/telegram-groups/-100123/curate',
+    });
+    expect(curated.statusCode).toBe(200);
+    expect(forbidden.statusCode).toBe(403);
+    expect(invalid.statusCode).toBe(400);
+    expect(curateTelegramConversations).toHaveBeenCalledOnce();
+    expect(curateTelegramConversations).toHaveBeenCalledWith({
+      chatId: '-100123',
+      messageIds: ['10', '11'],
     });
   });
 
@@ -1351,6 +1389,7 @@ function knowledgeAdminServices(
   return {
     adminUsers: adminUserStore(),
     apiObservability: apiObservabilityStore(),
+    curateTelegramConversations: () => Promise.reject(new Error('not used')),
     feedback: feedbackStore(),
     governance: governance(),
     knowledgeGraph: knowledgeGraphStore(),
@@ -1368,6 +1407,45 @@ function knowledgeAdminServices(
     telegramGroups: telegramGroupStore(),
     telegramCurationJobs: telegramCurationJobStore(),
     telegramMessages: telegramMessageStore(),
+    ...overrides,
+  };
+}
+
+function telegramImportResult(
+  overrides: Partial<ImportTelegramKnowledgeResult> = {},
+): ImportTelegramKnowledgeResult {
+  return {
+    adminReplyCount: 1,
+    agentCandidateCount: 1,
+    agentRunStats: {
+      attemptedThreadCount: 1,
+      eligibleThreadCount: 1,
+      failedThreadCount: 0,
+      failureCounts: {
+        invalid_output: 0,
+        provider_error: 0,
+        timeout: 0,
+        unknown: 0,
+      },
+      modelAvailable: true,
+      skippedBudgetThreadCount: 0,
+      skippedByModeThreadCount: 0,
+      skippedUnavailableThreadCount: 0,
+      succeededThreadCount: 1,
+    },
+    candidateCount: 1,
+    created: [],
+    curationMode: 'auto',
+    deterministicCandidateCount: 0,
+    duplicateCount: 0,
+    messageCount: 2,
+    rejectedAgentProposalCount: 0,
+    runId: 'run-selected',
+    skippedBoundaryCount: 0,
+    skippedMissingReplyCount: 0,
+    threadCount: 1,
+    unverifiedAuthorMessageCount: 0,
+    verifiedAuthorMessageCount: 1,
     ...overrides,
   };
 }

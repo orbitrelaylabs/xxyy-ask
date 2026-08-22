@@ -2,7 +2,13 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { AdminApp, AdminUsersPanel, CandidateTable, parseAdminTab } from './AdminApp.js';
+import {
+  AdminApp,
+  AdminUsersPanel,
+  CandidateTable,
+  groupTelegramMessagesIntoConversations,
+  parseAdminTab,
+} from './AdminApp.js';
 
 describe('AdminApp', () => {
   it('restores the selected admin tab from the URL after refresh', () => {
@@ -65,5 +71,31 @@ describe('AdminApp', () => {
 
     expect(markup).toContain('<form autoComplete="off"');
     expect(markup.match(/autoComplete="new-password"/gu)).toHaveLength(2);
+  });
+
+  it('groups Telegram replies into selectable conversations without losing standalone messages', () => {
+    const base = {
+      authorIsBot: false,
+      authorUserId: '123',
+      capturedAt: '2026-08-22T01:00:00.000Z',
+      chatId: '-100123',
+      sentAt: '2026-08-22T01:00:00.000Z',
+      text: 'message',
+    };
+    const conversations = groupTelegramMessagesIntoConversations([
+      { ...base, messageId: '1', text: '问题' },
+      { ...base, messageId: '2', replyToMessageId: '1', text: '追问' },
+      { ...base, messageId: '3', replyToMessageId: '2', text: '管理员回答' },
+      { ...base, messageId: '4', text: '单独消息' },
+      { ...base, messageId: '5', replyToMessageId: '9', text: '缺失根消息的回复' },
+      { ...base, messageId: '6', replyToMessageId: '9', text: '同一缺失根消息的另一条回复' },
+    ]);
+
+    expect(conversations.map((conversation) => conversation.id)).toEqual(['1', '4', 'reply:9']);
+    expect(conversations.map((conversation) => conversation.messageIds)).toEqual([
+      ['1', '2', '3'],
+      ['4'],
+      ['5', '6'],
+    ]);
   });
 });

@@ -59,6 +59,7 @@ import type {
   SupportTicketStatus,
   TelegramImportResult,
   TelegramGroupRegistryEntry,
+  TelegramGroupMessageRecord,
   TelegramBotUser,
   TrustedAuthor,
 } from './admin-types.js';
@@ -297,7 +298,9 @@ export function AdminApp(): ReactElement {
           {activeTab === 'imports' ? (
             <TelegramImportPanel permissions={permissions} token={token} />
           ) : undefined}
-          {activeTab === 'groups' ? <TelegramGroupsPanel token={token} /> : undefined}
+          {activeTab === 'groups' ? (
+            <TelegramGroupsPanel permissions={permissions} token={token} />
+          ) : undefined}
           {activeTab === 'telegram-users' ? (
             <TelegramBotUsersPanel permissions={permissions} token={token} />
           ) : undefined}
@@ -2430,13 +2433,85 @@ function MyAccountPanel({ token }: { token: string }): ReactElement {
   );
 }
 
-function TelegramGroupsPanel({ token }: { token: string }): ReactElement {
+export interface TelegramConversationPreview {
+  id: string;
+  messageIds: string[];
+  messages: TelegramGroupMessageRecord[];
+}
+
+export function groupTelegramMessagesIntoConversations(
+  messages: readonly TelegramGroupMessageRecord[],
+): TelegramConversationPreview[] {
+  const ordered = [...messages].sort((left, right) => {
+    const timeDifference = Date.parse(left.sentAt) - Date.parse(right.sentAt);
+    return timeDifference === 0
+      ? left.messageId.localeCompare(right.messageId, 'en', { numeric: true })
+      : timeDifference;
+  });
+  const messagesById = new Map(ordered.map((message) => [message.messageId, message]));
+  const rootByMessageId = new Map<string, string>();
+  const resolveRoot = (message: TelegramGroupMessageRecord): string => {
+    const cached = rootByMessageId.get(message.messageId);
+    if (cached !== undefined) return cached;
+    const visited = new Set<string>();
+    const path: string[] = [];
+    let current = message;
+    let rootId: string;
+    while (true) {
+      if (visited.has(current.messageId)) {
+        rootId = `cycle:${[...visited].sort()[0] ?? current.messageId}`;
+        break;
+      }
+      visited.add(current.messageId);
+      path.push(current.messageId);
+      if (current.replyToMessageId === undefined) {
+        rootId = current.messageId;
+        break;
+      }
+      const parent = messagesById.get(current.replyToMessageId);
+      if (parent === undefined) {
+        rootId = `reply:${current.replyToMessageId}`;
+        break;
+      }
+      current = parent;
+    }
+    for (const messageId of path) rootByMessageId.set(messageId, rootId);
+    return rootId;
+  };
+  const grouped = new Map<string, TelegramGroupMessageRecord[]>();
+  for (const message of ordered) {
+    const rootId = resolveRoot(message);
+    const conversation = grouped.get(rootId) ?? [];
+    conversation.push(message);
+    grouped.set(rootId, conversation);
+  }
+  return [...grouped.entries()].map(([id, conversationMessages]) => ({
+    id,
+    messageIds: conversationMessages.map((message) => message.messageId),
+    messages: conversationMessages,
+  }));
+}
+
+export function TelegramGroupsPanel({
+  permissions,
+  token,
+}: {
+  permissions: ReadonlySet<AdminPermission>;
+  token: string;
+}): ReactElement {
   const [status, setStatus] = useState<TelegramGroupRegistryEntry['membershipStatus'] | ''>(
     'active',
   );
   const [groups, setGroups] = useState<TelegramGroupRegistryEntry[]>([]);
   const [busy, setBusy] = useState(false);
+  const [curating, setCurating] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [messages, setMessages] = useState<TelegramGroupMessageRecord[]>([]);
+  const [selectedConversationIds, setSelectedConversationIds] = useState<Set<string>>(new Set());
+  const [selectedGroupId, setSelectedGroupId] = useState<string>();
   const [notice, setNotice] = useState<{ kind: 'error' | 'success'; text: string }>();
+  const conversations = groupTelegramMessagesIntoConversations(messages);
+  const selectedGroup = groups.find((group) => group.chatId === selectedGroupId);
   const load = useCallback(async (): Promise<void> => {
     setBusy(true);
     try {
@@ -2452,6 +2527,67 @@ function TelegramGroupsPanel({ token }: { token: string }): ReactElement {
       setBusy(false);
     }
   }, [status, token]);
+
+  const openGroupConversations = async (group: TelegramGroupRegistryEntry): Promise<void> => {
+    setSelectedGroupId(group.chatId);
+    setMessages([]);
+    setSelectedConversationIds(new Set());
+    setLoadingMessages(true);
+    setNotice(undefined);
+    try {
+      const result = await knowledgeAdminRequest<{ messages: TelegramGroupMessageRecord[] }>(
+        token,
+        `/telegram-groups/${encodeURIComponent(group.chatId)}/messages?status=all&limit=200`,
+      );
+      setMessages(result.messages);
+    } catch (loadError) {
+      setNotice({ kind: 'error', text: errorMessage(loadError) });
+    } finally {
+      setLoadingMessages(false);
+    }
+  };
+
+  const toggleConversation = (conversationId: string): void => {
+    if (!selectedConversationIds.has(conversationId) && selectedConversationIds.size >= 20) {
+      setNotice({ kind: 'error', text: '单次最多选择 20 个对话。' });
+      return;
+    }
+    setSelectedConversationIds((current) => {
+      const next = new Set(current);
+      if (next.has(conversationId)) next.delete(conversationId);
+      else next.add(conversationId);
+      return next;
+    });
+  };
+
+  const curateSelectedConversations = async (): Promise<void> => {
+    if (selectedGroupId === undefined) return;
+    const messageIds = conversations
+      .filter((conversation) => selectedConversationIds.has(conversation.id))
+      .flatMap((conversation) => conversation.messageIds);
+    if (messageIds.length === 0) {
+      setNotice({ kind: 'error', text: '请至少选择一个对话。' });
+      return;
+    }
+    setCurating(true);
+    setNotice(undefined);
+    try {
+      const result = await knowledgeAdminRequest<TelegramImportResult>(
+        token,
+        `/telegram-groups/${encodeURIComponent(selectedGroupId)}/curate`,
+        { body: { messageIds }, method: 'POST' },
+      );
+      setSelectedConversationIds(new Set());
+      setNotice({
+        kind: 'success',
+        text: `Agent 清洗完成：生成 ${result.created.length} 条待审核候选，识别 ${result.duplicateCount} 条重复；请前往“知识候选”继续 Review。`,
+      });
+    } catch (curationError) {
+      setNotice({ kind: 'error', text: errorMessage(curationError) });
+    } finally {
+      setCurating(false);
+    }
+  };
 
   useEffect(() => void load(), [load]);
 
@@ -2516,6 +2652,7 @@ function TelegramGroupsPanel({ token }: { token: string }): ReactElement {
                   <th>自动识别</th>
                   <th>待识别消息</th>
                   <th>依据</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -2549,6 +2686,18 @@ function TelegramGroupsPanel({ token }: { token: string }): ReactElement {
                     </td>
                     <td>{group.unprocessedMessageCount ?? 0}</td>
                     <td>{group.observationSource}</td>
+                    <td>
+                      <button
+                        className="admin-link-button"
+                        disabled={loadingMessages && selectedGroupId === group.chatId}
+                        onClick={() => void openGroupConversations(group)}
+                        type="button"
+                      >
+                        {loadingMessages && selectedGroupId === group.chatId
+                          ? '加载中…'
+                          : '选择对话'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2556,6 +2705,111 @@ function TelegramGroupsPanel({ token }: { token: string }): ReactElement {
           </div>
         ) : undefined}
       </section>
+      {selectedGroupId === undefined ? undefined : (
+        <section className="admin-panel telegram-conversation-workspace">
+          <div className="admin-panel-header telegram-conversation-heading">
+            <div>
+              <h2>{selectedGroup?.title ?? 'Telegram 群聊'} · 对话清洗</h2>
+              <span>
+                最近 {messages.length} 条消息，共 {conversations.length} 个对话
+              </span>
+            </div>
+            <button
+              className="admin-secondary-button"
+              onClick={() => {
+                setSelectedGroupId(undefined);
+                setMessages([]);
+                setSelectedConversationIds(new Set());
+              }}
+              type="button"
+            >
+              关闭
+            </button>
+          </div>
+          <p className="admin-muted-copy">
+            选择一个或多个 Reply 对话后，系统会补齐引用链并强制调用 Curator Agent。单次最多选择 20
+            个；生成结果只进入待审核知识候选，不会直接发布。
+          </p>
+          <div className="telegram-conversation-toolbar">
+            <div className="admin-actions">
+              <button
+                className="admin-link-button"
+                disabled={conversations.length === 0}
+                onClick={() =>
+                  setSelectedConversationIds(
+                    new Set(conversations.slice(0, 20).map((conversation) => conversation.id)),
+                  )
+                }
+                type="button"
+              >
+                全选
+              </button>
+              <button
+                className="admin-link-button"
+                disabled={selectedConversationIds.size === 0}
+                onClick={() => setSelectedConversationIds(new Set())}
+                type="button"
+              >
+                清空
+              </button>
+              <span>已选择 {selectedConversationIds.size} 个对话</span>
+            </div>
+            <button
+              className="admin-primary-button"
+              disabled={
+                curating ||
+                selectedConversationIds.size === 0 ||
+                !permissions.has('import:telegram')
+              }
+              onClick={() => void curateSelectedConversations()}
+              type="button"
+            >
+              {curating ? 'Agent 清洗中…' : '用 Agent 清洗为知识候选'}
+            </button>
+          </div>
+          {loadingMessages ? <div className="admin-empty">正在加载群聊消息…</div> : undefined}
+          {!loadingMessages && conversations.length === 0 ? (
+            <div className="admin-empty">当前没有可查看的文本对话。</div>
+          ) : undefined}
+          {conversations.length > 0 ? (
+            <div className="telegram-conversation-list">
+              {conversations.map((conversation, index) => (
+                <label className="telegram-conversation-card" key={conversation.id}>
+                  <div className="telegram-conversation-selector">
+                    <input
+                      checked={selectedConversationIds.has(conversation.id)}
+                      onChange={() => toggleConversation(conversation.id)}
+                      type="checkbox"
+                    />
+                    <strong>对话 {index + 1}</strong>
+                    <span>{conversation.messages.length} 条消息</span>
+                  </div>
+                  <div className="telegram-conversation-messages">
+                    {conversation.messages.map((message) => (
+                      <div className="telegram-conversation-message" key={message.messageId}>
+                        <div>
+                          <strong>
+                            {message.authorIsBot
+                              ? 'Bot'
+                              : message.authorUserId === undefined
+                                ? '匿名作者'
+                                : `用户 ${message.authorUserId}`}
+                          </strong>
+                          <span>{formatDate(message.sentAt)}</span>
+                          {message.replyToMessageId === undefined ? undefined : (
+                            <small>回复 #{message.replyToMessageId}</small>
+                          )}
+                        </div>
+                        <p>{message.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                </label>
+              ))}
+            </div>
+          ) : undefined}
+        </section>
+      )}
     </div>
   );
 }
@@ -4052,7 +4306,8 @@ function TelegramImportPanel({
           </select>
         </label>
         <small>
-          自动模式只把尚未被规则覆盖的复杂线程交给已配置模型；模型不可用或单线程失败时安全保留确定性结果。强制模式遇到模型或预算错误会终止整批导入。
+          自动模式会把每个含已验证知识作者和参与者上下文的合格线程交给模型，并优先采用标准化后的
+          Q/A；模型不可用、单线程失败或没有有效结果时安全保留确定性候选。强制模式遇到模型或预算错误会终止整批导入。
         </small>
         <small>
           管理员身份优先使用时间有效的可信作者名册；配置 Bot Token 时可查询当前 Telegram
@@ -4111,7 +4366,7 @@ function formatKnowledgeCuratorAgentNotice(
   return [
     `Agent 失败 ${stats.failedThreadCount} 条（超时 ${stats.failureCounts.timeout}、Provider ${stats.failureCounts.provider_error}、输出无效 ${stats.failureCounts.invalid_output}、其他 ${stats.failureCounts.unknown}）。`,
     `跳过 ${skippedCount} 条（模型不可用 ${stats.skippedUnavailableThreadCount}、模式关闭 ${stats.skippedByModeThreadCount}、预算上限 ${stats.skippedBudgetThreadCount}）。`,
-    '这些统计不包含消息原文；未生成候选的复杂线程会保持失败关闭，不进入正式知识库。',
+    '这些统计不包含消息原文；模型没有生成有效结果时只保留已通过边界检查的规则候选，没有规则兜底的线程不会进入正式知识库。',
   ].join(' ');
 }
 

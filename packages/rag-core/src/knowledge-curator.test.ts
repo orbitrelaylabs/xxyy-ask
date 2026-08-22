@@ -22,9 +22,9 @@ describe('runKnowledgeCurator', () => {
       agentCandidateCount: 0,
       agentRunStats: {
         attemptedThreadCount: 0,
-        eligibleThreadCount: 0,
+        eligibleThreadCount: 1,
         failedThreadCount: 0,
-        skippedUnavailableThreadCount: 0,
+        skippedUnavailableThreadCount: 1,
       },
       curationMode: 'auto',
       deterministicCandidateCount: 1,
@@ -37,7 +37,77 @@ describe('runKnowledgeCurator', () => {
     });
   });
 
-  it('uses the model only for multi-message context and validates the cited author', async () => {
+  it('uses the model to normalize a direct administrator reply and replaces its rule candidate', async () => {
+    const extraction = directReplyExtraction();
+    const curateThread = vi.fn<KnowledgeCuratorModel['curateThread']>().mockResolvedValue([
+      {
+        canonicalAnswer: '打开提醒设置，开启价格提醒并保存即可生效。',
+        confidence: 0.92,
+        proposedModule: '操作指南',
+        proposedTitle: '设置价格提醒',
+        question: '如何在 XXYY 开启价格提醒？',
+        riskFlags: [],
+        sourceAnswerMessageId: '2',
+        sourceQuestionMessageId: '1',
+      },
+    ]);
+
+    const result = await runKnowledgeCurator({
+      extraction,
+      model: { curateThread, model: 'curator-model', promptVersion: 'curator-v1' },
+      runId: 'curator_run_direct',
+    });
+
+    expect(curateThread).toHaveBeenCalledOnce();
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      canonicalAnswer: '打开提醒设置，开启价格提醒并保存即可生效。',
+      extractionMethod: 'agent_assisted',
+      sourceAnswerMessageId: '2',
+    });
+    expect(result).toMatchObject({
+      agentCandidateCount: 1,
+      deterministicCandidateCount: 0,
+    });
+  });
+
+  it('keeps the rule candidate when the model returns no supported proposal', async () => {
+    const curateThread = vi.fn<KnowledgeCuratorModel['curateThread']>().mockResolvedValue([]);
+
+    const result = await runKnowledgeCurator({
+      extraction: directReplyExtraction(),
+      model: { curateThread, model: 'curator-model', promptVersion: 'curator-v1' },
+      runId: 'curator_run_direct_fallback',
+    });
+
+    expect(curateThread).toHaveBeenCalledOnce();
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]?.extractionMethod).toBe('deterministic_direct_reply');
+    expect(result).toMatchObject({
+      agentCandidateCount: 0,
+      deterministicCandidateCount: 1,
+    });
+  });
+
+  it('does not fall back to a rule candidate when Agent curation is required', async () => {
+    const curateThread = vi.fn<KnowledgeCuratorModel['curateThread']>().mockResolvedValue([]);
+
+    const result = await runKnowledgeCurator({
+      extraction: directReplyExtraction(),
+      mode: 'required',
+      model: { curateThread, model: 'curator-model', promptVersion: 'curator-v1' },
+      runId: 'curator_run_direct_required',
+    });
+
+    expect(curateThread).toHaveBeenCalledOnce();
+    expect(result.candidates).toEqual([]);
+    expect(result).toMatchObject({
+      agentCandidateCount: 0,
+      deterministicCandidateCount: 0,
+    });
+  });
+
+  it('uses the model for multi-message context and validates the cited author', async () => {
     const extraction = multiMessageExtraction();
     const curateThread = vi.fn<KnowledgeCuratorModel['curateThread']>().mockResolvedValue([
       {
@@ -142,9 +212,9 @@ describe('runKnowledgeCurator', () => {
     expect(automatic.candidates).toHaveLength(1);
     expect(automatic.candidates[0]?.extractionMethod).toBe('deterministic_direct_reply');
     expect(automatic.agentRunStats).toMatchObject({
-      attemptedThreadCount: 1,
-      failedThreadCount: 1,
-      failureCounts: { timeout: 1 },
+      attemptedThreadCount: 2,
+      failedThreadCount: 2,
+      failureCounts: { timeout: 2 },
       succeededThreadCount: 0,
     });
     await expect(
@@ -249,6 +319,7 @@ describe('createOpenAiKnowledgeCuratorModel', () => {
     expect(proposals[0]).toMatchObject({ confidence: 0.8, sourceAnswerMessageId: '2' });
     const request = fetchImpl.mock.calls[0]?.[1];
     expect(request?.body).toContain('"response_format":{"type":"json_object"}');
+    expect(request?.body).toContain('Curate direct replies as well as multi-message discussions.');
   });
 });
 

@@ -337,7 +337,10 @@ export type {
   TelegramCurationJob,
   TelegramCurationJobStatus,
 } from './telegram-curation-jobs.js';
-export { processTelegramKnowledgeInbox } from './telegram-inbox-processor.js';
+export {
+  curateSelectedTelegramKnowledgeMessages,
+  processTelegramKnowledgeInbox,
+} from './telegram-inbox-processor.js';
 export type { TelegramInboxProcessingResult } from './telegram-inbox-processor.js';
 export {
   extractTelegramKnowledgeCandidates,
