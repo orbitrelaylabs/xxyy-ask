@@ -19,8 +19,8 @@
     "cutoffPostId": "2089612894870900899",
     "totalPosts": 303
   },
-  "fetchedAt": "2026-08-21T00:00:04.693Z",
-  "configAssetUrl": "https://abs.twimg.com/x-web/x-web/assets/guest-token-B5YiT5w6.js",
+  "fetchedAt": "2026-08-24T00:00:07.911Z",
+  "configAssetUrl": "https://abs.twimg.com/x-web/x-web/assets/guest-token-BgKqpN_a.js",
   "operations": {
     "userByScreenName": {
       "queryId": "L_eCyvUxu-QprwFaWK0Wyg",
@@ -33,7 +33,7 @@
       "variableStyle": "screenName"
     },
     "userTweets": {
-      "queryId": "Xpy_eMVs2XFEvzBI7Jg1Kw",
+      "queryId": "7oQj_BVShia91DHHe03GTg",
       "operationName": "UserTweets",
       "features": {},
       "fieldToggles": {},
