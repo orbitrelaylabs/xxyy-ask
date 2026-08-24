@@ -14,7 +14,7 @@ const driverExecutable = path.resolve(
 export function createXxyyBrowserFetch(options = {}) {
   const originalFetch = options.originalFetch ?? globalThis.fetch;
   const evaluate = options.evaluate ?? evaluateWithChromeDriver;
-  const targetTransactionId = options.targetTransactionId?.trim();
+  const targetTransactionId = normalizeTargetTransactionId(options.targetTransactionId);
   const pairCache = new Map();
   const tradeCache = new Map();
   return async (input, init) => {
@@ -47,18 +47,20 @@ export function createXxyyBrowserFetch(options = {}) {
       const body = await request.clone().json();
       const chain = normalizeXxyyChain(request.headers.get('x-chain'));
       const pairAddress = readIdentifier(body, 'pairAddress');
+      const makerAddress = optionalText(body, 'makerAddress');
       const requestedTimeStart = readOptionalTimestamp(body, 'timeStart');
       const requestedTimeEnd = readOptionalTimestamp(body, 'timeEnd');
       const timeCenter =
         requestedTimeStart === undefined || requestedTimeEnd === undefined
           ? undefined
           : Math.floor((requestedTimeStart + requestedTimeEnd) / 2);
-      const cacheKey = `${chain}\0${pairAddress}\0${timeCenter ?? ''}\0${targetTransactionId ?? ''}`;
+      const cacheKey = `${chain}\0${pairAddress}\0${makerAddress ?? ''}\0${timeCenter ?? ''}\0${targetTransactionId ?? ''}`;
       let trades = tradeCache.get(cacheKey);
       if (trades === undefined) {
         trades = normalizeTradeResults(
           await evaluate({
             expression: createXxyyTradeTableExpression({
+              ...(makerAddress === undefined ? {} : { makerAddress }),
               ...(targetTransactionId === undefined || targetTransactionId.length === 0
                 ? {}
                 : { targetTransactionId }),
@@ -81,6 +83,18 @@ export function createXxyyBrowserFetch(options = {}) {
     }
     throw new Error(`Direct XXYY API access is disabled for ${url.pathname}.`);
   };
+}
+
+export function normalizeTargetTransactionId(value) {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  try {
+    const url = new URL(normalized);
+    const transactionId = decodeURIComponent(url.pathname.match(/^\/tx\/([^/]+)\/?$/u)?.[1] ?? '');
+    return transactionId || normalized;
+  } catch {
+    return normalized;
+  }
 }
 
 export function createXxyyPairSearchExpression(query) {
@@ -176,13 +190,29 @@ export function createXxyyTradeTableExpression(input) {
           type: trade.type,
           usdAmount: trade.usdAmount,
         }));
-    const readWindow = async (timeStart, timeEnd, targetTransactionId, maxWaitMs = 4500) => {
+    const identifierEquals = (left, right) => {
+      if (typeof left !== 'string' || typeof right !== 'string') return false;
+      return /^0x[0-9a-f]+$/i.test(left) && /^0x[0-9a-f]+$/i.test(right)
+        ? left.toLowerCase() === right.toLowerCase()
+        : left === right;
+    };
+    const readWindow = async (
+      timeStart,
+      timeEnd,
+      targetTransactionId,
+      makerAddress,
+      maxWaitMs = 4500,
+    ) => {
       if (
-        timeStart !== undefined &&
-        timeEnd !== undefined &&
+        (makerAddress !== undefined || (timeStart !== undefined && timeEnd !== undefined)) &&
         typeof proxy.updateFilters === 'function'
       ) {
-        proxy.updateFilters({...proxy.filters, timeStart, timeEnd});
+        proxy.updateFilters({
+          ...proxy.filters,
+          makerAddress: makerAddress ?? '',
+          timeEnd: timeEnd ?? '',
+          timeStart: timeStart ?? '',
+        });
       }
       let observedLoading = component.data.loading === true;
       await new Promise((resolve) => setTimeout(resolve, 400));
@@ -190,15 +220,16 @@ export function createXxyyTradeTableExpression(input) {
       while (Date.now() < windowDeadline) {
         const trades = projectTrades(component.data.trades).filter(
           (trade) =>
-            timeStart === undefined ||
-            timeEnd === undefined ||
-            (trade.timestamp >= timeStart && trade.timestamp <= timeEnd),
+            (makerAddress === undefined || identifierEquals(trade.maker, makerAddress)) &&
+            (timeStart === undefined ||
+              timeEnd === undefined ||
+              (trade.timestamp >= timeStart && trade.timestamp <= timeEnd)),
         );
         observedLoading ||= component.data.loading === true;
         if (
           trades.length > 0 &&
           (targetTransactionId === undefined ||
-            trades.some((trade) => trade.txHash === targetTransactionId))
+            trades.some((trade) => identifierEquals(trade.txHash, targetTransactionId)))
         ) {
           return trades;
         }
@@ -214,21 +245,38 @@ export function createXxyyTradeTableExpression(input) {
       return [];
     };
     const targetTransactionId = ${JSON.stringify(input.targetTransactionId)};
+    const makerAddress = ${JSON.stringify(input.makerAddress)};
     const timeCenter = ${input.timeCenter === undefined ? 'undefined' : input.timeCenter};
     const windows = ${JSON.stringify(input.windows ?? [])};
     if (targetTransactionId && timeCenter !== undefined && windows.length > 0) {
       let best = [];
-      for (const [index, windowMs] of windows.entries()) {
-        const trades = await readWindow(
+      for (const windowMs of windows) {
+        const makerTrades = await readWindow(
           Math.max(0, timeCenter - windowMs),
           timeCenter + windowMs,
           targetTransactionId,
+          makerAddress,
           2500,
         );
-        const containsTarget = trades.some((trade) => trade.txHash === targetTransactionId);
-        if (index === 0 && !containsTarget) return [];
-        if (containsTarget && trades.length >= best.length) {
-          best = trades;
+        const makerContainsTarget = makerTrades.some((trade) =>
+          identifierEquals(trade.txHash, targetTransactionId),
+        );
+        if (!makerContainsTarget) continue;
+        if (makerTrades.length >= best.length) best = makerTrades;
+        if (makerAddress !== undefined) {
+          const contextTrades = await readWindow(
+            Math.max(0, timeCenter - windowMs),
+            timeCenter + windowMs,
+            targetTransactionId,
+            undefined,
+            2500,
+          );
+          const contextContainsTarget = contextTrades.some((trade) =>
+            identifierEquals(trade.txHash, targetTransactionId),
+          );
+          if (contextContainsTarget && contextTrades.length >= best.length) {
+            best = contextTrades;
+          }
         }
       }
       return best;
@@ -237,6 +285,7 @@ export function createXxyyTradeTableExpression(input) {
       ${input.timeStart === undefined ? 'undefined' : input.timeStart},
       ${input.timeEnd === undefined ? 'undefined' : input.timeEnd},
       undefined,
+      makerAddress,
     );
   })()`;
 }
