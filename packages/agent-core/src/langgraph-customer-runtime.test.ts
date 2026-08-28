@@ -233,6 +233,54 @@ describe('createLangGraphCustomerRuntime', () => {
     );
   });
 
+  it('routes a BNB charge versus displayed-buy mismatch through XXYY pool diagnosis', async () => {
+    const registry = createToolRegistry();
+    const genericExecute = vi.fn(() => Promise.reject(new Error('generic tool must not run')));
+    const diagnosisExecute = vi.fn(() =>
+      Promise.resolve({
+        agentRoute: 'chain_answer' as const,
+        answer: '已核对完整成交和截图。',
+        citations: [],
+        confidence: 0.9,
+        intent: 'onchain_transaction' as const,
+      }),
+    );
+    registry.register({
+      name: 'get_public_transaction',
+      description: 'Generic transaction lookup.',
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.custom<ChatResponse>(() => true),
+      execute: genericExecute,
+    });
+    registry.register({
+      name: 'diagnose_xxyy_transaction',
+      description: 'XXYY transaction diagnosis.',
+      inputSchema: z.object({
+        checks: z.array(z.enum(['sandwich', 'pool'])),
+        network: z.string().optional(),
+        reference: z.string(),
+      }),
+      outputSchema: z.custom<ChatResponse>(() => true),
+      execute: diagnosisExecute,
+    });
+    const transactionHash = `0x${'6'.repeat(64)}`;
+
+    const response = await createLangGraphCustomerRuntime({
+      planner: createScriptedPlannerModel([]),
+      registry,
+    }).ask({
+      channel: 'telegram',
+      message: `买入代币扣了0.5bnb，显示买入0.27bnb，交易哈希:${transactionHash}`,
+    });
+
+    expect(response.answer).toContain('已核对完整成交');
+    expect(genericExecute).not.toHaveBeenCalled();
+    expect(diagnosisExecute).toHaveBeenCalledWith(
+      { checks: ['pool'], network: 'eip155:56', reference: transactionHash },
+      expect.objectContaining({ channel: 'telegram' }),
+    );
+  });
+
   it('reuses the latest public transaction for a contextual Telegram pool follow-up', async () => {
     const registry = createToolRegistry();
     const genericExecute = vi.fn(() => Promise.reject(new Error('generic tool must not run')));

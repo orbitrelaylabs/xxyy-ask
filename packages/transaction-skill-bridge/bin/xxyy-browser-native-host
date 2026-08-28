@@ -1,0 +1,5 @@
+#!/bin/sh
+bridge_root="${XXYY_BROWSER_PROFILE_DIRECTORY:-$HOME/.xxyy/browser-profile}"
+mkdir -p "$bridge_root"
+chmod 700 "$bridge_root"
+exec node "$(dirname "$0")/xxyy-browser-native-host.mjs" "$@" 2>"$bridge_root/BrowserExtensionHostError.log"

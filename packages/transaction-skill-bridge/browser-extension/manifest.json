@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "XXYY Browser Connector",
+  "version": "1.0.0",
+  "description": "Connects the current Chrome profile to the XXYY support runtime for fixed Explorer and XXYY page reads.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxqUfYRDY6pE1UE9LiNG+qlnv6lKjGN1/ic4EVlEhVFCwQfsKj02Mb+GXNeDtdL7V79R8hj/TCX/1WD71hUlJNKsVkQ1Ktq2yxDCl4HR8uLwdlv3zjIG6ZxmN03kRopy8Gj1uqovk9YZNnp0+CDin5vzqpu3M9FWtqmJe7Qj2Dqe54MN4VRIjM6j8SUnPHM4M0tg4WLo3IPeykCAVyA7Hk73KWrF64uayOVhp1ST7fHrwVO/dVsbYRHqta29GwfEk3L7YqH1FxLzwlcdYY2p+3qWGa9nCm1DPJM1gVGBSnlAW/9Se0C6N/Z7qY8reiEfm1A19UovsB3MdDRd1w7OBkwIDAQAB",
+  "minimum_chrome_version": "125",
+  "permissions": ["nativeMessaging", "scripting", "storage"],
+  "host_permissions": [
+    "https://basescan.org/tx/*",
+    "https://www.basescan.org/tx/*",
+    "https://base.blockscout.com/tx/*",
+    "https://bscscan.com/tx/*",
+    "https://www.bscscan.com/tx/*",
+    "https://eth.blockscout.com/tx/*",
+    "https://robinhoodchain.blockscout.com/tx/*",
+    "https://solscan.io/tx/*",
+    "https://www.solscan.io/tx/*",
+    "https://stablescan.xyz/tx/*",
+    "https://www.stablescan.xyz/tx/*",
+    "https://xxyy.io/*",
+    "https://www.xxyy.io/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "XXYY Browser Connector"
+  }
+}

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>XXYY Browser Connector</title>
+    <style>
+      body {
+        box-sizing: border-box;
+        font:
+          13px/1.45 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+        margin: 0;
+        min-width: 340px;
+        padding: 16px;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0 0 12px;
+      }
+      dl {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: 96px 1fr;
+        margin: 0;
+      }
+      dt {
+        color: #666;
+      }
+      dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .connected {
+        color: #087f23;
+      }
+      .disconnected {
+        color: #b3261e;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>XXYY Browser Connector</h1>
+    <dl>
+      <dt>Status</dt>
+      <dd id="status">Loading…</dd>
+      <dt>Installation ID</dt>
+      <dd id="installation-id">—</dd>
+      <dt>Last update</dt>
+      <dd id="updated-at">—</dd>
+      <dt>Error</dt>
+      <dd id="error">—</dd>
+    </dl>
+    <script src="popup.js"></script>
+  </body>
+</html>

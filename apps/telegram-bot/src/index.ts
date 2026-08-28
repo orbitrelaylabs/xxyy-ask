@@ -47,6 +47,8 @@ type TelegramEnv = RagEnv &
       | 'XXYY_SCREENSHOT_CHROME_EXECUTABLE'
       | 'XXYY_SCREENSHOT_DIRECTORY'
       | 'XXYY_BROWSER_PROFILE_DIRECTORY'
+      | 'XXYY_BROWSER_EXTENSION_INSTALLATION_ID'
+      | 'XXYY_BROWSER_NATIVE_MESSAGING_DIRECTORY'
       | 'TELEGRAM_API_BASE_URL'
       | 'TELEGRAM_GROUP_MESSAGE_RETENTION_DAYS'
       | 'TELEGRAM_DAILY_QUOTA_TIME_ZONE',
@@ -162,7 +164,7 @@ async function logExplorerBrowserStartup(env: TelegramEnv): Promise<void> {
   logger.info(
     executable === undefined
       ? 'Explorer browser: Chrome or Chromium not found; public transaction queries are disabled while product Q&A remains available.'
-      : `Explorer browser: isolated Chrome/CDP runtime ready for all supported chains (${executable}).`,
+      : `Explorer browser: Chrome Connector executable available; extension connection is checked per query (${executable}).`,
   );
 }
 

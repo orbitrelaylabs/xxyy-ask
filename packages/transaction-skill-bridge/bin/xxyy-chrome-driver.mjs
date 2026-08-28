@@ -8,6 +8,7 @@ import {
   runBrowserDriverCommand,
   stopExplorerBrowser,
 } from '../src/chrome-driver-runtime.mjs';
+import { openExtensionSetup } from '../src/extension-browser-runtime.mjs';
 
 loadWorkspaceEnv();
 
@@ -16,6 +17,11 @@ const [command, reference] = process.argv.slice(2).filter((argument) => argument
 try {
   if (command === 'nodejs') {
     await runBrowserDriverCommand();
+  } else if (command === 'setup') {
+    const setup = await openExtensionSetup();
+    process.stdout.write(
+      `Chrome connector setup opened. Enable Developer mode and load unpacked extension from ${setup.extensionDirectory} in the profile you want the Agent to control.\n`,
+    );
   } else if (command === 'verify') {
     if (reference === undefined) throw new Error('verify requires an Explorer URL.');
     await openVerificationWindow(reference);
@@ -25,7 +31,7 @@ try {
       `${stopped ? 'Explorer browser stopped.' : 'Explorer browser was not running.'}\n`,
     );
   } else {
-    throw new Error('Usage: xxyy-chrome-driver <nodejs|verify|stop> [Explorer URL]');
+    throw new Error('Usage: xxyy-chrome-driver <nodejs|setup|verify|stop> [Explorer URL]');
   }
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

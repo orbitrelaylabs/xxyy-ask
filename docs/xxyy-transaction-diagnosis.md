@@ -15,7 +15,7 @@
 
 程序化 HTTP API 和 Telegram 在本机发现 Chrome/Chromium 后注册固定 Explorer 浏览器证据模式，不存在 Explorer API 或 RPC 回退。两者分别为固定 `web/anonymous`、`telegram/service` 创建 `xxyy.skill.diagnose_transaction` 精确授权，并通过同一 CLI bridge 调用固定 Skill bundle。公开 Web 客服页面已经移除。
 
-浏览器模式只打开固定 Explorer 交易页面并从 DOM 读取事实，整体交易状态固定为 `partial`。当前覆盖 Solana、Ethereum、BNB Smart Chain、Base、Robinhood Chain 和 Stable Chain；六条链全部通过本机独立 Chrome/CDP Profile 复用验证状态。兼容驱动会把固定 Skill 中原有的页面内 Explorer fetch 请求替换为站点专用 DOM 提取器，禁止 Explorer API、RPC、任意 chain ID、用户 endpoint 或模型提供的页面脚本。EVM 深度 trace、池状态、反事实损失与攻击者收益不在公开路径采集，因此不会给出 `confirmed`。
+浏览器模式只打开固定 Explorer 交易页面并从 DOM 读取事实，整体交易状态固定为 `partial`。当前覆盖 Solana、Ethereum、BNB Smart Chain、Base、Robinhood Chain 和 Stable Chain；Chrome Connector 可安装在用户选择的 Chrome Profile，并只控制扩展自己创建的专用标签页。每个安装生成独立 installation ID，多个连接必须显式选择。兼容驱动会把固定 Skill 中原有的页面内 Explorer fetch 请求替换为站点专用 DOM 提取器，禁止 Explorer API、RPC、任意 chain ID、用户 endpoint 或模型提供的页面脚本。EVM 深度 trace、池状态、反事实损失与攻击者收益不在公开路径采集，因此不会给出 `confirmed`。
 
 ## 工具契约
 
@@ -92,14 +92,15 @@ API 只从该目录公开名称为 64 位小写 SHA-256 加 `.png` 的文件。C
 
 ## 零 RPC 浏览器模式
 
-公开交易查询只要求可用的 Chrome/Chromium 和可写的隔离 Profile：
+公开交易查询要求可用的 Chrome/Chromium、已安装的 XXYY Browser Connector 和可写的私有桥接目录：
 
 ```bash
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version
+pnpm explorer:setup
 pnpm explorer:verify -- https://basescan.org/tx/<transaction-hash>
 pnpm explorer:stop
 ```
 
-Solscan、Blockscout、Scan 系 Explorer 和 XXYY市场页面都通过同一个受控 Chrome/CDP 页面读取器访问。驱动复用 `XXYY_BROWSER_PROFILE_DIRECTORY/explorer-chrome`，在后台 Target 中串行导航，不激活用户日常标签页；成功提取后把完整页面截图写入 `XXYY_SCREENSHOT_DIRECTORY/explorer`。页面验证过期或 Cloudflare再次拦截时返回人工验证提示，不尝试绕过，也不回退到直接数据 API、RPC或未知 endpoint。`pnpm explorer:verify -- <url>` 会在同一隔离 Profile中打开可见窗口供管理员完成验证。该 Profile不得指向个人日常 Chrome Profile，也不得提交仓库。
+Solscan、Blockscout、Scan 系 Explorer 和 XXYY 市场页面（`xxyy.io` 及其 `www` 别名）都通过 Chrome Connector 读取。扩展可以安装在任意 Chrome Profile，但只创建并控制自己的专用标签页，不复用用户已有页面；连接只接受固定站点、固定路径和固定 Skill 表达式。页面验证过期或 Cloudflare 再次拦截时激活该专用标签页并返回人工验证提示，不尝试绕过，也不回退到直接数据 API、RPC 或未知 endpoint。连接注册和任务文件位于 `XXYY_BROWSER_PROFILE_DIRECTORY`，权限限制为当前用户且不得提交仓库。
 
 程序化 API 可通过同源 `/xxyy-evidence/<hash>.png` 获取图片；Telegram 从截图目录读取 PNG 并直接上传，不要求截图公网 URL。canonical pool 声明和小池阈值均为可选策略配置，不是浏览器访问的前提。

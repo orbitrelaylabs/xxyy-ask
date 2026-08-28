@@ -83,6 +83,7 @@ export function formatXxyyTransactionDiagnosis(
       ...(trade.marketCapUsd === undefined
         ? []
         : [`成交时市值：约 $${formatDecimal(trade.marketCapUsd, 2)}`]),
+      ...transactionAmountComparisonLines(output, trade.nativeAmount),
     );
   } else {
     lines.push(
@@ -551,6 +552,9 @@ function transactionFactLines(transaction: DiagnoseXxyyTransactionOutput['transa
       ...(fact.feeWei === undefined
         ? []
         : [`Gas 费用：${formatEvmWei(fact.feeWei, fact.chainId)}`]),
+      ...(fact.valueWei === undefined || BigInt(fact.valueWei) === 0n
+        ? []
+        : [`交易传入金额：${formatEvmWei(fact.valueWei, fact.chainId)}`]),
       ...(fact.from === undefined ? [] : [`交易发起地址：\`${fact.from}\``]),
       `目标 Token：${tokenAddresses.map((address) => `\`${address}\``).join('、') || '未解析'}`,
     ];
@@ -570,6 +574,29 @@ function transactionFactLines(transaction: DiagnoseXxyyTransactionOutput['transa
         '、',
       ) || '未解析'
     }`,
+  ];
+}
+
+function transactionAmountComparisonLines(
+  output: DiagnoseXxyyTransactionOutput,
+  tradeNativeAmount: string,
+): string[] {
+  if (output.transaction.family !== 'evm') return [];
+  const transaction = output.transaction.analysis.transaction;
+  if (transaction.valueWei === undefined || BigInt(transaction.valueWei) === 0n) return [];
+  const symbol = transactionNativeSymbol(output);
+  const executionPoolCount = output.executionPools?.length ?? 0;
+  return [
+    '',
+    '**💱 金额口径对照**',
+    `链上交易传入：${formatEvmWei(transaction.valueWei, transaction.chainId)}。`,
+    `XXYY 目标成交腿：${formatDecimal(tradeNativeAmount, 8)} ${symbol}。`,
+    ...(executionPoolCount > 1
+      ? [
+          `Explorer Event Logs 显示整笔交易共执行 ${executionPoolCount} 个 Swap 池；XXYY 显示的是完整哈希精确匹配的目标池成交腿，不是整笔交易的总传入金额。`,
+        ]
+      : ['XXYY 显示的是完整哈希精确匹配的目标池成交记录。']),
+    '现有浏览器证据不足以把两者差额全部归因于平台费、Token 税或用户损失；Gas 已在交易概览中单独列示。',
   ];
 }
 

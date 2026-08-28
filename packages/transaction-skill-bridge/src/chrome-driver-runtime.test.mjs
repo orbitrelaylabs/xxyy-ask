@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   assertAllowedExplorerUrl,
+  classifyExplorerNavigation,
+  createChromeArguments,
   parseBrowserDriverScript,
   selectBrowserDomExpression,
   stopExplorerBrowser,
@@ -36,9 +38,40 @@ describe('Chrome Explorer browser driver', () => {
       'not allowed',
     );
     expect(assertAllowedExplorerUrl('https://www.xxyy.io/meme').hostname).toBe('www.xxyy.io');
+    expect(assertAllowedExplorerUrl('https://xxyy.io/meme').hostname).toBe('xxyy.io');
     expect(() => assertAllowedExplorerUrl('https://www.xxyy.io/api/data/search/v3')).toThrow(
       'not allowed',
     );
+  });
+
+  it('classifies same-transaction Cloudflare redirects before enforcing a query-free URL', () => {
+    const transactionUrl =
+      'https://bscscan.com/tx/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const challengeUrl = `${transactionUrl}?__cf_chl_tk=verification-token`;
+
+    expect(classifyExplorerNavigation(challengeUrl, transactionUrl, true)).toBe(
+      'verification_required',
+    );
+    expect(() => classifyExplorerNavigation(challengeUrl, transactionUrl, false)).toThrow(
+      'not allowed',
+    );
+    expect(() =>
+      classifyExplorerNavigation(
+        'https://example.com/tx/0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        transactionUrl,
+        true,
+      ),
+    ).toThrow('not allowed');
+  });
+
+  it('uses a non-zero loopback debugger port without exposing the WebDriver port-zero signal', () => {
+    const argumentsList = createChromeArguments('/isolated/explorer-chrome', 43_217);
+
+    expect(argumentsList).toContain('--remote-debugging-address=127.0.0.1');
+    expect(argumentsList).toContain('--remote-debugging-port=43217');
+    expect(argumentsList).not.toContain('--remote-debugging-port=0');
+    expect(argumentsList).toContain('--user-data-dir=/isolated/explorer-chrome');
+    expect(() => createChromeArguments('/isolated/explorer-chrome', 0)).toThrow('non-zero');
   });
 
   it('replaces legacy in-page API fetches with fixed DOM-only extractors', () => {

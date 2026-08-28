@@ -240,13 +240,43 @@ XXYY 从 2024 年 11 月前后的 Solana meme 快速交易内测工具，逐步�
 
 ## 可溯源原始消息索引
 
-抓取时间：2026-08-24T00:00:07.911Z
+抓取时间：2026-08-28T00:00:06.338Z
 
 原始可溯源数据：[`usexxyyio-x-posts.jsonl`](sources/usexxyyio-x-posts.jsonl)；抓取元数据：[`usexxyyio-x-posts.meta.json`](sources/usexxyyio-x-posts.meta.json)。
 
 说明：以下索引来自 X Web 公开主页时间线 `UserTweets`，每条均保留 tweet id 和原始链接，便于回溯核验。
 
 ### 2026-08
+
+#### 2026-08-27T08:16:47.000Z · [2092889047652073645](https://x.com/useXXYYio/status/2092889047652073645)
+
+> #Robin 币股热度溢到 #BSC 上，新币开盘通常伴随高税和浅池。自动路由如果只拼速度，很容易被带进野池，一来一回成本远超预期。
+> 
+> #XXYY 目前全链都支持币股交易，走原生合约，路由优先锚定价格最优、深度更好的池子，少绕野池，滑点和摩擦自动择优。
+> 
+> 币股还会继续往链上涌，池子会更多、更杂，选对工具很重要。全链币股买对池，就用 https://t.co/vtLDOyE6Hd～
+> 
+> #Robinhood  #BSC #XXYY #memecoin #币股 #DJTB
+
+#### 2026-08-24T09:10:43.000Z · [2091815456579657836](https://x.com/useXXYYio/status/2091815456579657836)
+
+> 特朗普点名要让 @HyperliquidX “合规入美”，当天直接暴涨 20%+，热度溢出到 HyperEVM，meme 生态跟着被重估。这波最先跑出来的是 $EGG，高点到了 9.7M，创始人叙事。
+> 
+> 后面跟着出来的 $CHAMELEON 也挺有意思，高点 4.3M，以前 Hype 就叫这个名字，对标Robinhood的 $CASHCAT，创始人推特 ID 也带 chameleon，有意思。
+> $HYPURR 高点 1.7M， Hype 那只吉祥物小猫，早年还给 builder 空投过同系列 NFT，持有者天然有共识。
+> 还有个 $MOTION，1.6M，是 Hype 后台第一个部署的币，0 手续费发射。
+> 
+> 主币热了，生态 meme 跟着被重估。以前 Hype 链几乎没存在感，现在突然冒出这几个有叙事的标的。
+> XXYY 目前还没加 Hype 链，想用多链交易的扣个 1。
+> 跨链换币不收费，多链交易就用 https://t.co/vtLDOyE6Hd。
+
+#### 2026-08-24T06:20:16.000Z · [2091772559524295149](https://x.com/useXXYYio/status/2091772559524295149)
+
+> Robin创始人播客里提了一嘴币股赛道，整个生态直接反弹。 $PONS  稳坐发射台龙头，冲破 60M，币股龙一 $AI 快 30M，$NET 和 $STONKBROKER 都在 30-40M 级别。这几个是 Robin 上的核心资产，情绪回暖时最先吃溢价的标的。
+> 
+> 猫这条线现在是最统一的情绪主线。Sol 的 $CATE 最高拉到 90M，Base 的 $Basecat 也冲到 40M。BSC 这边猫猫同样不甘示弱， $Bicat  借币安黄黑小猫命名热度一度冲破 7M+， $BNBCAT 紧随其后，ATH8M，猫这个 meme 原力在全链开花。
+> #牛来 ATH70M+，民选 meme 龙头位。错过这波，下一波不知道要等多久了。
+> 跨链换币不收费，多链交易就用 https://t.co/vtLDOyE6Hd。
 
 #### 2026-08-18T07:18:31.000Z · [2089612894870900899](https://x.com/useXXYYio/status/2089612894870900899)
 

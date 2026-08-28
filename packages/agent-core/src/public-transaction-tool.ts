@@ -160,6 +160,10 @@ function detectExplicitNetwork(query: string): string | undefined {
       matches.add(profile.canonicalNetwork);
     }
   }
+  if (/\b\d+(?:\.\d+)?\s*bnb\b/iu.test(normalized)) {
+    const bsc = normalizePublicNetworkIdentifier('bnb');
+    if (bsc !== undefined) matches.add(bsc);
+  }
   if (containsNetworkName(normalized, 'solana') || containsNetworkName(normalized, 'sol')) {
     matches.add(SOLANA_MAINNET_NETWORK);
   }

@@ -13,7 +13,14 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { createServer } from 'node:net';
 import path from 'node:path';
+
+import {
+  openExtensionBrowserUrl,
+  runExtensionBrowserTask,
+  stopExtensionBrowser,
+} from './extension-browser-runtime.mjs';
 
 const ALLOWED_EXPLORER_HOSTS = new Set([
   'basescan.org',
@@ -28,6 +35,7 @@ const ALLOWED_EXPLORER_HOSTS = new Set([
   'www.solscan.io',
   'www.stablescan.xyz',
   'www.xxyy.io',
+  'xxyy.io',
 ]);
 
 const CHALLENGE_EXPRESSION = `(() => {
@@ -36,6 +44,7 @@ const CHALLENGE_EXPRESSION = `(() => {
 })()`;
 
 const DEFAULT_TIMEOUT_MS = 45_000;
+const MANAGED_DEBUGGER_PORT_FILE = 'BrowserDriverPort';
 
 export function parseBrowserDriverScript(script) {
   let url;
@@ -92,7 +101,7 @@ function parseJsonCallArgument(line, prefix, suffix) {
 export function assertAllowedExplorerUrl(value) {
   const url = new URL(value);
   const transactionId = decodeURIComponent(url.pathname.match(/^\/tx\/([^/]+)\/?$/u)?.[1] ?? '');
-  const isXxyy = url.hostname === 'www.xxyy.io';
+  const isXxyy = url.hostname === 'xxyy.io' || url.hostname === 'www.xxyy.io';
   const isSolscan = url.hostname === 'solscan.io' || url.hostname === 'www.solscan.io';
   const validPath = isXxyy
     ? url.pathname === '/' ||
@@ -117,10 +126,29 @@ export function assertAllowedExplorerUrl(value) {
   return url;
 }
 
+export function classifyExplorerNavigation(value, requestedValue, challenged) {
+  const requestedUrl = assertAllowedExplorerUrl(requestedValue);
+  const currentUrl = new URL(value);
+  if (
+    currentUrl.origin !== requestedUrl.origin ||
+    currentUrl.pathname !== requestedUrl.pathname ||
+    currentUrl.username.length > 0 ||
+    currentUrl.password.length > 0 ||
+    currentUrl.hash.length > 0
+  ) {
+    throw new Error(
+      `Explorer browser navigation is not allowed for ${currentUrl.hostname}${currentUrl.pathname}.`,
+    );
+  }
+  if (challenged) return 'verification_required';
+  assertAllowedExplorerUrl(currentUrl.href);
+  return 'ready';
+}
+
 export function selectBrowserDomExpression(input) {
   const url = assertAllowedExplorerUrl(input.url);
   const transactionId = decodeURIComponent(url.pathname.split('/').filter(Boolean).at(-1) ?? '');
-  if (url.hostname === 'www.xxyy.io') {
+  if (url.hostname === 'xxyy.io' || url.hostname === 'www.xxyy.io') {
     if (typeof input.expression !== 'string' || /\bfetch\s*\(/u.test(input.expression)) {
       throw new Error('XXYY browser access requires a fixed DOM expression.');
     }
@@ -224,64 +252,23 @@ export async function runBrowserDriverCommand(options = {}) {
   const timeoutMs = normalizeTimeout(options.timeoutMs);
   const env = options.env ?? process.env;
   const releaseBrowserLock = await acquireBrowserLock(env, timeoutMs);
-  let client;
-  let targetId;
   try {
-    const browser = await connectOrLaunchBrowser(env, timeoutMs);
-    client = browser.client;
-    targetId = await createBackgroundTarget(client);
-    const attached = await client.call('Target.attachToTarget', { flatten: true, targetId });
-    const sessionId = attached.sessionId;
-    await Promise.all([
-      client.call('Page.enable', {}, sessionId),
-      client.call('Runtime.enable', {}, sessionId),
-      client.call('Network.enable', {}, sessionId),
-    ]);
-    let challenged = false;
-    const stopListening = client.on('Network.responseReceived', (params) => {
-      const headers = params?.response?.headers;
-      if (
-        headers &&
-        Object.entries(headers).some(
-          ([key, value]) =>
-            key.toLowerCase() === 'cf-mitigated' && String(value).toLowerCase() === 'challenge',
-        )
-      ) {
-        challenged = true;
-      }
+    assertAllowedExplorerUrl(parsed.url);
+    const result = await runExtensionBrowserTask({
+      env,
+      expression: selectBrowserDomExpression(parsed),
+      timeoutMs,
+      url: parsed.url,
     });
-    try {
-      await client.call('Page.navigate', { url: parsed.url }, sessionId);
-      await waitForDocumentReady(client, sessionId, timeoutMs);
-      const currentUrl = await evaluateValue(client, sessionId, 'location.href');
-      if (typeof currentUrl !== 'string') throw new Error('Explorer browser returned no page URL.');
-      assertAllowedExplorerUrl(currentUrl);
-      const expression = selectBrowserDomExpression(parsed);
-      const deadline = Date.now() + timeoutMs;
-      let value;
-      while (Date.now() < deadline) {
-        if (challenged || (await evaluateValue(client, sessionId, CHALLENGE_EXPRESSION)) === true) {
-          writeChunkedResult(parsed.marker, { error: 'verification_required', ok: false });
-          return;
-        }
-        value = await evaluateValue(client, sessionId, expression, true);
-        if (value !== null && value !== undefined) break;
-        await delay(250);
-      }
-      if (value === null || value === undefined) {
-        writeChunkedResult(parsed.marker, { error: 'page_evidence_timeout', ok: false });
-        return;
-      }
-      await captureExplorerScreenshot(client, sessionId, parsed.url, env.XXYY_SCREENSHOT_DIRECTORY);
-      writeChunkedResult(parsed.marker, { ok: true, value });
-    } finally {
-      stopListening();
+    if (result?.ok === true && 'value' in result) {
+      writeChunkedResult(parsed.marker, { ok: true, value: result.value });
+      return;
     }
+    writeChunkedResult(parsed.marker, {
+      error: typeof result?.error === 'string' ? result.error : 'page_evaluation_failed',
+      ok: false,
+    });
   } finally {
-    if (client !== undefined && targetId !== undefined) {
-      await client.call('Target.closeTarget', { targetId }).catch(() => undefined);
-    }
-    client?.close();
     await releaseBrowserLock();
   }
 }
@@ -290,27 +277,8 @@ export async function openVerificationWindow(url, options = {}) {
   assertAllowedExplorerUrl(url);
   const env = options.env ?? process.env;
   const releaseBrowserLock = await acquireBrowserLock(env, DEFAULT_TIMEOUT_MS);
-  let client;
-  let targetId;
   try {
-    const browser = await connectOrLaunchBrowser(env, DEFAULT_TIMEOUT_MS);
-    client = browser.client;
-    let target;
-    try {
-      target = await client.call('Target.createTarget', {
-        focus: true,
-        height: 900,
-        left: 80,
-        newWindow: true,
-        top: 80,
-        url,
-        width: 1400,
-      });
-    } catch {
-      target = await client.call('Target.createTarget', { url });
-      await client.call('Target.activateTarget', { targetId: target.targetId });
-    }
-    targetId = target.targetId;
+    await openExtensionBrowserUrl(url, { env });
     process.stdout.write(
       `Explorer verification window opened for ${new URL(url).hostname}. Complete verification, then press Ctrl+C.\n`,
     );
@@ -320,22 +288,19 @@ export async function openVerificationWindow(url, options = {}) {
       process.once('SIGTERM', finish);
     });
   } finally {
-    if (client !== undefined && targetId !== undefined) {
-      await client.call('Target.closeTarget', { targetId }).catch(() => undefined);
-    }
-    client?.close();
     await releaseBrowserLock();
   }
 }
 
 export async function stopExplorerBrowser(options = {}) {
   const env = options.env ?? process.env;
+  const extensionStopped = await stopExtensionBrowser({ env });
   const releaseBrowserLock = await acquireBrowserLock(env, DEFAULT_TIMEOUT_MS);
   let client;
   try {
     const profileDirectory = path.join(resolveProfileRoot(env), 'explorer-chrome');
     const endpoint = await readDebuggerEndpoint(profileDirectory).catch(() => undefined);
-    if (endpoint === undefined) return false;
+    if (endpoint === undefined) return extensionStopped;
     client = await CdpClient.connect(endpoint.webSocketDebuggerUrl);
     await client.call('Browser.close').catch(() => undefined);
     await delay(1_000);
@@ -362,26 +327,15 @@ async function connectOrLaunchBrowser(env, timeoutMs) {
   if (chromeExecutable === undefined) {
     throw new Error('Chrome or Chromium is required for public Explorer queries.');
   }
-  const chromeArguments = [
-    '--disable-component-update',
-    '--disable-default-apps',
-    '--disable-extensions',
-    '--disable-sync',
-    '--no-default-browser-check',
-    '--no-first-run',
-    '--no-startup-window',
-    '--remote-debugging-port=0',
-    `--user-data-dir=${profileDirectory}`,
-    '--window-position=-32000,-32000',
-    '--window-size=1600,1000',
-    ...(typeof process.getuid === 'function' && process.getuid() === 0
-      ? ['--disable-setuid-sandbox', '--no-sandbox']
-      : []),
-  ];
+  const debuggerPort = await reserveLoopbackPort();
+  const chromeArguments = createChromeArguments(profileDirectory, debuggerPort);
   const launch = await resolveChromeLaunch(chromeExecutable, chromeArguments);
   const child = spawn(launch.command, launch.arguments, {
     detached: true,
     stdio: 'ignore',
+  });
+  await writeFile(path.join(profileDirectory, MANAGED_DEBUGGER_PORT_FILE), `${debuggerPort}\n`, {
+    mode: 0o600,
   });
   if (child.pid !== undefined) {
     await writeFile(path.join(profileDirectory, 'BrowserDriverPid'), `${child.pid}\n`, {
@@ -398,6 +352,49 @@ async function connectOrLaunchBrowser(env, timeoutMs) {
     await delay(100);
   }
   throw new Error('Chrome browser did not expose its debugger endpoint.');
+}
+
+export function createChromeArguments(
+  profileDirectory,
+  debuggerPort,
+  isRoot = typeof process.getuid === 'function' && process.getuid() === 0,
+) {
+  if (!Number.isInteger(debuggerPort) || debuggerPort < 1 || debuggerPort > 65_535) {
+    throw new TypeError('Chrome debugger port must be a non-zero TCP port.');
+  }
+  return [
+    '--disable-component-update',
+    '--disable-default-apps',
+    '--disable-extensions',
+    '--disable-sync',
+    '--no-default-browser-check',
+    '--no-first-run',
+    '--no-startup-window',
+    '--remote-debugging-address=127.0.0.1',
+    `--remote-debugging-port=${debuggerPort}`,
+    `--user-data-dir=${profileDirectory}`,
+    '--window-position=-32000,-32000',
+    '--window-size=1600,1000',
+    ...(isRoot ? ['--disable-setuid-sandbox', '--no-sandbox'] : []),
+  ];
+}
+
+async function reserveLoopbackPort() {
+  const server = createServer();
+  server.unref();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen({ exclusive: true, host: '127.0.0.1', port: 0 }, resolve);
+  });
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    server.close();
+    throw new Error('Chrome debugger port allocation failed.');
+  }
+  await new Promise((resolve, reject) => {
+    server.close((error) => (error === undefined ? resolve() : reject(error)));
+  });
+  return address.port;
 }
 
 function resolveProfileRoot(env) {
@@ -508,7 +505,10 @@ async function resolveChromeLaunch(chromeExecutable, chromeArguments) {
 }
 
 async function readDebuggerEndpoint(profileDirectory) {
-  const contents = await readFile(path.join(profileDirectory, 'DevToolsActivePort'), 'utf8');
+  const contents = await readFile(
+    path.join(profileDirectory, MANAGED_DEBUGGER_PORT_FILE),
+    'utf8',
+  ).catch(() => readFile(path.join(profileDirectory, 'DevToolsActivePort'), 'utf8'));
   const [port] = contents.trim().split(/\r?\n/u);
   if (!/^\d+$/u.test(port ?? '')) throw new Error('Chrome debugger port file was invalid.');
   const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
@@ -526,6 +526,7 @@ async function cleanupStaleProfileLocks(profileDirectory) {
   await Promise.all(
     [
       'BrowserDriverPid',
+      MANAGED_DEBUGGER_PORT_FILE,
       'DevToolsActivePort',
       'SingletonCookie',
       'SingletonLock',
@@ -551,7 +552,10 @@ async function terminateManagedBrowser(profileDirectory) {
   if (!signal('SIGTERM')) return;
   for (let index = 0; index < 10 && isProcessRunning(pid); index += 1) await delay(100);
   if (isProcessRunning(pid)) signal('SIGKILL');
-  await rm(path.join(profileDirectory, 'BrowserDriverPid'), { force: true });
+  await Promise.all([
+    rm(path.join(profileDirectory, 'BrowserDriverPid'), { force: true }),
+    rm(path.join(profileDirectory, MANAGED_DEBUGGER_PORT_FILE), { force: true }),
+  ]);
 }
 
 async function createBackgroundTarget(client) {

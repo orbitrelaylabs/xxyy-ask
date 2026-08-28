@@ -58,11 +58,12 @@ embedding 可用 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL` 和 `OPENAI_EMBEDDIN
 ```bash
 XXYY_SCREENSHOT_CHROME_EXECUTABLE=
 XXYY_BROWSER_PROFILE_DIRECTORY=
+XXYY_BROWSER_EXTENSION_INSTALLATION_ID=
 XXYY_SCREENSHOT_DIRECTORY=
 XXYY_CANONICAL_POOL_CONFIG_JSON='{"entries":[]}'
 ```
 
-所有公开 Explorer 查询统一使用仓库自带的 Chrome/CDP 驱动。宿主机默认发现 Google Chrome，容器默认使用 `/usr/bin/chromium`；可显式确认浏览器版本：
+所有公开 Explorer 查询统一使用仓库自带的 Chrome Connector。扩展可安装在用户选择的任意 Chrome Profile；每个安装生成独立 installation ID，并且只控制扩展自己创建的专用标签页。XXYY 原生成交截图仍由本地 Chrome 浏览器生成。宿主机默认发现 Google Chrome；可显式确认浏览器版本：
 
 ```bash
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version
@@ -71,9 +72,9 @@ XXYY_CANONICAL_POOL_CONFIG_JSON='{"entries":[]}'
 
 未安装 Chrome/Chromium 不影响产品知识问答，但所有公开交易查询都会返回配置提示。当前固定支持 Solana、Ethereum、BNB Smart Chain、Base、Robinhood Chain 和 Stable Chain。
 
-Chrome/CDP 只导航固定 Explorer和 XXYY页面，从 DOM/Vue原生组件提取事实并生成浏览器证据，不直接调用 Explorer API、XXYY数据 API或 RPC。`XXYY_BROWSER_PROFILE_DIRECTORY` 下的 `explorer-chrome` 子目录保存独立验证状态；同一根目录仍供 XXYY原生截图使用。Chrome可执行文件为空时自动检测；`XXYY_SCREENSHOT_DIRECTORY/explorer` 保存按页面 URL哈希命名的浏览器 PNG，目录根部的 XXYY证据 PNG供 Telegram上传，不需要公共图片 URL。
+Chrome Connector 只导航固定 Explorer 和 XXYY 页面（`xxyy.io` 及其 `www` 别名），从 DOM/Vue 原生组件提取事实，不直接调用 Explorer API、XXYY 数据 API 或 RPC。扩展不复用、关闭或导航用户已有标签页；`pnpm explorer:stop` 也不会退出用户管理的 Chrome。多个 Chrome Profile 同时连接时必须用 `XXYY_BROWSER_EXTENSION_INSTALLATION_ID` 精确选择。`XXYY_BROWSER_PROFILE_DIRECTORY` 只保存私有任务、连接注册和截图运行时状态；`XXYY_SCREENSHOT_DIRECTORY` 中的 XXYY 证据 PNG 供 Telegram 直接上传。
 
-需要公开链上查询时，可只在 Docker 中运行 PostgreSQL，并在宿主机运行 API 与 Telegram，使所有 Explorer 共用同一个独立 Chrome Profile：
+需要公开链上查询时，可只在 Docker 中运行 PostgreSQL，并在宿主机运行 API 与 Telegram，使所有 Explorer 共用当前选定的 Chrome Connector：
 
 ```bash
 docker compose up -d postgres
@@ -86,7 +87,7 @@ pnpm run app:dev
 pnpm run telegram:dev
 ```
 
-这种模式不需要 MCP、Explorer API 或 RPC。检测到 Cloudflare 验证时系统会明确提示人工验证，不会自动绕过。使用 `pnpm explorer:verify -- <Explorer交易URL>` 打开同一个隔离 Chrome 完成人工验证；维护时可用 `pnpm explorer:stop` 关闭持久浏览器。`/health/deep` 会将缺少 Chrome/Chromium 标记为不可用于可靠 Explorer 查询。
+这种模式不需要 MCP、Explorer API 或 RPC。首次使用先运行 `pnpm explorer:setup`，在希望 Agent 控制的 Chrome Profile 中启用开发者模式并 Load unpacked 仓库扩展。检测到 Cloudflare 验证时系统会激活扩展的专用标签页并明确提示人工验证，不会自动绕过。`/health/deep` 会将缺少 Chrome/Chromium 标记为不可用于可靠 Explorer 查询。
 
 ## 启动
 

@@ -28,7 +28,7 @@ Telegram 在进入 Agent Runtime 前执行数据库白名单和逐用户日额�
 
 ## 公开交易查询
 
-Submodule package `@orbitrelaylabs/skills` 的两个自包含 bundle 管理固定 Explorer 路由、XXYY 页面定位、数据等待和隔离 Chrome 截图；本仓库的 Chrome/CDP driver 提供独立 Profile，Node preload层还会把固定 XXYY pair/trade fetch转换成页面原生 Vue组件操作，并禁止直接 Explorer/XXYY数据 API 与 RPC。其维护源码组合：
+Submodule package `@orbitrelaylabs/skills` 的两个自包含 bundle 管理固定 Explorer 路由、XXYY 页面定位、数据等待和 Chrome 截图；本仓库的 Chrome Connector 通过受限扩展和 Native Messaging 控制用户选定 Profile 中由扩展创建的专用标签页，Node preload 层还会把固定 XXYY pair/trade fetch 转换成页面原生 Vue 组件操作，并禁止直接 Explorer/XXYY 数据 API 与 RPC。其维护源码组合：
 
 - `transaction-analysis-core`：EVM 浏览器快照的确定性领域投影；
 - runtime-local Solana contracts：Solana 浏览器页面数据校验；

@@ -304,6 +304,9 @@ describe('root package scripts', () => {
     expect(packageJson.scripts['explorer:verify']).toBe(
       'node packages/transaction-skill-bridge/bin/xxyy-chrome-driver.mjs verify',
     );
+    expect(packageJson.scripts['explorer:setup']).toBe(
+      'node packages/transaction-skill-bridge/bin/xxyy-chrome-driver.mjs setup',
+    );
     expect(packageJson.scripts['explorer:stop']).toBe(
       'node packages/transaction-skill-bridge/bin/xxyy-chrome-driver.mjs stop',
     );

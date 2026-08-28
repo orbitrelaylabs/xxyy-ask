@@ -323,6 +323,13 @@ describe('formatXxyyTransactionDiagnosis', () => {
     expect(response.answer).toContain('XXYY 选定分析成交腿');
     expect(response.answer).toContain(`XXYY 选定分析池：\`${poolA}\``);
     expect(response.answer).toContain('链上共执行 2 个池');
+    expect(response.answer).toContain('交易传入金额：0.000000000000000001 BNB');
+    expect(response.answer).toContain('**💱 金额口径对照**');
+    expect(response.answer).toContain('XXYY 目标成交腿：0.1 BNB');
+    expect(response.answer).toContain(
+      'XXYY 显示的是完整哈希精确匹配的目标池成交腿，不是整笔交易的总传入金额',
+    );
+    expect(response.answer).toContain('不足以把两者差额全部归因于平台费、Token 税或用户损失');
     expect(response.answer).toContain(`${poolA}\`（日志 #970；pan4，约 $118.52；本腿约 0.1 BNB）`);
     expect(response.answer).toContain(
       `⭐ 主执行池 · \`${poolB}\`（日志 #978；XXYY 当前池列表未返回；本腿约 0.3 BNB）`,

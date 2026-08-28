@@ -175,7 +175,7 @@ env -u DATABASE_URL -u POSTGRES_DB -u POSTGRES_USER -u POSTGRES_PASSWORD OPENAI_
 - 不要把真实 API key 写入测试、README 或日志。
 - 生产 API 服务端不负责迁移；迁移和正式知识写库由独立 `pnpm rag:refresh` Job、`pnpm rag:knowledge:automation:work`、`pnpm run app:dev -- --sync`、`pnpm run app:dev -- --full-sync`、`pnpm rag:ingest` 或 `pnpm rag:sync:x` 完成。本地 `pnpm run app:dev -- --sync` 可以为空知识库做首次 bootstrap。Telegram Bot 只允许创建、自动决定候选和排队，不直接写 pgvector。
 - Product RAG capability 只能读取正式产品知识；公开交易 Skill runtime 只能通过固定 Explorer 与 XXYY 页面读取用户明确提供的公开交易，不接受 endpoint、任意请求方法、任意区块范围或私有账户输入。新增 Skill 必须固定 manifest/source/version、配置精确 grant，再通过显式 Tool bridge 暴露，禁止把目录发现结果自动注册到 Planner。
-- 公开运行时不得发起 RPC。浏览器必须使用隔离、持久的 Profile，页面来源固定在代码 allowlist 中；页面验证失败、字段缺失或来源冲突时返回 partial/insufficient_data。浏览器与 XXYY 前后成交行只能支持结构性 Sandwich 判断，不能伪装成深度 trace、池状态、盈亏证明或 production-ready 证据。
+- 公开运行时不得发起 RPC。Chrome Connector 可安装在用户选择的 Profile，但只能控制扩展自己创建的专用标签页，页面来源固定在代码 allowlist 中；多个连接必须按 installation ID 精确选择，禁止导航、复用或关闭用户已有标签页。页面验证失败、字段缺失或来源冲突时返回 partial/insufficient_data。浏览器与 XXYY 前后成交行只能支持结构性 Sandwich 判断，不能伪装成深度 trace、池状态、盈亏证明或 production-ready 证据。
 - Chain Capability bridge 只接受 composition root 固定的可信 caller。程序化 API 使用 `web/anonymous`、Telegram 使用 `telegram/service`；公开路径只接浏览器客户端。
 - 新增行为需要加测试；风险较高的改动跑 `pnpm check`。
 - 对外错误信息应清晰区分：

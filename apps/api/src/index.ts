@@ -109,6 +109,8 @@ type ApiEnv = RagEnv &
       | 'XXYY_SCREENSHOT_CHROME_EXECUTABLE'
       | 'XXYY_SCREENSHOT_DIRECTORY'
       | 'XXYY_BROWSER_PROFILE_DIRECTORY'
+      | 'XXYY_BROWSER_EXTENSION_INSTALLATION_ID'
+      | 'XXYY_BROWSER_NATIVE_MESSAGING_DIRECTORY'
       | 'KNOWLEDGE_ADMIN_MAX_BODY_BYTES'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_MAX'
       | 'KNOWLEDGE_ADMIN_RATE_LIMIT_WINDOW_MS'
@@ -1315,12 +1317,12 @@ async function checkBrowserRuntime(env: ApiEnv): Promise<HealthCheck> {
     if (explorerBrowserExecutable === undefined) {
       return {
         configured: true,
-        driver: 'chrome-cdp-unavailable',
+        driver: 'chrome-connector-unavailable',
         message: 'Chrome or Chromium is unavailable; public Explorer queries are disabled.',
         status: 'error',
       };
     }
-    return { configured: true, driver: 'chrome-cdp', status: 'ok' };
+    return { configured: true, driver: 'chrome-connector', status: 'ok' };
   } catch {
     return {
       configured: true,
@@ -1568,7 +1570,7 @@ async function logExplorerBrowserStartup(env: ApiEnv): Promise<void> {
   process.stdout.write(
     executable === undefined
       ? 'Explorer browser: Chrome or Chromium not found; public transaction queries are disabled while product Q&A remains available.\n'
-      : `Explorer browser: isolated Chrome/CDP runtime ready for all supported chains (${executable}).\n`,
+      : `Explorer browser: Chrome Connector executable available; extension connection is checked per query (${executable}).\n`,
   );
 }
 

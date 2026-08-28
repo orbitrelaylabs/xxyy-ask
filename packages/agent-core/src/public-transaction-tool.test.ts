@@ -84,6 +84,12 @@ describe('public browser transaction Skill tool', () => {
       network: 'eip155:56',
       reference: hash,
     });
+    expect(
+      resolveSinglePublicTransactionInput(`买入代币扣了0.5bnb，显示买入0.27bnb，交易哈希:${hash}`),
+    ).toEqual({
+      network: 'eip155:56',
+      reference: hash,
+    });
   });
 
   it('returns an actionable response when Explorer requires interactive verification', async () => {

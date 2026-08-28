@@ -495,7 +495,7 @@ describe('createRequestHandler', () => {
 
     expect(payload.checks.browser).toEqual({
       configured: true,
-      driver: 'chrome-cdp-unavailable',
+      driver: 'chrome-connector-unavailable',
       message: 'Chrome or Chromium is unavailable; public Explorer queries are disabled.',
       status: 'error',
     });

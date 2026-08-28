@@ -660,6 +660,10 @@ function requestedXxyyDiagnosisChecks(query: string): Array<'sandwich' | 'pool'>
   const normalized = query.normalize('NFKC');
   const checks: Array<'sandwich' | 'pool'> = [];
   const asksForLoss = /损失|亏损|多付|少收|滑点损耗|loss/iu.test(normalized);
+  const asksForAmountMismatch =
+    /扣了|扣款|扣除|花了|支付(?:了)?|支出/iu.test(normalized) &&
+    /显示(?:买入|成交|支付)?|成交(?:显示)?|买入(?:显示)?/iu.test(normalized) &&
+    /\d/iu.test(normalized);
   if (
     /detect[_\s-]?sandwich|被夹|夹子|三明治(?:攻击)?|sandwich|\bmev\b|front[- ]?run|back[- ]?run/iu.test(
       normalized,
@@ -676,6 +680,8 @@ function requestedXxyyDiagnosisChecks(query: string): Array<'sandwich' | 'pool'>
   }
   if (asksForLoss && checks.length === 0) {
     checks.push('sandwich', 'pool');
+  } else if (asksForAmountMismatch && !checks.includes('pool')) {
+    checks.push('pool');
   }
   return checks;
 }

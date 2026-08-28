@@ -23,6 +23,7 @@
     "docs:enrich:media": "node scripts/enrich-xxyy-media.mjs",
     "docs:sync:external": "node scripts/sync-xxyy-external-docs.mjs",
     "explorer:verify": "node packages/transaction-skill-bridge/bin/xxyy-chrome-driver.mjs verify",
+    "explorer:setup": "node packages/transaction-skill-bridge/bin/xxyy-chrome-driver.mjs setup",
     "explorer:stop": "node packages/transaction-skill-bridge/bin/xxyy-chrome-driver.mjs stop",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}\" \".vscode/*.json\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,yml,yaml,css,html}\" \".vscode/*.json\"",
