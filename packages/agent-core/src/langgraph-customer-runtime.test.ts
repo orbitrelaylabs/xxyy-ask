@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import type { ChatResponse, ChatStreamEvent } from '@xxyy/shared';
+import { ExplorerBrowserVerificationError } from '@xxyy/transaction-skill-bridge';
 import {
   createInMemoryQualityTracer,
   LlmConfigurationError,
@@ -279,6 +280,41 @@ describe('createLangGraphCustomerRuntime', () => {
       { checks: ['pool'], network: 'eip155:56', reference: transactionHash },
       expect.objectContaining({ channel: 'telegram' }),
     );
+  });
+
+  it('explains Chrome Connector verification when XXYY diagnosis hits an Explorer challenge', async () => {
+    const registry = createToolRegistry();
+    const transactionHash = `0x${'5'.repeat(64)}`;
+    registry.register({
+      name: 'get_public_transaction',
+      description: 'Generic transaction lookup.',
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.custom<ChatResponse>(() => true),
+      execute: vi.fn(() => Promise.reject(new Error('generic tool must not run'))),
+    });
+    registry.register({
+      name: 'diagnose_xxyy_transaction',
+      description: 'XXYY transaction diagnosis.',
+      inputSchema: z.object({
+        checks: z.array(z.enum(['sandwich', 'pool'])),
+        network: z.string().optional(),
+        reference: z.string(),
+      }),
+      outputSchema: z.custom<ChatResponse>(() => true),
+      execute: vi.fn(() => Promise.reject(new ExplorerBrowserVerificationError('bscscan.com'))),
+    });
+
+    const response = await createLangGraphCustomerRuntime({
+      planner: createScriptedPlannerModel([]),
+      registry,
+    }).ask({
+      channel: 'telegram',
+      message: `买入代币扣了0.5bnb，显示买入0.27bnb，交易哈希:${transactionHash}`,
+    });
+
+    expect(response.agentRoute).toBe('clarify');
+    expect(response.answer).toContain('Chrome Connector 自动打开的专用标签页');
+    expect(response.answer).toContain('完成验证后重试');
   });
 
   it('reuses the latest public transaction for a contextual Telegram pool follow-up', async () => {

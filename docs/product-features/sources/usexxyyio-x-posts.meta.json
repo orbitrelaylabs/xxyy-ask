@@ -15,15 +15,15 @@
     "pageSize": 40,
     "traversalCompleted": true,
     "traversalStoppedAtPageCap": false,
-    "cutoffCreatedAtIso": "2026-08-24T09:10:43.000Z",
-    "cutoffPostId": "2091815456579657836",
-    "totalPosts": 306
+    "cutoffCreatedAtIso": "2026-08-27T08:16:47.000Z",
+    "cutoffPostId": "2092889047652073645",
+    "totalPosts": 307
   },
-  "fetchedAt": "2026-08-28T00:00:06.338Z",
-  "configAssetUrl": "https://abs.twimg.com/x-web/x-web/assets/guest-token-C2M59kK4.js",
+  "fetchedAt": "2026-08-29T00:00:06.595Z",
+  "configAssetUrl": "https://abs.twimg.com/x-web/x-web/assets/guest-token-DA-cNq-C.js",
   "operations": {
     "userByScreenName": {
-      "queryId": "L_eCyvUxu-QprwFaWK0Wyg",
+      "queryId": "CmSSV1Z4p0fuAmzn79G4AQ",
       "operationName": "UserByScreenName",
       "features": {},
       "fieldToggles": {},
@@ -33,7 +33,7 @@
       "variableStyle": "screenName"
     },
     "userTweets": {
-      "queryId": "X8Cpt1XRNJkxUp4xWqiu_g",
+      "queryId": "LeTwJMZbtyRYzd3EToHENQ",
       "operationName": "UserTweets",
       "features": {},
       "fieldToggles": {},

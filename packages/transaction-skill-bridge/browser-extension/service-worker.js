@@ -7,8 +7,21 @@ let nativePort;
 let reconnectTimer;
 let taskQueue = Promise.resolve();
 let installationId;
+let initialization;
 
-void initialize();
+void ensureConnection();
+chrome.runtime.onStartup.addListener(() => void ensureConnection());
+chrome.runtime.onInstalled.addListener(() => void ensureConnection());
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === 'ensure_connection') void ensureConnection();
+});
+
+function ensureConnection() {
+  initialization ??= initialize().finally(() => {
+    initialization = undefined;
+  });
+  return initialization;
+}
 
 async function initialize() {
   const stored = await chrome.storage.local.get('installationId');
@@ -17,7 +30,7 @@ async function initialize() {
   if (stored.installationId !== installationId) {
     await chrome.storage.local.set({ installationId });
   }
-  connectNativeHost();
+  if (nativePort === undefined) connectNativeHost();
 }
 
 function connectNativeHost() {
@@ -28,35 +41,35 @@ function connectNativeHost() {
       lastConnectionAt: new Date().toISOString(),
       lastConnectionError: '',
     });
-    nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-    nativePort.onMessage.addListener((message) => {
+    const port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+    nativePort = port;
+    port.onMessage.addListener((message) => {
+      if (message?.type === 'host_ready' && message.installationId === installationId) {
+        void chrome.storage.local.set({
+          connectionStatus: 'connected',
+          lastConnectionAt: new Date().toISOString(),
+          lastConnectionError: '',
+        });
+        return;
+      }
       taskQueue = taskQueue.then(
         () => handleTask(message),
         () => handleTask(message),
       );
     });
-    nativePort.onDisconnect.addListener(() => {
+    port.onDisconnect.addListener(() => {
       const error = chrome.runtime.lastError?.message || 'Native host disconnected.';
       void chrome.storage.local.set({
         connectionStatus: 'disconnected',
         lastConnectionAt: new Date().toISOString(),
         lastConnectionError: error,
       });
-      nativePort = undefined;
-      reconnectTimer = setTimeout(connectNativeHost, 1_000);
+      if (nativePort === port) nativePort = undefined;
+      reconnectTimer = setTimeout(() => void ensureConnection(), 1_000);
     });
-    nativePort.postMessage({ installationId, type: 'extension_ready' });
-    setTimeout(() => {
-      if (nativePort !== undefined) {
-        void chrome.storage.local.set({
-          connectionStatus: 'connected',
-          lastConnectionAt: new Date().toISOString(),
-          lastConnectionError: '',
-        });
-      }
-    }, 500);
+    port.postMessage({ installationId, type: 'extension_ready' });
   } catch {
-    reconnectTimer = setTimeout(connectNativeHost, 1_000);
+    reconnectTimer = setTimeout(() => void ensureConnection(), 1_000);
   }
 }
 
@@ -97,11 +110,12 @@ function validateTask(message) {
 }
 
 async function readBrowserPage(task) {
+  const taskDeadline = Date.now() + task.timeoutMs;
   const tab = await getControlledTab();
   await chrome.tabs.update(tab.id, { active: false, url: task.url.href });
   await waitForTabComplete(tab.id, task.timeoutMs);
 
-  const challengeDeadline = Date.now() + Math.min(task.timeoutMs, 20_000);
+  const challengeDeadline = Math.min(taskDeadline, Date.now() + 40_000);
   while (Date.now() < challengeDeadline) {
     const state = await readChallengeState(tab.id);
     if (!state.challenged) break;
@@ -112,8 +126,7 @@ async function readBrowserPage(task) {
     throw new Error('verification_required');
   }
 
-  const deadline = Date.now() + task.timeoutMs;
-  while (Date.now() < deadline) {
+  while (Date.now() < taskDeadline) {
     const current = await chrome.tabs.get(tab.id);
     if (current.url === undefined) throw new Error('browser_page_url_missing');
     assertExpectedNavigation(current.url, task.url);

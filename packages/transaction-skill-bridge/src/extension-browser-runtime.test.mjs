@@ -86,6 +86,10 @@ describe('Chrome extension browser connector', () => {
     );
     try {
       child.stdin.write(nativeMessage({ installationId, type: 'extension_ready' }));
+      await expect(readNativeMessage(child.stdout)).resolves.toEqual({
+        installationId,
+        type: 'host_ready',
+      });
       const readyFile = path.join(profileRoot, 'extension-hosts', `${installationId}.json`);
       await waitForFile(readyFile);
       const taskDirectory = path.join(profileRoot, 'extension-tasks');

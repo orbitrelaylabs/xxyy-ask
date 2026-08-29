@@ -8,6 +8,7 @@ import type {
   ChatStreamEvent,
   Classification,
 } from '@xxyy/shared';
+import { ExplorerBrowserVerificationError } from '@xxyy/transaction-skill-bridge';
 import {
   classifyQuestion,
   createInitialProductSearchQuery,
@@ -791,7 +792,7 @@ async function toolExecutorNode(
     if (plan.toolName !== 'search_product_docs') {
       return {
         errors: executionErrors,
-        finalResponse: toolFailureResponse(plan.toolName),
+        finalResponse: toolFailureResponse(plan.toolName, error),
         route: 'clarify',
       };
     }
@@ -810,7 +811,7 @@ async function toolExecutorNode(
           ...executionErrors,
           `Tool ${plan.toolName} retry failed: ${errorMessageFrom(retryError)}`,
         ],
-        finalResponse: toolFailureResponse(plan.toolName),
+        finalResponse: toolFailureResponse(plan.toolName, retryError),
         route: 'clarify',
       };
     }
@@ -1851,13 +1852,18 @@ function sortJsonValue(value: unknown): unknown {
   return value;
 }
 
-function toolFailureResponse(toolName: string): ChatResponse {
+function toolFailureResponse(toolName: string, error?: unknown): ChatResponse {
   if (toolName === PUBLIC_TRANSACTION_TOOL_NAME) {
     return createClarificationResponse(
       '公开交易浏览器查证暂时失败。请确认 Explorer 链接可公开访问，并联系管理员检查隔离 Chrome/CDP 运行时、持久 Profile 或站点人机验证状态。',
     );
   }
   if (toolName === PUBLIC_XXYY_TRANSACTION_DIAGNOSIS_TOOL_NAME) {
+    if (error instanceof ExplorerBrowserVerificationError) {
+      return createClarificationResponse(
+        'XXYY 交易诊断正在等待 Explorer 人机验证。请在 Chrome Connector 自动打开的专用标签页完成验证后重试；系统不会绕过验证或用缺失证据猜测结论。',
+      );
+    }
     return createClarificationResponse(
       'XXYY 交易诊断暂时失败，当前无法可靠核对目标成交、前后成交或截图。请稍后重试；系统不会用缺失证据猜测被夹或池子结论。',
     );

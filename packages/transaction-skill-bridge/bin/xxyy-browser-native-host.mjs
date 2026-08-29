@@ -113,6 +113,7 @@ async function registerInstallation(value) {
   installationId = value;
   readyFile = path.join(readyDirectory, `${installationId}.json`);
   await writeReadyFile();
+  writeNativeMessage({ installationId, type: 'host_ready' });
   if (poller === undefined) {
     poller = setInterval(() => void pollTasks(), 100);
     poller.unref();

@@ -240,13 +240,21 @@ XXYY 从 2024 年 11 月前后的 Solana meme 快速交易内测工具，逐步�
 
 ## 可溯源原始消息索引
 
-抓取时间：2026-08-28T00:00:06.338Z
+抓取时间：2026-08-29T00:00:06.595Z
 
 原始可溯源数据：[`usexxyyio-x-posts.jsonl`](sources/usexxyyio-x-posts.jsonl)；抓取元数据：[`usexxyyio-x-posts.meta.json`](sources/usexxyyio-x-posts.meta.json)。
 
 说明：以下索引来自 X Web 公开主页时间线 `UserTweets`，每条均保留 tweet id 和原始链接，便于回溯核验。
 
 ### 2026-08
+
+#### 2026-08-28T08:15:03.000Z · [2093251000576753892](https://x.com/useXXYYio/status/2093251000576753892)
+
+> XXYY 正式接入 HyperEVM 生态 🚀@HyperliquidX
+> 
+> HyperEVM 扫链、交易现已全面支持，发现机会，快速交易，一站式体验更顺畅
+> 
+> ⚡️用 #XXYY，交易快人一步！ #HyperEVM https://t.co/nIj4Iq2ab0
 
 #### 2026-08-27T08:16:47.000Z · [2092889047652073645](https://x.com/useXXYYio/status/2092889047652073645)
 
