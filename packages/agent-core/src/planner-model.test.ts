@@ -373,6 +373,7 @@ describe('planner model', () => {
 
     expect(Array.isArray(requestBody?.messages)).toBe(true);
     expect(requestBody).toMatchObject({
+      max_completion_tokens: 512,
       model: 'test-model',
       response_format: { type: 'json_object' },
       temperature: 0,

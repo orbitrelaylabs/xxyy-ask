@@ -10,8 +10,10 @@ describe('knowledge candidate improvement suggestions', () => {
   it('creates a bounded, evidence-only suggestion for human review', async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const request = JSON.parse(String(init?.body)) as {
+        max_completion_tokens: number;
         messages: Array<{ content: string; role: string }>;
       };
+      expect(request.max_completion_tokens).toBe(1_024);
       expect(request.messages[0]?.content).toContain('Use only facts explicitly present');
       expect(request.messages[1]?.content).toContain('Bsc的可以用usdt交易吗');
       return jsonResponse({

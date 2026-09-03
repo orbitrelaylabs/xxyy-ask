@@ -301,6 +301,7 @@ function createPlannerRequestBody(
         }),
       },
     ],
+    max_completion_tokens: 512,
     model,
     response_format: { type: 'json_object' },
     temperature: 0,

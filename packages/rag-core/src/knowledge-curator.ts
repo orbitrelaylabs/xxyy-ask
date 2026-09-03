@@ -201,6 +201,7 @@ export function createOpenAiKnowledgeCuratorModel(
                 content: JSON.stringify(createBoundedModelThread(input)),
               },
             ],
+            max_completion_tokens: 1_024,
             model,
             response_format: { type: 'json_object' },
             temperature: 0,

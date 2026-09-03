@@ -91,6 +91,7 @@ export function createOpenAiKnowledgeCandidateSuggestionProvider(
               { content: createSystemPrompt(promptVersion), role: 'system' },
               { content: JSON.stringify(evidence), role: 'user' },
             ],
+            max_completion_tokens: 1_024,
             model,
             response_format: { type: 'json_object' },
             temperature: 0,

@@ -82,6 +82,7 @@ describe('createOpenAiAnswerQualityJudge', () => {
     expect(requests[0]?.url).toBe('https://llm.example/v1/chat/completions');
     expect(requests[0]?.headers.get('authorization')).toBe('Bearer test-key');
     expect(requests[0]?.body).toMatchObject({
+      max_completion_tokens: 512,
       model: 'judge-test',
       response_format: { type: 'json_object' },
       temperature: 0,

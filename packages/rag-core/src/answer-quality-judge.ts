@@ -81,6 +81,7 @@ export function createOpenAiAnswerQualityJudge(
               { content: JUDGE_SYSTEM_PROMPT, role: 'system' },
               { content: JSON.stringify(toSafeJudgeRecord(input)), role: 'user' },
             ],
+            max_completion_tokens: 512,
             model,
             response_format: { type: 'json_object' },
             temperature: 0,

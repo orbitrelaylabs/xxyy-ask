@@ -318,6 +318,7 @@ describe('createOpenAiKnowledgeCuratorModel', () => {
 
     expect(proposals[0]).toMatchObject({ confidence: 0.8, sourceAnswerMessageId: '2' });
     const request = fetchImpl.mock.calls[0]?.[1];
+    expect(request?.body).toContain('"max_completion_tokens":1024');
     expect(request?.body).toContain('"response_format":{"type":"json_object"}');
     expect(request?.body).toContain('Curate direct replies as well as multi-message discussions.');
   });

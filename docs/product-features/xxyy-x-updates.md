@@ -240,13 +240,40 @@ XXYY 从 2024 年 11 月前后的 Solana meme 快速交易内测工具，逐步�
 
 ## 可溯源原始消息索引
 
-抓取时间：2026-08-31T00:00:06.945Z
+抓取时间：2026-09-03T00:00:04.576Z
 
 原始可溯源数据：[`usexxyyio-x-posts.jsonl`](sources/usexxyyio-x-posts.jsonl)；抓取元数据：[`usexxyyio-x-posts.meta.json`](sources/usexxyyio-x-posts.meta.json)。
 
 说明：以下索引来自 X Web 公开主页时间线 `UserTweets`，每条均保留 tweet id 和原始链接，便于回溯核验。
 
 ### 2026-08
+
+#### 2026-08-31T03:57:18.000Z · [2094273298914001293](https://x.com/useXXYYio/status/2094273298914001293)
+
+> 周末复盘：
+> #Robinhood
+> ethereum:0x07f5b6823751c2e2cd4560f28af75ff887102241  和 $AI 双双新高，分别到 256M 和 133M，龙头的持续走强说明资金还在 RH 链上。
+> 
+> 铜狗 solana:61Wj56QgGyyB966T7YsMzEAKRLcMvJpDbPzjkrCZc4Bi  被 Him 喊上 20M，Dev 直接转了 40% 供应量给 Him。Him 公开表态愿意把它做成带质押、申领、销毁功能的代币,有力气。
+> 金鸭 $GG，黄金底池，@himgajria和 Bonkguy 同时喊，高点 12M。
+> 
+> 机器鸭 solana:CTuw8xEE15hKi2yB9n8CoLDq8ZhBLVbh8ydcuN11pump  是英伟达预收购公司推出的机器人鸭子，Bonkguy 上车，高点 27M。在 PONS 台子上被对标 LONG 台的 AI，两个龙头台的资产在相互对表。
+> 
+> #BSC：
+> #牛来 上合约后继续走，新高 126M。
+> #孙小圣，第一部登陆电视台黄金档的国产 AI 剧主角，高点 4M。
+> #豹拉，牛来电影角色，高点 3.8M。
+> 中文区流量叙事在 BSC 上的转化效率还是最高的，抖音梗、影视梗直接变现。
+> 
+> #Solana
+> solana:BRZ5aeJCDuruA42V1CntqKvofa2G7DS3yyxx1pZEpump ，Pumpfun 官方推文里唯一未代币化的角色。Alon 在推文发出 10 分钟后买入，现在才炒起来，高点 2M。Solana 这轮没太多新东西，但这个项目算是“翻老梗”的典型。
+> 
+> $GOLD 是假的 Trump Digital Gold，账号被川普关注过（后来爆出是黑客盗号），推文一删直接崩，从 65M 归零。
+> 
+> $Base：
+> Baseline，韩国博主把 Vaseline 读成 Baseline 走红，凡士林官方临时把品牌名改了，Cobie 也参与了互动。一个发音梗推到了 5.3M，Base 这轮没什么大叙事.
+> 
+> pepe全链bot fomo 跟单上了，后面可以放开所有FOMO的地址查询和跟单，👏 欢迎使用和反馈～ https://t.co/PS531EwUmE
 
 #### 2026-08-28T08:15:03.000Z · [2093251000576753892](https://x.com/useXXYYio/status/2093251000576753892)
 

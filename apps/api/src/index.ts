@@ -1447,6 +1447,7 @@ async function checkLlm(config: ReturnType<typeof loadRagConfig>): Promise<Healt
             { content: 'Reply with OK only.', role: 'system' },
             { content: 'health check', role: 'user' },
           ],
+          max_completion_tokens: 16,
           model: resolvedModel,
           temperature: 0,
         }),
