@@ -26,6 +26,11 @@ x-app-base: &app-base
 
 services:
   postgres:
+    logging:
+      driver: json-file
+      options:
+        max-size: '20m'
+        max-file: '3'
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
@@ -151,6 +156,11 @@ services:
       - xxyy_telegram_evidence:/var/lib/xxyy-evidence
 
   telegram-curation-worker:
+    logging:
+      driver: json-file
+      options:
+        max-size: '20m'
+        max-file: '3'
     <<: *app-base
     command: ['pnpm', 'run', 'telegram:curation:worker']
     restart: unless-stopped
@@ -179,6 +189,11 @@ services:
         condition: service_completed_successfully
 
   quality-worker:
+    logging:
+      driver: json-file
+      options:
+        max-size: '20m'
+        max-file: '3'
     <<: *app-base
     command: ['pnpm', 'rag:quality:evaluation:worker']
     restart: unless-stopped
