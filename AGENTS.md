@@ -39,6 +39,7 @@
 - `packages/rag-core`：意图分类、检索接口、pgvector store、LLM answer provider、边界回复和配置错误类型。
 - `packages/agent-core`：LangGraph 客服 Agent runtime、planner、tool registry、Capability Registry，以及内部产品能力和两个公开交易 Skill 的显式授权 bridge。
 - `packages/product-support-runtime`：产品知识检索的直接 runtime 与输入输出契约。
+- `packages/rag-core/src/knowledge-wiki*`：可选的离线产品 Wiki 编译、证据校验、发布和导航；产物只存 `.rag/wiki/`，默认不接入在线检索。
 - `packages/transaction-skill-bridge`：只执行固定 submodule commit 中的两个 Skill JSON CLI，校验输入输出、限制超时和输出大小，并只向子进程传递浏览器/XXYY 配置环境变量；不暴露浏览器内部 API 或模型/数据库密钥。
 - `vendor/orbitrelaylabs-skills` / `@orbitrelaylabs/skills`：[orbitrelaylabs/skills](https://github.com/orbitrelaylabs/skills) 的 Git submodule；主仓库固定审核过的 commit，包含自包含的 EVM/Solana 浏览器查询与 XXYY 成交/池子/Sandwich/截图 JSON CLI，不提供 SDK。克隆后必须初始化 submodule；更新时先在 Skill 仓库提交并推送，再提交本仓库的 gitlink。
 - `apps/cli`：`rag:ingest`、`rag:sync:x`、`rag:migrate`、`rag:stats`、`rag:evaluate`、`rag:ask`。
@@ -175,6 +176,7 @@ env -u DATABASE_URL -u POSTGRES_DB -u POSTGRES_USER -u POSTGRES_PASSWORD OPENAI_
 - 不要把真实 API key 写入测试、README 或日志。
 - 生产 API 服务端不负责迁移；迁移和正式知识写库由独立 `pnpm rag:refresh` Job、`pnpm rag:knowledge:automation:work`、`pnpm run app:dev -- --sync`、`pnpm run app:dev -- --full-sync`、`pnpm rag:ingest` 或 `pnpm rag:sync:x` 完成。本地 `pnpm run app:dev -- --sync` 可以为空知识库做首次 bootstrap。Telegram Bot 只允许创建、自动决定候选和排队，不直接写 pgvector。
 - Product RAG capability 只能读取正式产品知识；公开交易 Skill runtime 只能通过固定 Explorer 与 XXYY 页面读取用户明确提供的公开交易，不接受 endpoint、任意请求方法、任意区块范围或私有账户输入。新增 Skill 必须固定 manifest/source/version、配置精确 grant，再通过显式 Tool bridge 暴露，禁止把目录发现结果自动注册到 Planner。
+- LLM Wiki 仅作为已发布产品知识的派生导航，不属于新的官方来源，不得复制进正式知识目录再入库。通过 `RAG_WIKI_PATH` 显式启用；检索必须校验来源版本并返回原始证据。在线问答不能编译、改写或发布 Wiki。Wiki 本地发布不等于允许线上扩流，仍需遵循现有评估门禁。
 - 公开运行时不得发起 RPC。Chrome Connector 可安装在用户选择的 Profile，但只能控制扩展自己创建的专用标签页，页面来源固定在代码 allowlist 中；多个连接必须按 installation ID 精确选择，禁止导航、复用或关闭用户已有标签页。页面验证失败、字段缺失或来源冲突时返回 partial/insufficient_data。浏览器与 XXYY 前后成交行只能支持结构性 Sandwich 判断，不能伪装成深度 trace、池状态、盈亏证明或 production-ready 证据。
 - Chain Capability bridge 只接受 composition root 固定的可信 caller。程序化 API 使用 `web/anonymous`、Telegram 使用 `telegram/service`；公开路径只接浏览器客户端。
 - 新增行为需要加测试；风险较高的改动跑 `pnpm check`。

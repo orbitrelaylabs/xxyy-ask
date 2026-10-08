@@ -17,6 +17,7 @@
 
 - [Product RAG 种子知识库](product-features/README.md)
 - [知识来源与分类](knowledge-sources.md)
+- [LLM Wiki 离线试点](llm-wiki.md)
 - [全自动知识演进](knowledge-evolution.md)
 - [知识刷新运维](knowledge-refresh-operations.md)
 - [评测数据与门禁](eval/README.md)

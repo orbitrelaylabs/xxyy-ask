@@ -43,6 +43,30 @@ describe('toPgVectorLiteral', () => {
 });
 
 describe('createPgVectorStore', () => {
+  it('adds wiki candidates only under the same-snapshot corpus revision and original eligibility policy', async () => {
+    const client = new FakePgClient();
+    client.rows = [createKnowledgeRow({ id: 'original-chunk', tokens: ['xxyy', 'pro'] })];
+    const store = createPgVectorStore({
+      client,
+      embeddingProvider: { embedTexts: async () => [embedding1536({ 0: 1 })] },
+    });
+    await store.retrieve('XXYY Pro 有哪些权益？', { topK: 6 });
+    expect(client.queries.at(-1)?.sql).not.toContain('wiki_revision');
+    const result = await store.retrieve('XXYY Pro 有哪些权益？', {
+      topK: 6,
+      wiki: { corpusRevision: 'a'.repeat(32), chunkIds: ['original-chunk'] },
+    });
+    const query = client.queries.at(-1)!;
+    expect(query.sql).toContain('from eligible_knowledge_chunks k');
+    expect(query.sql).toContain("k.status='current'");
+    expect(query.sql).toContain('(select revision from wiki_revision)=$15::text');
+    expect(query.sql).toContain('knowledge_source_tombstones');
+    expect(query.sql).toContain('content_hash, title, module, source_type, source_url');
+    expect(query.values.slice(-2)).toEqual(['a'.repeat(32), ['original-chunk']]);
+    expect(result.map((chunk) => chunk.id)).toEqual(['original-chunk']);
+    expect(result[0]?.text).toBe(client.rows[0] && (client.rows[0] as { content: string }).content);
+  });
+
   it('migrates the knowledge chunk schema', async () => {
     const client = new FakePgClient();
     const store = createPgVectorStore({

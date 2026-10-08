@@ -60,7 +60,10 @@ describe('planner model', () => {
     });
   });
 
-  it('parses OpenAI-compatible JSON planner responses', async () => {
+  it.each([
+    ['https://example.test/v1', 'test-model', false],
+    ['https://openrouter.ai/api/v1', 'nvidia/nemotron-3-super-120b-a12b:free', true],
+  ] as const)('parses JSON planner responses from %s with %s', async (baseUrl, model, free) => {
     const fetchImpl = vi.fn(() =>
       Promise.resolve(
         new Response(
@@ -86,9 +89,9 @@ describe('planner model', () => {
 
     const planner = createOpenAiCompatiblePlannerModel({
       apiKey: 'test-key',
-      baseUrl: 'https://example.test/v1',
+      baseUrl,
       fetchImpl,
-      model: 'test-model',
+      model,
     });
 
     await expect(
@@ -109,8 +112,11 @@ describe('planner model', () => {
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      'https://example.test/v1/chat/completions',
+      `${baseUrl}/chat/completions`,
       expect.objectContaining({
+        body: free
+          ? expect.stringContaining('"reasoning":{"enabled":false}')
+          : expect.not.stringContaining('"reasoning"'),
         method: 'POST',
       }),
     );

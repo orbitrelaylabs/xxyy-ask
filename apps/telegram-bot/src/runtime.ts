@@ -23,6 +23,7 @@ import {
   createPgPool,
   createPgSupportOperationsStore,
   createPgVectorStore,
+  createConfiguredWikiRetriever,
   noopQualityTracer,
   redactSensitiveConversationHistoryText,
   type AnswerProvider,
@@ -74,12 +75,16 @@ export function createTelegramChatRuntime(
         requestTimeoutMs: config.openAiRequestTimeoutMs,
       });
       vectorPool = nextPool;
-      return createPgVectorStore({
-        client: nextPool,
-        embeddingDimension: config.embeddingDimension,
-        embeddingProvider,
+      return createConfiguredWikiRetriever(
+        createPgVectorStore({
+          client: nextPool,
+          embeddingDimension: config.embeddingDimension,
+          embeddingProvider,
+          tracer,
+        }),
+        config.wikiBundlePath,
         tracer,
-      });
+      );
     } catch (error) {
       await nextPool.end();
       throw error;

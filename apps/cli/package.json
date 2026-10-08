@@ -34,6 +34,9 @@
     "rag:sync:x": "tsx src/index.ts sync:x",
     "start": "tsx src/index.ts",
     "test": "vitest run src",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "rag:wiki:build": "tsx src/index.ts wiki:build",
+    "rag:wiki:evaluate": "tsx src/index.ts wiki:evaluate",
+    "rag:wiki:publish": "tsx src/index.ts wiki:publish"
   }
 }

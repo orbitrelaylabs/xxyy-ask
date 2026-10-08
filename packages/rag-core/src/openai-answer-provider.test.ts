@@ -50,7 +50,10 @@ describe('createOpenAiAnswerProvider', () => {
     expect(response.answer).not.toContain('轻松交易');
   });
 
-  it('generates a grounded answer through an OpenAI-compatible chat completion API', async () => {
+  it.each([
+    ['https://llm.example/v1', 'gpt-test', false],
+    ['https://openrouter.ai/api/v1', 'nvidia/nemotron-3-super-120b-a12b:free', true],
+  ] as const)('generates a grounded answer with %s %s', async (baseUrl, model, free) => {
     const requests: unknown[] = [];
     const fetchImpl: typeof fetch = (_input, init) => {
       if (typeof init?.body !== 'string') {
@@ -76,9 +79,9 @@ describe('createOpenAiAnswerProvider', () => {
     };
     const provider = createOpenAiAnswerProvider({
       apiKey: 'test-key',
-      baseUrl: 'https://llm.example/v1',
+      baseUrl,
       fetchImpl,
-      model: 'gpt-test',
+      model,
     });
     const index = createFixtureIndex([
       {
@@ -111,6 +114,8 @@ describe('createOpenAiAnswerProvider', () => {
       title: 'Swap 交易',
     });
     expect(requests).toHaveLength(1);
+    if (free) expect(requests[0]).toHaveProperty('reasoning.enabled', false);
+    else expect(requests[0]).not.toHaveProperty('reasoning');
     expect(JSON.stringify(requests[0])).toContain('XXYY 支持一键买卖代币');
   });
 
@@ -1555,7 +1560,10 @@ describe('createOpenAiAnswerProvider', () => {
     );
   });
 
-  it('streams grounded answer deltas through an OpenAI-compatible chat completion API', async () => {
+  it.each([
+    ['https://llm.example/v1', 'gpt-test', false],
+    ['https://openrouter.ai/api/v1', 'nvidia/nemotron-3-super-120b-a12b:free', true],
+  ] as const)('streams grounded answer deltas with %s %s', async (baseUrl, model, free) => {
     const requests: unknown[] = [];
     const fetchImpl: typeof fetch = (_input, init) => {
       if (typeof init?.body !== 'string') {
@@ -1572,9 +1580,9 @@ describe('createOpenAiAnswerProvider', () => {
     };
     const provider = createOpenAiAnswerProvider({
       apiKey: 'test-key',
-      baseUrl: 'https://llm.example/v1',
+      baseUrl,
       fetchImpl,
-      model: 'gpt-test',
+      model,
     });
     const index = createFixtureIndex([
       {
@@ -1602,9 +1610,11 @@ describe('createOpenAiAnswerProvider', () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
-      model: 'gpt-test',
+      model,
       stream: true,
     });
+    if (free) expect(requests[0]).toHaveProperty('reasoning.enabled', false);
+    else expect(requests[0]).not.toHaveProperty('reasoning');
     expect(events.slice(0, 2)).toEqual([
       { type: 'answer_delta', delta: 'XXYY 支持' },
       { type: 'answer_delta', delta: '一键买卖代币。' },

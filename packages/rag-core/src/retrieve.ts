@@ -8,6 +8,13 @@ import { createKnowledgeAliasQueryTokens, expandKnowledgeAliasText } from './kno
 export interface RetrieveOptions {
   policy?: ProductRetrievalPolicy;
   topK?: number;
+  /** Internal navigation hints; returned evidence is always an original chunk. */
+  wiki?: WikiNavigation;
+}
+
+export interface WikiNavigation {
+  corpusRevision: string;
+  chunkIds: string[];
 }
 
 export interface RetrievedChunk extends IndexEntry {
@@ -65,6 +72,7 @@ export function retrieve(
   const queryEmbedding = createLocalHashEmbedding(createSemanticRetrieveQuery(question));
 
   const anchorDocumentIds = options.policy?.anchorDocumentIds ?? [];
+  const wikiChunkIds = new Set(options.wiki?.chunkIds ?? []);
   const scored = eligibleEntries
     .map((entry) => {
       const lexicalScore = calculateBm25(
@@ -93,7 +101,8 @@ export function retrieve(
           contextScore +
           sourceBoost +
           freshnessBoost +
-          entityBoost,
+          entityBoost +
+          (wikiChunkIds.has(entry.id) ? 0.1 : 0),
       );
 
       return {
@@ -108,6 +117,7 @@ export function retrieve(
     .filter(
       (entry) =>
         anchorDocumentIds.includes(entry.documentId) ||
+        wikiChunkIds.has(entry.id) ||
         entry.lexicalScore > 0 ||
         (entry.lexicalScore === 0 && entry.vectorScore >= VECTOR_ONLY_MATCH_THRESHOLD),
     )

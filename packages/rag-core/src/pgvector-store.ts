@@ -45,6 +45,7 @@ import { migrateKnowledgeGraph, replaceChunkKnowledgeGraph } from './knowledge-g
 import { migrateQualityEvaluationJobs } from './quality-evaluation-jobs.js';
 import { migrateTelegramCurationJobs } from './telegram-curation-jobs.js';
 import { migrateTelegramBotAccess } from './telegram-bot-access.js';
+import { WIKI_CORPUS_CTES } from './knowledge-wiki-pg.js';
 
 export interface PgClientLike {
   connect?(): Promise<PgTransactionClientLike>;
@@ -774,6 +775,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
         .filter((entity) => entity.length >= 6)
         .map((entity) => `%${entity.slice(0, 6)}%`);
       const anchorDocumentIds = retrieveOptions.policy?.anchorDocumentIds ?? [];
+      const wiki = retrieveOptions.wiki;
       const candidateLimit = Math.max(topK * 4, topK);
       return tracer.run(
         {
@@ -792,7 +794,8 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
           const response = await queryDatabase<KnowledgeChunkRow>(
             options.client,
             `
-        with active_supersedes as (
+        with ${wiki === undefined ? '' : `${WIKI_CORPUS_CTES},`}
+        active_supersedes as (
           select distinct jsonb_array_elements_text(supersedes) as knowledge_id
           from knowledge_chunks
           where
@@ -985,6 +988,26 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
             and (s.canonical_name=any($14::text[]) or o.canonical_name=any($14::text[]))
           limit $2
         ),
+        ${
+          wiki === undefined
+            ? ''
+            : `wiki_candidates as (
+          select
+            k.id, k.document_id, k.title, k.module, k.source_type, k.source_url, k.file,
+            k.heading_path, k.order_index, k.retrieved_at::text as retrieved_at,
+            k.effective_at::text as effective_at, k.status, k.supersedes, k.attachments,
+            k.content, k.tokens,
+            k.embedding <=> $1::vector as embedding_distance,
+            0::integer as token_overlap,
+            null::integer as vector_rank,
+            null::integer as lexical_rank,
+            array_position($16::text[], k.id)::integer as entity_rank
+          from eligible_knowledge_chunks k
+          where k.id=any($16::text[]) and k.status='current'
+            and (select revision from wiki_revision)=$15::text
+          limit 24
+        ),`
+        }
         combined_candidates as (
           select * from vector_candidates
           union all
@@ -995,6 +1018,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
           select * from anchor_candidates
           union all
           select * from graph_candidates
+          ${wiki === undefined ? '' : 'union all select * from wiki_candidates'}
         )
         select distinct on (id)
           id, document_id, title, module, source_type, source_url, file,
@@ -1022,6 +1046,7 @@ export function createPgVectorStore(options: PgVectorStoreOptions): PgVectorStor
               anchorDocumentIds,
               fullTextQuery,
               graphEntityNames,
+              ...(wiki === undefined ? [] : [wiki.corpusRevision, wiki.chunkIds.slice(0, 24)]),
             ],
           );
 

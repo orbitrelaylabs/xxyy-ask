@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 export interface RagConfig {
   topK: number;
   databaseUrl: string | undefined;
@@ -10,6 +12,7 @@ export interface RagConfig {
   openAiEmbeddingModel: string;
   openAiMaxRetries: number;
   openAiRequestTimeoutMs: number;
+  wikiBundlePath?: string;
 }
 
 export type RagEnv = Partial<
@@ -29,7 +32,8 @@ export type RagEnv = Partial<
     | 'POSTGRES_PASSWORD'
     | 'POSTGRES_PORT'
     | 'POSTGRES_USER'
-    | 'RAG_TOP_K',
+    | 'RAG_TOP_K'
+    | 'RAG_WIKI_PATH',
     string
   >
 >;
@@ -46,7 +50,12 @@ const DEFAULT_POSTGRES_PORT = '5432';
 export function loadRagConfig(env: RagEnv = process.env): RagConfig {
   const openAiApiKey = env.OPENAI_API_KEY;
   const openAiBaseUrl = env.OPENAI_BASE_URL ?? DEFAULT_OPENAI_BASE_URL;
+  const wikiBundlePath = normalizeOptionalText(env.RAG_WIKI_PATH);
+  if (wikiBundlePath !== undefined && !path.isAbsolute(wikiBundlePath)) {
+    throw new Error('RAG_WIKI_PATH must be an absolute path to a published wiki bundle.');
+  }
   const config: RagConfig = {
+    ...(wikiBundlePath === undefined ? {} : { wikiBundlePath }),
     topK: parseTopK(env.RAG_TOP_K),
     databaseUrl: normalizeOptionalText(env.DATABASE_URL) ?? buildPostgresUrl(env),
     embeddingApiKey: normalizeOptionalText(env.EMBEDDING_API_KEY) ?? openAiApiKey,

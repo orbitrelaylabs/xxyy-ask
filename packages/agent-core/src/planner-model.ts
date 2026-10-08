@@ -1,7 +1,12 @@
 import { z } from 'zod';
 
 import { supportedSourceTypes, type ChatRequest } from '@xxyy/shared';
-import { noopQualityTracer, redactSensitiveSupportText, type QualityTracer } from '@xxyy/rag-core';
+import {
+  getOpenRouterFreeModelOptions,
+  noopQualityTracer,
+  redactSensitiveSupportText,
+  type QualityTracer,
+} from '@xxyy/rag-core';
 
 import {
   ALLOWED_AGENT_TOOL_NAMES,
@@ -214,7 +219,10 @@ export function createOpenAiCompatiblePlannerModel(
         async () => {
           const response = await fetchWithTimeout(fetchImpl, endpoint, {
             apiKey,
-            body: createPlannerRequestBody(model, input),
+            body: {
+              ...createPlannerRequestBody(model, input),
+              ...getOpenRouterFreeModelOptions(options.baseUrl, model),
+            },
             requestTimeoutMs,
           });
           const payload = await parseChatCompletionResponse(response);

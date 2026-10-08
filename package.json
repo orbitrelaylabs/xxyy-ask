@@ -57,7 +57,10 @@
     "test": "vitest run",
     "typecheck": "pnpm -r --if-present --filter \"@xxyy/*\" typecheck",
     "admin:dev": "pnpm --filter @xxyy/web dev",
-    "x:scrape": "node scripts/fetch-usexxyy-posts.mjs"
+    "x:scrape": "node scripts/fetch-usexxyy-posts.mjs",
+    "rag:wiki:build": "pnpm --filter @xxyy/cli rag:wiki:build",
+    "rag:wiki:evaluate": "pnpm --filter @xxyy/cli rag:wiki:evaluate",
+    "rag:wiki:publish": "pnpm --filter @xxyy/cli rag:wiki:publish"
   },
   "license": "MIT",
   "packageManager": "pnpm@11.17.0",

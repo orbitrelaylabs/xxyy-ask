@@ -14,6 +14,7 @@ import {
 } from './answer.js';
 import type { AnswerProvider, AnswerProviderInput } from './answer-provider.js';
 import { packKnowledgeContext } from './context-packer.js';
+import { getOpenRouterFreeModelOptions } from './openrouter-request-options.js';
 import { validateAnswerGrounding, type AnswerGroundingValidation } from './grounding-validation.js';
 import {
   noopQualityTracer,
@@ -391,6 +392,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
                 model,
                 false,
                 packedContext.text,
+                options.baseUrl,
               ),
               maxRetries,
               requestTimeoutMs,
@@ -618,6 +620,7 @@ export function createOpenAiAnswerProvider(options: OpenAiAnswerProviderOptions)
                 model,
                 true,
                 packedContext.text,
+                options.baseUrl,
               ),
               maxRetries,
               requestTimeoutMs,
@@ -804,8 +807,10 @@ function createChatCompletionBody(
   model: string,
   stream: boolean,
   context: string,
+  baseUrl: string,
 ): Record<string, unknown> {
   return {
+    ...getOpenRouterFreeModelOptions(baseUrl, model),
     messages: [
       {
         content: systemPrompt(),

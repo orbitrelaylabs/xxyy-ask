@@ -28,6 +28,7 @@ import {
   createLazyRetriever,
   createPgPool,
   createPgVectorStore,
+  createConfiguredWikiRetriever,
   LlmConfigurationError,
   loadRagConfig,
   loadWorkspaceEnv,
@@ -1636,12 +1637,16 @@ function createCachedChatServiceLoader(
           model: config.openAiEmbeddingModel,
           requestTimeoutMs: config.openAiRequestTimeoutMs,
         });
-        return createPgVectorStore({
-          client: pool,
-          embeddingDimension: config.embeddingDimension,
-          embeddingProvider,
+        return createConfiguredWikiRetriever(
+          createPgVectorStore({
+            client: pool,
+            embeddingDimension: config.embeddingDimension,
+            embeddingProvider,
+            tracer,
+          }),
+          config.wikiBundlePath,
           tracer,
-        });
+        );
       } catch (error) {
         await pool.end();
         throw error;

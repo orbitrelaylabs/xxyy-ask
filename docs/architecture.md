@@ -26,6 +26,8 @@ Telegram 在进入 Agent Runtime 前执行数据库白名单和逐用户日额�
 
 正式知识来源限定为 XXYY 官方文档、官方 X / Twitter 和通过治理门禁的客服知识。检索结果是数据，不是系统指令；回答在返回前执行引用和 grounding 检查。
 
+可选的 [LLM Wiki 试点](llm-wiki.md) 在独立 CLI 中把已发布知识整理为带来源的主题页。设置 `RAG_WIKI_PATH` 后，主题页可以扩大原始 chunk 候选；数据库在同一次检索中校验全库版本，任何知识变化都会使旧 Wiki 失效。生成页面不会成为官方来源或最终回答证据。编译、评估和本地发布均在在线服务之外执行，默认不启用、不加入刷新任务。
+
 ## 公开交易查询
 
 Submodule package `@orbitrelaylabs/skills` 的两个自包含 bundle 管理固定 Explorer 路由、XXYY 页面定位、数据等待和 Chrome 截图；本仓库的 Chrome Connector 通过受限扩展和 Native Messaging 控制用户选定 Profile 中由扩展创建的专用标签页，Node preload 层还会把固定 XXYY pair/trade fetch 转换成页面原生 Vue 组件操作，并禁止直接 Explorer/XXYY 数据 API 与 RPC。其维护源码组合：

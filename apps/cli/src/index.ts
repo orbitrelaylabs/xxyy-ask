@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseWikiArgs, runWikiCommand, type WikiCommand } from './wiki.js';
 
 import {
   createCustomerAgentChatService,
@@ -45,6 +46,7 @@ import {
   createPgQualityEvaluationJobStore,
   createPgTrustedAuthorStore,
   createPgVectorStore,
+  createConfiguredWikiRetriever,
   createChatService,
   createGroundedAnswer,
   createMetadataReranker,
@@ -110,6 +112,7 @@ type CliEnv = RagEnv &
   >;
 
 type CliCommand =
+  | WikiCommand
   | { command: 'ask'; debugRetrieve: boolean; question: string }
   | {
       command: 'evaluate';
@@ -270,6 +273,9 @@ const HELP_TEXT = [
   '  pnpm rag:sync:x',
   '  pnpm rag:migrate',
   '  pnpm rag:stats',
+  '  pnpm rag:wiki:build -- [--dry-run]',
+  '  pnpm rag:wiki:evaluate -- <build-id>',
+  '  pnpm rag:wiki:publish -- <build-id>',
   '  pnpm rag:evaluate [--provider] [--retrieval-only] [--judge] [--case <golden-name>] [--failures-out .rag/failures.jsonl] [--report-out .rag/quality-report.json] [--baseline .rag/quality-baseline.json]',
   '  pnpm rag:feedback:backlog',
   '  pnpm rag:feedback:promote -- .rag/reviewed-feedback.jsonl --reviewer <id>',
@@ -300,6 +306,8 @@ export function parseCliArgs(args: readonly string[]): CliCommand {
   if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
     return { command: 'help' };
   }
+
+  if (command.startsWith('wiki:')) return parseWikiArgs(command, rawRest);
 
   if (
     command === 'evaluate' ||
@@ -2072,6 +2080,30 @@ export async function runCli(
     return parsed.error === undefined ? 0 : 1;
   }
 
+  if (
+    parsed.command === 'wiki:build' ||
+    parsed.command === 'wiki:evaluate' ||
+    parsed.command === 'wiki:publish'
+  ) {
+    try {
+      return await runWikiCommand(parsed, {
+        cwd: workspaceCwd,
+        env: io.env,
+        loadCases: () => loadEvaluationCases(workspaceCwd),
+        log: (value) => writeLine(io.stdout, value),
+      });
+    } catch (error) {
+      if (!writeConfigurationError(io, error)) {
+        const code =
+          error instanceof Error && /^wiki_[a-z0-9_]+$/u.test(error.message)
+            ? error.message
+            : 'wiki_operation_failed';
+        writeLine(io.stderr, code);
+      }
+      return 1;
+    }
+  }
+
   if (parsed.command === 'ingest') {
     try {
       const summary = await ingest({ ...io, cwd: workspaceCwd }, parsed.rebuildEmbeddingSchema);
@@ -3686,12 +3718,16 @@ function createCliChatRuntime(
         requestTimeoutMs: config.openAiRequestTimeoutMs,
       });
       pool = nextPool;
-      return createPgVectorStore({
-        client: nextPool,
-        embeddingDimension: config.embeddingDimension,
-        embeddingProvider,
+      return createConfiguredWikiRetriever(
+        createPgVectorStore({
+          client: nextPool,
+          embeddingDimension: config.embeddingDimension,
+          embeddingProvider,
+          tracer,
+        }),
+        config.wikiBundlePath,
         tracer,
-      });
+      );
     } catch (error) {
       await nextPool.end();
       throw error;

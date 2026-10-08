@@ -42,6 +42,7 @@ export type {
   ProductSubquestion,
 } from './product-question.js';
 export { loadRagConfig } from './config.js';
+export { getOpenRouterFreeModelOptions } from './openrouter-request-options.js';
 export type { RagConfig, RagEnv } from './config.js';
 export { loadWorkspaceEnv, resolveWorkspaceCwd } from './env.js';
 export { evaluateCases } from './evaluate.js';
@@ -388,3 +389,26 @@ export type {
   SupportTicketPriority,
   SupportTicketStatus,
 } from './support-operations.js';
+export {
+  compileWiki,
+  createWikiEvidenceIndex,
+  findWikiNavigation,
+  planWikiTopics,
+  validateWikiBundle,
+  wikiTopics,
+  wikiBundleHash,
+} from './knowledge-wiki.js';
+export type { WikiBundle, WikiSnapshot, WikiCompilerModel } from './knowledge-wiki.js';
+export { createWikiCompilerModel } from './knowledge-wiki-model.js';
+export { evaluateWiki } from './knowledge-wiki-evaluation.js';
+export { readWikiSnapshot, readWikiRevision } from './knowledge-wiki-pg.js';
+export {
+  createConfiguredWikiRetriever,
+  createWikiGuidedRetriever,
+} from './knowledge-wiki-retriever.js';
+export {
+  loadWikiBuild,
+  publishWikiBuild,
+  saveWikiBuild,
+  writeWikiReport,
+} from './knowledge-wiki-storage.js';

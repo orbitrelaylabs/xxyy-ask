@@ -258,10 +258,14 @@ export function createMetadataReranker(): Reranker {
   };
 }
 
-export function createLocalRetriever(index: RagIndex): Retriever {
+export function createLocalRetriever(index: RagIndex, wikiCorpusRevision?: string): Retriever {
   return {
     retrieve(question: string, options: RetrieveOptions): RetrievedChunk[] {
-      return retrieve(question, index, options);
+      const { wiki, ...baseOptions } = options;
+      return retrieve(question, index, {
+        ...baseOptions,
+        ...(wiki !== undefined && wiki.corpusRevision === wikiCorpusRevision ? { wiki } : {}),
+      });
     },
   };
 }

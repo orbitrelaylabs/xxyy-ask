@@ -19,26 +19,27 @@
     "cutoffPostId": "2094273298914001293",
     "totalPosts": 308
   },
-  "fetchedAt": "2026-09-23T00:00:06.812Z",
-  "configAssetUrl": "https://abs.twimg.com/x-web/x-web/assets/guest-token-BOiPCY9F.js",
+  "fetchedAt": "2026-10-08T00:00:03.934Z",
+  "configAssetUrl": "https://abs.twimg.com/x-web/x-web/assets/guest-token-C4uezUjA.js",
   "operations": {
     "userByScreenName": {
-      "queryId": "LsuIgCP6atciG23fQzB2qA",
+      "queryId": "Zu20TKfZJzNRM5hKIb5jaw",
       "operationName": "UserByScreenName",
       "features": {},
       "fieldToggles": {},
       "providedVariables": {
-        "__relay_internal__pv__appviewerisloggedinprovider": false
+        "__relay_internal__pv__xclientsfeaturesappviewerisloggedinrelayprovider": false
       },
       "variableStyle": "screenName"
     },
     "userTweets": {
-      "queryId": "2_butA1fZ17tSrXQYMzRYQ",
+      "queryId": "l3E46P3i3kiPrM5MUu9Tqw",
       "operationName": "UserTweets",
       "features": {},
       "fieldToggles": {},
       "providedVariables": {
-        "__relay_internal__pv__appviewerisloggedinprovider": false
+        "__relay_internal__pv__xclientsfeaturesappviewerisloggedinrelayprovider": false,
+        "__relay_internal__pv__xclientsfeaturestranslationnoteautotranslationenabledrelayprovider": false
       },
       "variableStyle": "screenName"
     }

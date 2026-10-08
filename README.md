@@ -53,6 +53,8 @@ POSTGRES_PASSWORD=...
 
 embedding 可用 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL` 和 `OPENAI_EMBEDDING_MODEL` 独立配置；缺省回退到相应 `OPENAI_*`。
 
+使用 OpenRouter 免费模型时，可将 `OPENAI_BASE_URL` 设为 `https://openrouter.ai/api/v1`，并使用模型目录中实际存在的 `:free` 型号，例如 `nvidia/nemotron-3-super-120b-a12b:free`。Planner、普通回答和流式回答会关闭推理，避免推理消耗较小的输出额度而截断 JSON 或正文。免费线路仍受账号额度和上游容量限制，不自动切换付费型号；现有 embedding 配置独立保留。
+
 浏览器交易能力不需要 RPC。可选配置：
 
 ```bash
@@ -143,6 +145,8 @@ pnpm rag:stats
 pnpm rag:evaluate
 pnpm rag:ask -- "XXYY Pro 有哪些权益？"
 ```
+
+可选的 [LLM Wiki 离线试点](docs/llm-wiki.md) 提供 `rag:wiki:build`、`rag:wiki:evaluate` 和 `rag:wiki:publish`。它整理带原始证据的主题页面；只有显式设置 `RAG_WIKI_PATH` 才参与产品检索，默认行为保持不变。
 
 正式知识只接受 `docs.xxyy.io`、`x.com/useXXYYio` 和通过治理门禁的客服知识。API 服务端不负责生产迁移或正式知识写库。
 
